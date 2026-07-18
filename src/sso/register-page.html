@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>vInfi SSO — Đăng ký</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      :root {
+        --bg: #0f0f14;
+        --surface: #1a1a24;
+        --surface2: #22222e;
+        --border: rgba(255,255,255,0.08);
+        --primary: #7c5cfc;
+        --text: #e8e8f0;
+        --muted: #888899;
+        --error: #ff6b6b;
+        --success: #4ade80;
+      }
+
+      body {
+        font-family: 'Inter', sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background-image:
+          radial-gradient(ellipse at 20% 80%, rgba(124, 92, 252, 0.1) 0%, transparent 50%),
+          radial-gradient(ellipse at 80% 20%, rgba(99, 179, 237, 0.06) 0%, transparent 50%);
+      }
+
+      .wrapper { width: 100%; max-width: 440px; }
+
+      .logo-area { text-align: center; margin-bottom: 32px; }
+
+      .logo-icon {
+        width: 56px; height: 56px;
+        background: linear-gradient(135deg, var(--primary), #a78bfa);
+        border-radius: 16px;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 28px; margin-bottom: 14px;
+        box-shadow: 0 0 32px rgba(124,92,252,0.4);
+      }
+
+      .logo-title {
+        font-size: 1.5rem; font-weight: 700;
+        background: linear-gradient(135deg, #e8e8f0, #a78bfa);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+      }
+
+      .logo-sub { font-size: 0.875rem; color: var(--muted); margin-top: 6px; }
+
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 20px; padding: 32px;
+        box-shadow: 0 24px 64px rgba(0,0,0,0.4);
+      }
+
+      .card-title { font-size: 1.2rem; font-weight: 600; margin-bottom: 24px; }
+
+      .oauth-group { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
+
+      .oauth-btn {
+        display: flex; align-items: center; gap: 12px;
+        padding: 12px 16px; border-radius: 10px;
+        border: 1px solid var(--border); background: var(--surface2);
+        color: var(--text); font-size: 0.9rem; font-weight: 500;
+        cursor: pointer; text-decoration: none;
+        transition: all 0.2s ease;
+      }
+
+      .oauth-btn:hover {
+        background: rgba(255,255,255,0.06);
+        border-color: rgba(255,255,255,0.16);
+        transform: translateY(-1px);
+      }
+
+      .divider {
+        display: flex; align-items: center; gap: 12px;
+        margin-bottom: 24px; color: var(--muted); font-size: 0.8rem;
+      }
+      .divider::before, .divider::after {
+        content: ''; flex: 1; height: 1px; background: var(--border);
+      }
+
+      .form-group { margin-bottom: 16px; }
+
+      label {
+        display: block; font-size: 0.8rem; font-weight: 500;
+        color: var(--muted); margin-bottom: 6px;
+        letter-spacing: 0.05em; text-transform: uppercase;
+      }
+
+      input[type="email"], input[type="password"], input[type="text"] {
+        width: 100%; padding: 12px 14px;
+        background: var(--surface2); border: 1px solid var(--border);
+        border-radius: 10px; color: var(--text);
+        font-size: 0.95rem; font-family: inherit; outline: none;
+        transition: border-color 0.2s;
+      }
+
+      input:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(124,92,252,0.15);
+      }
+
+      .password-strength {
+        margin-top: 6px; height: 3px; border-radius: 2px;
+        background: var(--border); overflow: hidden;
+      }
+
+      .password-strength-bar {
+        height: 100%; width: 0%; border-radius: 2px;
+        transition: width 0.3s, background-color 0.3s;
+      }
+
+      .strength-hint {
+        font-size: 0.75rem; color: var(--muted); margin-top: 4px;
+      }
+
+      .btn-primary {
+        width: 100%; padding: 13px;
+        background: linear-gradient(135deg, var(--primary), #a78bfa);
+        border: none; border-radius: 10px; color: white;
+        font-size: 0.95rem; font-weight: 600; font-family: inherit;
+        cursor: pointer; transition: all 0.2s ease; margin-top: 8px;
+      }
+
+      .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(124,92,252,0.4); }
+      .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+      .alert {
+        padding: 12px 14px; border-radius: 8px; font-size: 0.875rem;
+        margin-bottom: 16px; display: none;
+      }
+      .alert.error { background: rgba(255,107,107,0.12); border: 1px solid rgba(255,107,107,0.3); color: #ff8e8e; }
+      .alert.success { background: rgba(74,222,128,0.1); border: 1px solid rgba(74,222,128,0.3); color: var(--success); }
+      .alert.show { display: block; }
+
+      .bottom-link {
+        text-align: center; margin-top: 20px;
+        font-size: 0.875rem; color: var(--muted);
+      }
+      .bottom-link a { color: var(--primary); text-decoration: none; font-weight: 500; }
+      .bottom-link a:hover { text-decoration: underline; }
+
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .spinner {
+        width: 16px; height: 16px;
+        border: 2px solid rgba(255,255,255,0.2);
+        border-top-color: white; border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+        display: inline-block; margin-right: 8px; vertical-align: middle;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrapper">
+      <div class="logo-area">
+        <div class="logo-icon">✦</div>
+        <div class="logo-title">vInfi SSO</div>
+        <div class="logo-sub">Tạo tài khoản để dùng tất cả ứng dụng</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Tạo tài khoản</div>
+
+        <!-- OAuth -->
+        <div class="oauth-group">
+          <a href="/sso/oauth/google" class="oauth-btn">
+            <svg width="20" height="20" viewBox="0 0 48 48">
+              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.35-8.16 2.35-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+            </svg>
+            Đăng ký với Google
+          </a>
+          <a href="/sso/oauth/facebook" class="oauth-btn">
+            <svg width="20" height="20" viewBox="0 0 48 48">
+              <path fill="#1877F2" d="M48 24C48 10.745 37.255 0 24 0S0 10.745 0 24c0 11.979 8.776 21.908 20.25 23.708V30.938h-6.094V24H20.25v-5.25c0-6.01 3.578-9.328 9.056-9.328 2.624 0 5.37.469 5.37.469v5.906h-3.025C28.759 15.797 28 17.2 28 18.636V24h6.188l-.989 6.938H28v16.77C39.224 45.908 48 35.979 48 24z"/>
+            </svg>
+            Đăng ký với Facebook
+          </a>
+        </div>
+
+        <div class="divider">hoặc đăng ký với email</div>
+
+        <div class="alert error" id="alertEl"></div>
+
+        <form id="registerForm">
+          <div class="form-group">
+            <label for="displayName">Tên hiển thị</label>
+            <input type="text" id="displayName" placeholder="Nguyễn Văn A" autocomplete="name" />
+          </div>
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" placeholder="ten@email.com" autocomplete="email" required />
+          </div>
+          <div class="form-group">
+            <label for="password">Mật khẩu</label>
+            <input type="password" id="password" placeholder="Tối thiểu 8 ký tự" autocomplete="new-password" required />
+            <div class="password-strength">
+              <div class="password-strength-bar" id="strengthBar"></div>
+            </div>
+            <div class="strength-hint" id="strengthHint"></div>
+          </div>
+          <div class="form-group">
+            <label for="confirmPassword">Xác nhận mật khẩu</label>
+            <input type="password" id="confirmPassword" placeholder="Nhập lại mật khẩu" autocomplete="new-password" required />
+          </div>
+          <button class="btn-primary" type="submit" id="registerBtn">Tạo tài khoản</button>
+        </form>
+
+        <div class="bottom-link">
+          Đã có tài khoản? <a href="/ui/sso">Đăng nhập</a>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const alertEl = document.getElementById('alertEl');
+      const strengthBar = document.getElementById('strengthBar');
+      const strengthHint = document.getElementById('strengthHint');
+
+      function showAlert(msg, type = 'error') {
+        alertEl.textContent = msg;
+        alertEl.className = `alert ${type} show`;
+      }
+
+      // Password strength indicator
+      document.getElementById('password').addEventListener('input', function() {
+        const pwd = this.value;
+        let score = 0;
+        if (pwd.length >= 8) score++;
+        if (pwd.length >= 12) score++;
+        if (/[A-Z]/.test(pwd)) score++;
+        if (/[0-9]/.test(pwd)) score++;
+        if (/[^A-Za-z0-9]/.test(pwd)) score++;
+
+        const colors = ['', '#ff6b6b', '#ffa07a', '#f0b429', '#4ade80', '#22d3ee'];
+        const hints = ['', 'Rất yếu', 'Yếu', 'Trung bình', 'Mạnh', 'Rất mạnh'];
+        strengthBar.style.width = `${score * 20}%`;
+        strengthBar.style.backgroundColor = colors[score] || '';
+        strengthHint.textContent = pwd.length > 0 ? hints[score] || '' : '';
+      });
+
+      document.getElementById('registerForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        alertEl.className = 'alert error';
+
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+        const confirm = document.getElementById('confirmPassword').value;
+        const displayName = document.getElementById('displayName').value;
+
+        if (password !== confirm) {
+          return showAlert('Mật khẩu xác nhận không khớp');
+        }
+
+        if (password.length < 8) {
+          return showAlert('Mật khẩu phải có ít nhất 8 ký tự');
+        }
+
+        const btn = document.getElementById('registerBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span>Đang tạo tài khoản...';
+
+        try {
+          const res = await fetch('/sso/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ email, password, displayName }),
+          });
+
+          const data = await res.json();
+
+          if (res.ok && data.success) {
+            showAlert('🎉 Tài khoản đã được tạo! Đang chuyển hướng...', 'success');
+            setTimeout(() => { window.location.href = '/ui/sso'; }, 1500);
+          } else {
+            showAlert(data.message || 'Đăng ký thất bại. Vui lòng thử lại.');
+            btn.disabled = false;
+            btn.textContent = 'Tạo tài khoản';
+          }
+        } catch (err) {
+          showAlert('Lỗi kết nối. Vui lòng thử lại.');
+          btn.disabled = false;
+          btn.textContent = 'Tạo tài khoản';
+        }
+      });
+    </script>
+  </body>
+</html>

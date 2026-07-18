@@ -1,50 +1,144 @@
-import { Body, Controller, Get, Post, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+  BadRequestException,
+} from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { AuthGuard } from '@nestjs/passport';
 import { SsoService } from './sso.service';
+import { ConfigService } from '@nestjs/config';
+
+const COOKIE_NAME = 'sso_token';
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  sameSite: 'lax' as const,
+  path: '/',
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in ms
+};
 
 @Controller('sso')
 export class SsoController {
-  constructor(private readonly ssoService: SsoService) {}
+  constructor(
+    private readonly ssoService: SsoService,
+    private readonly configService: ConfigService,
+  ) {}
 
-  private getTokenFromCookie(req: Request) {
-    const cookieHeader = req.headers.cookie ?? '';
-    const cookieEntry = cookieHeader
+  private getToken(req: Request): string | undefined {
+    const raw = req.headers.cookie ?? '';
+    const entry = raw
       .split(';')
-      .map((item) => item.trim())
-      .find((item) => item.startsWith('sso_token='));
-
-    if (!cookieEntry) {
-      return undefined;
-    }
-
-    const [, rawValue] = cookieEntry.split('=');
-    return rawValue ? decodeURIComponent(rawValue) : undefined;
+      .map((s) => s.trim())
+      .find((s) => s.startsWith(`${COOKIE_NAME}=`));
+    if (!entry) return undefined;
+    const [, val] = entry.split('=');
+    return val ? decodeURIComponent(val) : undefined;
   }
+
+  private setSessionCookie(res: Response, token: string) {
+    res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
+  }
+
+  // ─── GET /sso/me ──────────────────────────────────────────────────────────
 
   @Get('me')
-  me(@Req() req: Request) {
-    const token = this.getTokenFromCookie(req);
-    const session = this.ssoService.resolveSession(token);
-    return { user: session?.user ?? null };
+  async me(@Req() req: Request) {
+    const token = this.getToken(req);
+    const user = await this.ssoService.resolveSession(token);
+    return { user: user ? this.ssoService.sanitizeUser(user) : null };
   }
+
+  // ─── POST /sso/register ───────────────────────────────────────────────────
+
+  @Post('register')
+  async register(
+    @Body() body: { email: string; password: string; displayName?: string },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { token, user } = await this.ssoService.register(body);
+    this.setSessionCookie(res, token);
+    return { success: true, user };
+  }
+
+  // ─── POST /sso/login ──────────────────────────────────────────────────────
 
   @Post('login')
-  login(@Body() body: { username: string; password: string }, @Res({ passthrough: true }) res: Response) {
-    const session = this.ssoService.login(body);
-    res.cookie('sso_token', session.token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 1000 * 60 * 60,
+  async login(
+    @Body() body: { email: string; password: string },
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const appOrigin = req.headers.origin ?? req.headers.referer;
+    const { token, user } = await this.ssoService.login({
+      ...body,
+      appOrigin: typeof appOrigin === 'string' ? appOrigin : undefined,
     });
-    return { success: true, user: session.user };
+    this.setSessionCookie(res, token);
+    return { success: true, user };
   }
 
+  // ─── POST /sso/logout ─────────────────────────────────────────────────────
+
   @Post('logout')
-  logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const token = this.getTokenFromCookie(req);
-    this.ssoService.logout(token);
-    res.clearCookie('sso_token', { path: '/' });
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const token = this.getToken(req);
+    await this.ssoService.logout(token);
+    res.clearCookie(COOKIE_NAME, { path: '/' });
     return { success: true };
+  }
+
+  // ─── GET /sso/oauth/google ────────────────────────────────────────────────
+
+  @Get('oauth/google')
+  @UseGuards(AuthGuard('google'))
+  googleLogin() {
+    // Passport redirects to Google
+  }
+
+  @Get('oauth/google/callback')
+  @UseGuards(AuthGuard('google'))
+  async googleCallback(
+    @Req() req: Request & { user?: any },
+    @Res() res: Response,
+  ) {
+    if (!req.user) {
+      throw new BadRequestException('Google OAuth failed');
+    }
+
+    const { token } = await this.ssoService.oauthLogin(req.user, 'google');
+    this.setSessionCookie(res, token);
+
+    // Redirect back to the app or SSO home
+    const redirect = this.configService.get<string>('SSO_BASE_URL', 'http://localhost:3000');
+    res.redirect(`${redirect}/ui/sso`);
+  }
+
+  // ─── GET /sso/oauth/facebook ──────────────────────────────────────────────
+
+  @Get('oauth/facebook')
+  @UseGuards(AuthGuard('facebook'))
+  facebookLogin() {
+    // Passport redirects to Facebook
+  }
+
+  @Get('oauth/facebook/callback')
+  @UseGuards(AuthGuard('facebook'))
+  async facebookCallback(
+    @Req() req: Request & { user?: any },
+    @Res() res: Response,
+  ) {
+    if (!req.user) {
+      throw new BadRequestException('Facebook OAuth failed');
+    }
+
+    const { token } = await this.ssoService.oauthLogin(req.user, 'facebook');
+    this.setSessionCookie(res, token);
+
+    const redirect = this.configService.get<string>('SSO_BASE_URL', 'http://localhost:3000');
+    res.redirect(`${redirect}/ui/sso`);
   }
 }

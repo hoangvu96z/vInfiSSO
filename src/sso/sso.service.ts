@@ -1,42 +1,86 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { UsersService } from '../users/users.service';
+import { User } from '../users/user.entity';
 
 @Injectable()
 export class SsoService {
-  private readonly sessions = new Map<string, { user: { username: string }; expiresAt: number }>();
+  constructor(private readonly usersService: UsersService) {}
 
-  login({ username, password }: { username: string; password: string }) {
-    if (!username || !password) {
-      throw new Error('username and password are required');
+  // ─── Register ─────────────────────────────────────────────────────────────
+
+  async register(dto: {
+    email: string;
+    password: string;
+    displayName?: string;
+  }): Promise<{ token: string; user: Partial<User> }> {
+    if (!dto.email || !dto.password) {
+      throw new BadRequestException('Email và mật khẩu là bắt buộc');
     }
 
-    const token = `sso_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const expiresAt = Date.now() + 1000 * 60 * 60;
-    this.sessions.set(token, { user: { username }, expiresAt });
+    if (dto.password.length < 8) {
+      throw new BadRequestException('Mật khẩu phải có ít nhất 8 ký tự');
+    }
 
-    return { token, user: { username }, expiresAt };
+    const user = await this.usersService.createUser({
+      email: dto.email,
+      password: dto.password,
+      displayName: dto.displayName,
+    });
+
+    const token = await this.usersService.createSession(user.id, 'register');
+    return { token, user: this.sanitizeUser(user) };
   }
 
-  resolveSession(token: string | undefined) {
-    if (!token) {
-      return null;
+  // ─── Login ────────────────────────────────────────────────────────────────
+
+  async login(dto: {
+    email: string;
+    password: string;
+    appOrigin?: string;
+  }): Promise<{ token: string; user: Partial<User> }> {
+    const user = await this.usersService.findByEmail(dto.email);
+
+    if (!user) {
+      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
     }
 
-    const session = this.sessions.get(token);
-    if (!session) {
-      return null;
+    const valid = await this.usersService.verifyPassword(user, dto.password);
+    if (!valid) {
+      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
     }
 
-    if (session.expiresAt < Date.now()) {
-      this.sessions.delete(token);
-      return null;
-    }
-
-    return session;
+    const token = await this.usersService.createSession(user.id, dto.appOrigin);
+    return { token, user: this.sanitizeUser(user) };
   }
 
-  logout(token: string | undefined) {
-    if (token) {
-      this.sessions.delete(token);
-    }
+  // ─── OAuth Login (after passport validates) ───────────────────────────────
+
+  async oauthLogin(
+    user: User,
+    appOrigin?: string,
+  ): Promise<{ token: string; user: Partial<User> }> {
+    const token = await this.usersService.createSession(user.id, appOrigin);
+    return { token, user: this.sanitizeUser(user) };
+  }
+
+  // ─── Resolve Session ──────────────────────────────────────────────────────
+
+  async resolveSession(rawToken: string | undefined): Promise<User | null> {
+    if (!rawToken) return null;
+    return this.usersService.resolveSessionByToken(rawToken);
+  }
+
+  // ─── Logout ───────────────────────────────────────────────────────────────
+
+  async logout(rawToken: string | undefined): Promise<void> {
+    if (!rawToken) return;
+    await this.usersService.deleteSessionByToken(rawToken);
+  }
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────
+
+  sanitizeUser(user: User): Partial<User> {
+    const { passwordHash: _, ...safe } = user as any;
+    return safe;
   }
 }

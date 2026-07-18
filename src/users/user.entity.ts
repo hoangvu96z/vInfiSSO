@@ -1,0 +1,46 @@
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  OneToMany,
+} from 'typeorm';
+import { OAuthAccount } from './oauth-account.entity';
+import { Session } from './session.entity';
+
+@Entity('users')
+export class User {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ unique: true })
+  email: string;
+
+  @Column({ unique: true, nullable: true })
+  username: string | null;
+
+  @Column({ nullable: true })
+  passwordHash: string | null;
+
+  @Column({ nullable: true })
+  displayName: string | null;
+
+  @Column({ nullable: true })
+  avatarUrl: string | null;
+
+  @Column({ default: false })
+  isVerified: boolean;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
+
+  @OneToMany(() => OAuthAccount, (oauth) => oauth.user, { cascade: true })
+  oauthAccounts: OAuthAccount[];
+
+  @OneToMany(() => Session, (session) => session.user, { cascade: true })
+  sessions: Session[];
+}

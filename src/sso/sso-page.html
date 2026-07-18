@@ -1,85 +1,507 @@
 <!doctype html>
-<html lang="en">
+<html lang="vi">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>vInfiSSO Demo</title>
+    <title>vInfi SSO — Đăng nhập</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <style>
-      body { font-family: Arial, sans-serif; background: #f4f7fb; margin: 0; padding: 40px; }
-      .card { max-width: 480px; margin: 0 auto; background: white; padding: 24px; border-radius: 12px; box-shadow: 0 10px 24px rgba(0,0,0,0.08); }
-      input { width: 100%; padding: 10px; margin-bottom: 12px; border-radius: 8px; border: 1px solid #cfd7e2; }
-      button { padding: 10px 16px; border: none; border-radius: 8px; cursor: pointer; margin-right: 8px; }
-      .primary { background: #2563eb; color: white; }
-      .secondary { background: #e5e7eb; }
-      .status { margin-top: 16px; padding: 12px; border-radius: 8px; background: #eef7ed; color: #246b3a; }
-      .app-grid { display: grid; gap: 12px; margin-top: 16px; }
-      .app { border: 1px solid #dbe3ee; padding: 12px; border-radius: 8px; }
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      :root {
+        --bg: #0f0f14;
+        --surface: #1a1a24;
+        --surface2: #22222e;
+        --border: rgba(255,255,255,0.08);
+        --primary: #7c5cfc;
+        --primary-hover: #6a4de0;
+        --google: #4285F4;
+        --facebook: #1877F2;
+        --text: #e8e8f0;
+        --muted: #888899;
+        --error: #ff6b6b;
+        --success: #4ade80;
+        --gold: #f0b429;
+      }
+
+      body {
+        font-family: 'Inter', sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background-image:
+          radial-gradient(ellipse at 20% 20%, rgba(124, 92, 252, 0.12) 0%, transparent 50%),
+          radial-gradient(ellipse at 80% 80%, rgba(99, 179, 237, 0.08) 0%, transparent 50%);
+      }
+
+      .wrapper {
+        width: 100%;
+        max-width: 440px;
+      }
+
+      .logo-area {
+        text-align: center;
+        margin-bottom: 32px;
+      }
+
+      .logo-icon {
+        width: 56px;
+        height: 56px;
+        background: linear-gradient(135deg, var(--primary), #a78bfa);
+        border-radius: 16px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        margin-bottom: 14px;
+        box-shadow: 0 0 32px rgba(124,92,252,0.4);
+      }
+
+      .logo-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #e8e8f0, #a78bfa);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      .logo-sub {
+        font-size: 0.875rem;
+        color: var(--muted);
+        margin-top: 6px;
+      }
+
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 32px;
+        backdrop-filter: blur(20px);
+        box-shadow: 0 24px 64px rgba(0,0,0,0.4);
+      }
+
+      .card-title {
+        font-size: 1.2rem;
+        font-weight: 600;
+        margin-bottom: 24px;
+        color: var(--text);
+      }
+
+      /* OAuth buttons */
+      .oauth-group {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 24px;
+      }
+
+      .oauth-btn {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--surface2);
+        color: var(--text);
+        font-size: 0.9rem;
+        font-weight: 500;
+        cursor: pointer;
+        text-decoration: none;
+        transition: all 0.2s ease;
+      }
+
+      .oauth-btn:hover {
+        background: rgba(255,255,255,0.06);
+        border-color: rgba(255,255,255,0.16);
+        transform: translateY(-1px);
+      }
+
+      .oauth-btn svg { flex-shrink: 0; }
+
+      /* Divider */
+      .divider {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 24px;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      .divider::before, .divider::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: var(--border);
+      }
+
+      /* Form */
+      .form-group {
+        margin-bottom: 16px;
+      }
+
+      label {
+        display: block;
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--muted);
+        margin-bottom: 6px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      input[type="email"],
+      input[type="password"],
+      input[type="text"] {
+        width: 100%;
+        padding: 12px 14px;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: var(--text);
+        font-size: 0.95rem;
+        font-family: inherit;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+
+      input:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(124,92,252,0.15);
+      }
+
+      .btn-primary {
+        width: 100%;
+        padding: 13px;
+        background: linear-gradient(135deg, var(--primary), #a78bfa);
+        border: none;
+        border-radius: 10px;
+        color: white;
+        font-size: 0.95rem;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        margin-top: 8px;
+      }
+
+      .btn-primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 24px rgba(124,92,252,0.4);
+      }
+
+      .btn-primary:active { transform: translateY(0); }
+
+      .btn-primary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      /* Alert */
+      .alert {
+        padding: 12px 14px;
+        border-radius: 8px;
+        font-size: 0.875rem;
+        margin-bottom: 16px;
+        display: none;
+      }
+
+      .alert.error { background: rgba(255,107,107,0.12); border: 1px solid rgba(255,107,107,0.3); color: #ff8e8e; }
+      .alert.success { background: rgba(74,222,128,0.1); border: 1px solid rgba(74,222,128,0.3); color: var(--success); }
+      .alert.show { display: block; }
+
+      /* User info (logged in state) */
+      .user-card {
+        display: none;
+        text-align: center;
+        padding: 24px;
+      }
+
+      .user-avatar {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--primary), #a78bfa);
+        margin: 0 auto 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2rem;
+        overflow: hidden;
+        border: 2px solid var(--border);
+      }
+
+      .user-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+      .user-name {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      .user-email {
+        color: var(--muted);
+        font-size: 0.875rem;
+        margin-bottom: 20px;
+      }
+
+      .btn-secondary {
+        padding: 10px 24px;
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--muted);
+        font-size: 0.875rem;
+        font-family: inherit;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .btn-secondary:hover {
+        border-color: rgba(255,255,255,0.2);
+        color: var(--text);
+      }
+
+      .bottom-link {
+        text-align: center;
+        margin-top: 20px;
+        font-size: 0.875rem;
+        color: var(--muted);
+      }
+
+      .bottom-link a {
+        color: var(--primary);
+        text-decoration: none;
+        font-weight: 500;
+      }
+
+      .bottom-link a:hover { text-decoration: underline; }
+
+      /* Apps section */
+      .apps-section {
+        margin-top: 28px;
+        padding-top: 20px;
+        border-top: 1px solid var(--border);
+      }
+
+      .apps-label {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        margin-bottom: 12px;
+      }
+
+      .apps-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .app-chip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        text-decoration: none;
+        color: var(--text);
+        font-size: 0.85rem;
+        font-weight: 500;
+        transition: all 0.2s;
+      }
+
+      .app-chip:hover {
+        border-color: var(--primary);
+        background: rgba(124,92,252,0.08);
+      }
+
+      .app-status {
+        width: 6px; height: 6px;
+        border-radius: 50%;
+        background: var(--success);
+        flex-shrink: 0;
+        margin-left: auto;
+      }
+
+      .app-status.offline { background: var(--muted); }
+
+      /* Loading spinner */
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .spinner {
+        width: 16px; height: 16px;
+        border: 2px solid rgba(255,255,255,0.2);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+        display: inline-block;
+        margin-right: 8px;
+        vertical-align: middle;
+      }
     </style>
   </head>
   <body>
-    <div class="card">
-      <h2>vInfiSSO Demo</h2>
-      <p>Đăng nhập ở đây rồi 2 app con sẽ thấy trạng thái người dùng.</p>
-      <form id="loginForm">
-        <input id="username" placeholder="Username" value="alice" />
-        <input id="password" placeholder="Password" type="password" value="secret" />
-        <button class="primary" type="submit">Đăng nhập</button>
-        <button class="secondary" type="button" onclick="logout()">Đăng xuất</button>
-      </form>
-      <div id="status" class="status">Chưa đăng nhập</div>
-      <div class="app-grid">
-        <div class="app">
-          <strong>App A</strong>
-          <div id="appA">Đang chờ xác thực...</div>
-        </div>
-        <div class="app">
-          <strong>App B</strong>
-          <div id="appB">Đang chờ xác thực...</div>
-        </div>
+    <div class="wrapper">
+      <div class="logo-area">
+        <div class="logo-icon">✦</div>
+        <div class="logo-title">vInfi SSO</div>
+        <div class="logo-sub">Đăng nhập một lần, dùng tất cả ứng dụng</div>
       </div>
-      <div style="margin-top: 12px;">
-        <a href="/ui/app-a" style="margin-right: 8px;">Mở App A</a>
-        <a href="/ui/app-b">Mở App B</a>
+
+      <div class="card">
+        <!-- Logged-in state -->
+        <div class="user-card" id="userCard">
+          <div class="user-avatar" id="userAvatar">👤</div>
+          <div class="user-name" id="userName">—</div>
+          <div class="user-email" id="userEmail">—</div>
+          <button class="btn-secondary" onclick="logout()">Đăng xuất</button>
+        </div>
+
+        <!-- Login form -->
+        <div id="loginSection">
+          <div class="card-title">Đăng nhập</div>
+
+          <div class="oauth-group">
+            <a href="/sso/oauth/google" class="oauth-btn" id="googleBtn">
+              <svg width="20" height="20" viewBox="0 0 48 48">
+                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.35-8.16 2.35-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+              </svg>
+              Tiếp tục với Google
+            </a>
+            <a href="/sso/oauth/facebook" class="oauth-btn" id="fbBtn">
+              <svg width="20" height="20" viewBox="0 0 48 48">
+                <path fill="#1877F2" d="M48 24C48 10.745 37.255 0 24 0S0 10.745 0 24c0 11.979 8.776 21.908 20.25 23.708V30.938h-6.094V24H20.25v-5.25c0-6.01 3.578-9.328 9.056-9.328 2.624 0 5.37.469 5.37.469v5.906h-3.025C28.759 15.797 28 17.2 28 18.636V24h6.188l-.989 6.938H28v16.77C39.224 45.908 48 35.979 48 24z"/>
+              </svg>
+              Tiếp tục với Facebook
+            </a>
+          </div>
+
+          <div class="divider">hoặc đăng nhập với email</div>
+
+          <div class="alert error" id="alertEl"></div>
+
+          <form id="loginForm">
+            <div class="form-group">
+              <label for="email">Email</label>
+              <input type="email" id="email" placeholder="ten@email.com" autocomplete="email" required />
+            </div>
+            <div class="form-group">
+              <label for="password">Mật khẩu</label>
+              <input type="password" id="password" placeholder="••••••••" autocomplete="current-password" required />
+            </div>
+            <button class="btn-primary" type="submit" id="loginBtn">Đăng nhập</button>
+          </form>
+
+          <div class="bottom-link">
+            Chưa có tài khoản? <a href="/ui/register">Đăng ký ngay</a>
+          </div>
+        </div>
+
+        <!-- Apps section (always visible) -->
+        <div class="apps-section">
+          <div class="apps-label">Ứng dụng kết nối</div>
+          <div class="apps-grid">
+            <a href="http://localhost:5173" class="app-chip" target="_blank">
+              ☯ IChingNow
+              <span class="app-status offline" id="ichingStatus"></span>
+            </a>
+            <a href="http://localhost:5174" class="app-chip" target="_blank">
+              🃏 TarotNow
+              <span class="app-status offline" id="tarotStatus"></span>
+            </a>
+          </div>
+        </div>
       </div>
     </div>
 
     <script>
-      const statusEl = document.getElementById('status');
-      const appAEl = document.getElementById('appA');
-      const appBEl = document.getElementById('appB');
+      const alertEl = document.getElementById('alertEl');
+      const loginSection = document.getElementById('loginSection');
+      const userCard = document.getElementById('userCard');
 
-      function notifyOtherTabs(state) {
-        window.localStorage.setItem('vInfiSSO-demo-state', JSON.stringify(state));
+      function showAlert(msg, type = 'error') {
+        alertEl.textContent = msg;
+        alertEl.className = `alert ${type} show`;
+      }
+
+      function hideAlert() {
+        alertEl.className = 'alert error';
       }
 
       async function loadUser() {
-        const res = await fetch('/sso/me', { credentials: 'include' });
-        const data = await res.json();
-        if (data.user) {
-          statusEl.innerHTML = `Đã đăng nhập với <strong>${data.user.username}</strong>`;
-          appAEl.innerText = `App A: user ${data.user.username} đã authenticated`;
-          appBEl.innerText = `App B: user ${data.user.username} đã authenticated`;
-        } else {
-          statusEl.innerText = 'Chưa đăng nhập';
-          appAEl.innerText = 'App A: chưa authenticated';
-          appBEl.innerText = 'App B: chưa authenticated';
+        try {
+          const res = await fetch('/sso/me', { credentials: 'include' });
+          const data = await res.json();
+
+          if (data.user) {
+            loginSection.style.display = 'none';
+            userCard.style.display = 'block';
+            document.getElementById('userName').textContent = data.user.displayName || data.user.email;
+            document.getElementById('userEmail').textContent = data.user.email;
+
+            const avatarEl = document.getElementById('userAvatar');
+            if (data.user.avatarUrl) {
+              avatarEl.innerHTML = `<img src="${data.user.avatarUrl}" alt="avatar" />`;
+            } else {
+              const initials = (data.user.displayName || data.user.email || '?')[0].toUpperCase();
+              avatarEl.textContent = initials;
+            }
+
+            notifyOtherTabs({ type: 'login', user: data.user });
+          } else {
+            loginSection.style.display = 'block';
+            userCard.style.display = 'none';
+          }
+        } catch (e) {
+          console.error(e);
         }
       }
 
-      document.getElementById('loginForm').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const username = document.getElementById('username').value;
+      document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        hideAlert();
+        const btn = document.getElementById('loginBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span>Đang xử lý...';
+
+        const email = document.getElementById('email').value;
         const password = document.getElementById('password').value;
-        const res = await fetch('/sso/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ username, password })
-        });
-        const data = await res.json();
-        if (data.success) {
-          notifyOtherTabs({ type: 'login', user: data.user });
-          await loadUser();
+
+        try {
+          const res = await fetch('/sso/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ email, password }),
+          });
+
+          const data = await res.json();
+
+          if (res.ok && data.success) {
+            await loadUser();
+          } else {
+            showAlert(data.message || 'Đăng nhập thất bại');
+            btn.disabled = false;
+            btn.textContent = 'Đăng nhập';
+          }
+        } catch (err) {
+          showAlert('Lỗi kết nối. Vui lòng thử lại.');
+          btn.disabled = false;
+          btn.textContent = 'Đăng nhập';
         }
       });
 
@@ -89,10 +511,12 @@
         await loadUser();
       }
 
-      window.addEventListener('storage', (event) => {
-        if (event.key === 'vInfiSSO-demo-state') {
-          loadUser();
-        }
+      function notifyOtherTabs(state) {
+        try { localStorage.setItem('vInfiSSO-state', JSON.stringify(state)); } catch (_) {}
+      }
+
+      window.addEventListener('storage', (e) => {
+        if (e.key === 'vInfiSSO-state') loadUser();
       });
 
       window.addEventListener('focus', () => loadUser());

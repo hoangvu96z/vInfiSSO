@@ -22,6 +22,14 @@ export class AppController {
     res.send(html);
   }
 
+  @Get('ui/register')
+  getRegisterPage(@Res() res: Response) {
+    const htmlPath = join(process.cwd(), 'src', 'sso', 'register-page.html');
+    const html = readFileSync(htmlPath, 'utf8');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  }
+
   @Get('ui/app-a')
   getAppAPage(@Res() res: Response) {
     const htmlPath = join(process.cwd(), 'src', 'sso', 'app-a-page.html');
