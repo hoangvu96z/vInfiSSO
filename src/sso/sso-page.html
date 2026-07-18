@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>vInfiSSO Demo</title>
+    <style>
+      body { font-family: Arial, sans-serif; background: #f4f7fb; margin: 0; padding: 40px; }
+      .card { max-width: 480px; margin: 0 auto; background: white; padding: 24px; border-radius: 12px; box-shadow: 0 10px 24px rgba(0,0,0,0.08); }
+      input { width: 100%; padding: 10px; margin-bottom: 12px; border-radius: 8px; border: 1px solid #cfd7e2; }
+      button { padding: 10px 16px; border: none; border-radius: 8px; cursor: pointer; margin-right: 8px; }
+      .primary { background: #2563eb; color: white; }
+      .secondary { background: #e5e7eb; }
+      .status { margin-top: 16px; padding: 12px; border-radius: 8px; background: #eef7ed; color: #246b3a; }
+      .app-grid { display: grid; gap: 12px; margin-top: 16px; }
+      .app { border: 1px solid #dbe3ee; padding: 12px; border-radius: 8px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h2>vInfiSSO Demo</h2>
+      <p>Đăng nhập ở đây rồi 2 app con sẽ thấy trạng thái người dùng.</p>
+      <form id="loginForm">
+        <input id="username" placeholder="Username" value="alice" />
+        <input id="password" placeholder="Password" type="password" value="secret" />
+        <button class="primary" type="submit">Đăng nhập</button>
+        <button class="secondary" type="button" onclick="logout()">Đăng xuất</button>
+      </form>
+      <div id="status" class="status">Chưa đăng nhập</div>
+      <div class="app-grid">
+        <div class="app">
+          <strong>App A</strong>
+          <div id="appA">Đang chờ xác thực...</div>
+        </div>
+        <div class="app">
+          <strong>App B</strong>
+          <div id="appB">Đang chờ xác thực...</div>
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <a href="/ui/app-a" style="margin-right: 8px;">Mở App A</a>
+        <a href="/ui/app-b">Mở App B</a>
+      </div>
+    </div>
+
+    <script>
+      const statusEl = document.getElementById('status');
+      const appAEl = document.getElementById('appA');
+      const appBEl = document.getElementById('appB');
+
+      function notifyOtherTabs(state) {
+        window.localStorage.setItem('vInfiSSO-demo-state', JSON.stringify(state));
+      }
+
+      async function loadUser() {
+        const res = await fetch('/sso/me', { credentials: 'include' });
+        const data = await res.json();
+        if (data.user) {
+          statusEl.innerHTML = `Đã đăng nhập với <strong>${data.user.username}</strong>`;
+          appAEl.innerText = `App A: user ${data.user.username} đã authenticated`;
+          appBEl.innerText = `App B: user ${data.user.username} đã authenticated`;
+        } else {
+          statusEl.innerText = 'Chưa đăng nhập';
+          appAEl.innerText = 'App A: chưa authenticated';
+          appBEl.innerText = 'App B: chưa authenticated';
+        }
+      }
+
+      document.getElementById('loginForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+        const res = await fetch('/sso/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (data.success) {
+          notifyOtherTabs({ type: 'login', user: data.user });
+          await loadUser();
+        }
+      });
+
+      async function logout() {
+        await fetch('/sso/logout', { method: 'POST', credentials: 'include' });
+        notifyOtherTabs({ type: 'logout' });
+        await loadUser();
+      }
+
+      window.addEventListener('storage', (event) => {
+        if (event.key === 'vInfiSSO-demo-state') {
+          loadUser();
+        }
+      });
+
+      window.addEventListener('focus', () => loadUser());
+      loadUser();
+    </script>
+  </body>
+</html>

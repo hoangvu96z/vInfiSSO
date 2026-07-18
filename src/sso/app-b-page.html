@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>App B - SSO Demo</title>
+    <style>
+      body { font-family: Arial, sans-serif; background: #f9f5ff; margin: 0; padding: 40px; }
+      .card { max-width: 540px; margin: 0 auto; background: white; padding: 24px; border-radius: 14px; box-shadow: 0 12px 30px rgba(0,0,0,0.08); }
+      button, a.button { display: inline-block; padding: 10px 14px; border-radius: 8px; border: none; text-decoration: none; cursor: pointer; margin-right: 8px; margin-top: 8px; }
+      .primary { background: #7c3aed; color: white; }
+      .secondary { background: #e5e7eb; color: #111827; }
+      .status { margin-top: 16px; padding: 12px 14px; border-radius: 8px; background: #f5f3ff; color: #6b21a8; }
+      .muted { color: #64748b; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h2>App B</h2>
+      <p class="muted">Trang demo con thứ hai. Nó cũng dùng chung cookie SSO để nhận trạng thái người dùng.</p>
+      <div id="status" class="status">Đang kiểm tra đăng nhập...</div>
+      <div style="margin-top: 12px;">
+        <a class="button primary" href="/ui/sso">Đến trang SSO</a>
+        <button class="secondary" onclick="logout()">Đăng xuất</button>
+      </div>
+    </div>
+
+    <script>
+      function notifyOtherTabs(state) {
+        window.localStorage.setItem('vInfiSSO-demo-state', JSON.stringify(state));
+      }
+
+      async function loadSession() {
+        const res = await fetch('/sso/me', { credentials: 'include' });
+        const data = await res.json();
+        const status = document.getElementById('status');
+        if (data.user) {
+          status.innerHTML = `✅ Đã đăng nhập: <strong>${data.user.username}</strong>`;
+        } else {
+          status.innerHTML = '⚠️ Chưa đăng nhập. Vui lòng đăng nhập từ trang SSO.';
+        }
+      }
+
+      async function logout() {
+        await fetch('/sso/logout', { method: 'POST', credentials: 'include' });
+        notifyOtherTabs({ type: 'logout' });
+        await loadSession();
+      }
+
+      window.addEventListener('storage', (event) => {
+        if (event.key === 'vInfiSSO-demo-state') {
+          loadSession();
+        }
+      });
+
+      window.addEventListener('focus', () => loadSession());
+      loadSession();
+    </script>
+  </body>
+</html>
