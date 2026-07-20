@@ -415,13 +415,13 @@
         <div class="apps-section">
           <div class="apps-label">Ứng dụng kết nối</div>
           <div class="apps-grid">
-            <a href="http://localhost:5173" class="app-chip" target="_blank">
+            <a href="https://vunph.id.vn/kinhdich" class="app-chip" target="_blank">
               ☯ IChingNow
-              <span class="app-status offline" id="ichingStatus"></span>
+              <span class="app-status" id="ichingStatus"></span>
             </a>
-            <a href="http://localhost:5174" class="app-chip" target="_blank">
+            <a href="https://vunph.id.vn/tarot" class="app-chip" target="_blank">
               🃏 TarotNow
-              <span class="app-status offline" id="tarotStatus"></span>
+              <span class="app-status" id="tarotStatus"></span>
             </a>
           </div>
         </div>
@@ -433,6 +433,11 @@
       const loginSection = document.getElementById('loginSection');
       const userCard = document.getElementById('userCard');
 
+      function getRedirectUrl() {
+        const params = new URLSearchParams(window.location.search);
+        return params.get('redirect');
+      }
+
       function showAlert(msg, type = 'error') {
         alertEl.textContent = msg;
         alertEl.className = `alert ${type} show`;
@@ -442,12 +447,28 @@
         alertEl.className = 'alert error';
       }
 
+      // Update register link to preserve redirect parameter
+      const redirectUrl = getRedirectUrl();
+      if (redirectUrl) {
+        const regLink = document.querySelector('.bottom-link a');
+        if (regLink) {
+          regLink.href = `/ui/register?redirect=${encodeURIComponent(redirectUrl)}`;
+        }
+      }
+
       async function loadUser() {
         try {
           const res = await fetch('/sso/me', { credentials: 'include' });
           const data = await res.json();
 
           if (data.user) {
+            // If redirect param exists and user is logged in, redirect immediately
+            const target = getRedirectUrl();
+            if (target) {
+              window.location.href = target;
+              return;
+            }
+
             loginSection.style.display = 'none';
             userCard.style.display = 'block';
             document.getElementById('userName').textContent = data.user.displayName || data.user.email;
@@ -492,6 +513,11 @@
           const data = await res.json();
 
           if (res.ok && data.success) {
+            const target = getRedirectUrl();
+            if (target) {
+              window.location.href = target;
+              return;
+            }
             await loadUser();
           } else {
             showAlert(data.message || 'Đăng nhập thất bại');

@@ -231,9 +231,22 @@
       const strengthBar = document.getElementById('strengthBar');
       const strengthHint = document.getElementById('strengthHint');
 
+      function getRedirectUrl() {
+        const params = new URLSearchParams(window.location.search);
+        return params.get('redirect');
+      }
+
       function showAlert(msg, type = 'error') {
         alertEl.textContent = msg;
         alertEl.className = `alert ${type} show`;
+      }
+
+      const redirectUrl = getRedirectUrl();
+      if (redirectUrl) {
+        const loginLink = document.querySelector('.bottom-link a');
+        if (loginLink) {
+          loginLink.href = `/ui/sso?redirect=${encodeURIComponent(redirectUrl)}`;
+        }
       }
 
       // Password strength indicator
@@ -286,7 +299,10 @@
 
           if (res.ok && data.success) {
             showAlert('🎉 Tài khoản đã được tạo! Đang chuyển hướng...', 'success');
-            setTimeout(() => { window.location.href = '/ui/sso'; }, 1500);
+            const target = getRedirectUrl();
+            setTimeout(() => {
+              window.location.href = target || '/ui/sso';
+            }, 1200);
           } else {
             showAlert(data.message || 'Đăng ký thất bại. Vui lòng thử lại.');
             btn.disabled = false;

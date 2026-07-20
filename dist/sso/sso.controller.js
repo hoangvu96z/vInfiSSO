@@ -18,9 +18,11 @@ const passport_1 = require("@nestjs/passport");
 const sso_service_1 = require("./sso.service");
 const config_1 = require("@nestjs/config");
 const COOKIE_NAME = 'sso_token';
+const isProd = process.env.NODE_ENV === 'production';
 const COOKIE_OPTIONS = {
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: (isProd ? 'none' : 'lax'),
+    secure: isProd,
     path: '/',
     maxAge: 7 * 24 * 60 * 60 * 1000,
 };

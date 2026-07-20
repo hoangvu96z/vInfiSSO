@@ -20,7 +20,7 @@ export class Session {
   @Column({ name: 'token_hash', unique: true })
   tokenHash: string;
 
-  @Column({ name: 'app_origin', nullable: true })
+  @Column({ name: 'app_origin', type: 'varchar', nullable: true })
   appOrigin: string | null;
 
   @Column({ name: 'expires_at' })

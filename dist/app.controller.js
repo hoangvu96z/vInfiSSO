@@ -17,6 +17,7 @@ const common_1 = require("@nestjs/common");
 const node_fs_1 = require("node:fs");
 const node_path_1 = require("node:path");
 const app_service_1 = require("./app.service");
+const HTML_DIR = (0, node_path_1.join)(__dirname, 'sso');
 let AppController = class AppController {
     appService;
     constructor(appService) {
@@ -26,28 +27,34 @@ let AppController = class AppController {
         return res.redirect('/ui/sso');
     }
     getSsoPage(res) {
-        const htmlPath = (0, node_path_1.join)(process.cwd(), 'src', 'sso', 'sso-page.html');
-        const html = (0, node_fs_1.readFileSync)(htmlPath, 'utf8');
+        const html = (0, node_fs_1.readFileSync)((0, node_path_1.join)(HTML_DIR, 'sso-page.html'), 'utf8');
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.send(html);
     }
     getRegisterPage(res) {
-        const htmlPath = (0, node_path_1.join)(process.cwd(), 'src', 'sso', 'register-page.html');
-        const html = (0, node_fs_1.readFileSync)(htmlPath, 'utf8');
+        const html = (0, node_fs_1.readFileSync)((0, node_path_1.join)(HTML_DIR, 'register-page.html'), 'utf8');
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.send(html);
     }
     getAppAPage(res) {
-        const htmlPath = (0, node_path_1.join)(process.cwd(), 'src', 'sso', 'app-a-page.html');
-        const html = (0, node_fs_1.readFileSync)(htmlPath, 'utf8');
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        res.send(html);
+        try {
+            const html = (0, node_fs_1.readFileSync)((0, node_path_1.join)(HTML_DIR, 'app-a-page.html'), 'utf8');
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            res.send(html);
+        }
+        catch {
+            res.status(404).send('Not found');
+        }
     }
     getAppBPage(res) {
-        const htmlPath = (0, node_path_1.join)(process.cwd(), 'src', 'sso', 'app-b-page.html');
-        const html = (0, node_fs_1.readFileSync)(htmlPath, 'utf8');
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        res.send(html);
+        try {
+            const html = (0, node_fs_1.readFileSync)((0, node_path_1.join)(HTML_DIR, 'app-b-page.html'), 'utf8');
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            res.send(html);
+        }
+        catch {
+            res.status(404).send('Not found');
+        }
     }
 };
 exports.AppController = AppController;

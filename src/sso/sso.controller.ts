@@ -14,11 +14,15 @@ import { SsoService } from './sso.service';
 import { ConfigService } from '@nestjs/config';
 
 const COOKIE_NAME = 'sso_token';
+const isProd = process.env.NODE_ENV === 'production';
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  sameSite: 'lax' as const,
+  // SameSite=None;Secure bắt buộc để cookie cross-domain (sso.vunph.click → vunph.id.vn)
+  // Dev dùng lax vì HTTP không hỗ trợ Secure
+  sameSite: (isProd ? 'none' : 'lax') as 'none' | 'lax',
+  secure: isProd,
   path: '/',
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in ms
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 ngày
 };
 
 @Controller('sso')

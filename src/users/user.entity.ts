@@ -17,16 +17,16 @@ export class User {
   @Column({ unique: true })
   email: string;
 
-  @Column({ unique: true, nullable: true })
+  @Column({ unique: true, type: 'varchar', nullable: true })
   username: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   passwordHash: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   displayName: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', length: 512, nullable: true })
   avatarUrl: string | null;
 
   @Column({ default: false })

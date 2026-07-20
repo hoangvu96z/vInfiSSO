@@ -25,7 +25,7 @@ export class OAuthAccount {
   @Column({ name: 'provider_id' })
   providerId: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true })
   accessToken: string | null;
 
   @CreateDateColumn()

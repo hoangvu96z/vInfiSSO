@@ -19,21 +19,19 @@ import { Session } from './users/session.entity';
       envFilePath: '.env',
     }),
 
-    // MySQL via TypeORM
+    // PostgreSQL via TypeORM (local on VPS)
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        type: 'mysql',
+        type: 'postgres',
         host: config.get<string>('DATABASE_HOST', 'localhost'),
-        port: config.get<number>('DATABASE_PORT', 3306),
-        username: config.get<string>('DATABASE_USER', 'root'),
+        port: config.get<number>('DATABASE_PORT', 5432),
+        username: config.get<string>('DATABASE_USER', 'postgres'),
         password: config.get<string>('DATABASE_PASSWORD', ''),
         database: config.get<string>('DATABASE_NAME', 'vinfi_sso'),
         entities: [User, OAuthAccount, Session],
-        synchronize: true, // Auto-create tables (disable in prod via env!)
+        synchronize: true,
         logging: config.get<string>('NODE_ENV') !== 'production',
-        charset: 'utf8mb4',
-        timezone: '+07:00',
       }),
     }),
 
