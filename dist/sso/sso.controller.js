@@ -34,6 +34,10 @@ let SsoController = class SsoController {
         this.configService = configService;
     }
     getToken(req) {
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
+            return authHeader.substring(7).trim();
+        }
         const raw = req.headers.cookie ?? '';
         const entry = raw
             .split(';')
@@ -50,12 +54,15 @@ let SsoController = class SsoController {
     async me(req) {
         const token = this.getToken(req);
         const user = await this.ssoService.resolveSession(token);
-        return { user: user ? this.ssoService.sanitizeUser(user) : null };
+        return {
+            user: user ? this.ssoService.sanitizeUser(user) : null,
+            token: user ? token : null,
+        };
     }
     async register(body, res) {
         const { token, user } = await this.ssoService.register(body);
         this.setSessionCookie(res, token);
-        return { success: true, user };
+        return { success: true, token, user };
     }
     async login(body, req, res) {
         const appOrigin = req.headers.origin ?? req.headers.referer;
@@ -64,7 +71,7 @@ let SsoController = class SsoController {
             appOrigin: typeof appOrigin === 'string' ? appOrigin : undefined,
         });
         this.setSessionCookie(res, token);
-        return { success: true, user };
+        return { success: true, token, user };
     }
     async logout(req, res) {
         const token = this.getToken(req);

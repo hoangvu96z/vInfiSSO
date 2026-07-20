@@ -456,16 +456,27 @@
         }
       }
 
+      function redirectWithToken(target, token) {
+        if (!target) return;
+        try {
+          const url = new URL(target);
+          if (token) url.searchParams.set('sso_token', token);
+          window.location.href = url.toString();
+        } catch (_) {
+          window.location.href = target;
+        }
+      }
+
       async function loadUser() {
         try {
           const res = await fetch('/sso/me', { credentials: 'include' });
           const data = await res.json();
 
           if (data.user) {
-            // If redirect param exists and user is logged in, redirect immediately
+            // If redirect param exists and user is logged in, redirect immediately with sso_token
             const target = getRedirectUrl();
             if (target) {
-              window.location.href = target;
+              redirectWithToken(target, data.token);
               return;
             }
 
@@ -515,7 +526,7 @@
           if (res.ok && data.success) {
             const target = getRedirectUrl();
             if (target) {
-              window.location.href = target;
+              redirectWithToken(target, data.token);
               return;
             }
             await loadUser();

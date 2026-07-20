@@ -33,6 +33,13 @@ export class SsoController {
   ) {}
 
   private getToken(req: Request): string | undefined {
+    // 1. Check Authorization header: Bearer <token>
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
+      return authHeader.substring(7).trim();
+    }
+
+    // 2. Fallback to Cookie
     const raw = req.headers.cookie ?? '';
     const entry = raw
       .split(';')
@@ -53,7 +60,10 @@ export class SsoController {
   async me(@Req() req: Request) {
     const token = this.getToken(req);
     const user = await this.ssoService.resolveSession(token);
-    return { user: user ? this.ssoService.sanitizeUser(user) : null };
+    return {
+      user: user ? this.ssoService.sanitizeUser(user) : null,
+      token: user ? token : null,
+    };
   }
 
   // ─── POST /sso/register ───────────────────────────────────────────────────
@@ -65,7 +75,7 @@ export class SsoController {
   ) {
     const { token, user } = await this.ssoService.register(body);
     this.setSessionCookie(res, token);
-    return { success: true, user };
+    return { success: true, token, user };
   }
 
   // ─── POST /sso/login ──────────────────────────────────────────────────────
@@ -82,7 +92,7 @@ export class SsoController {
       appOrigin: typeof appOrigin === 'string' ? appOrigin : undefined,
     });
     this.setSessionCookie(res, token);
-    return { success: true, user };
+    return { success: true, token, user };
   }
 
   // ─── POST /sso/logout ─────────────────────────────────────────────────────

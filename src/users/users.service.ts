@@ -23,7 +23,9 @@ export class UsersService {
   // ─── Users ────────────────────────────────────────────────────────────────
 
   async findByEmail(email: string): Promise<User | null> {
-    return this.usersRepo.findOne({ where: { email } });
+    if (!email) return null;
+    const normalized = email.trim().toLowerCase();
+    return this.usersRepo.findOne({ where: { email: normalized } });
   }
 
   async findById(id: string): Promise<User | null> {
@@ -36,7 +38,8 @@ export class UsersService {
     displayName?: string;
     avatarUrl?: string;
   }): Promise<User> {
-    const existing = await this.findByEmail(dto.email);
+    const normalizedEmail = dto.email.trim().toLowerCase();
+    const existing = await this.findByEmail(normalizedEmail);
     if (existing) {
       throw new ConflictException('Email đã được sử dụng');
     }
@@ -46,9 +49,9 @@ export class UsersService {
       : null;
 
     const user = this.usersRepo.create({
-      email: dto.email,
+      email: normalizedEmail,
       passwordHash,
-      displayName: dto.displayName ?? dto.email.split('@')[0],
+      displayName: dto.displayName?.trim() || normalizedEmail.split('@')[0],
       avatarUrl: dto.avatarUrl ?? null,
     });
 

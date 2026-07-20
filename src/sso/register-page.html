@@ -301,7 +301,17 @@
             showAlert('🎉 Tài khoản đã được tạo! Đang chuyển hướng...', 'success');
             const target = getRedirectUrl();
             setTimeout(() => {
-              window.location.href = target || '/ui/sso';
+              if (target) {
+                try {
+                  const url = new URL(target);
+                  if (data.token) url.searchParams.set('sso_token', data.token);
+                  window.location.href = url.toString();
+                } catch (_) {
+                  window.location.href = target;
+                }
+              } else {
+                window.location.href = '/ui/sso';
+              }
             }, 1200);
           } else {
             showAlert(data.message || 'Đăng ký thất bại. Vui lòng thử lại.');

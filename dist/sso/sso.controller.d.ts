@@ -9,6 +9,7 @@ export declare class SsoController {
     private setSessionCookie;
     me(req: Request): Promise<{
         user: Partial<import("../users/user.entity").User> | null;
+        token: string | null | undefined;
     }>;
     register(body: {
         email: string;
@@ -16,6 +17,7 @@ export declare class SsoController {
         displayName?: string;
     }, res: Response): Promise<{
         success: boolean;
+        token: string;
         user: Partial<import("../users/user.entity").User>;
     }>;
     login(body: {
@@ -23,6 +25,7 @@ export declare class SsoController {
         password: string;
     }, req: Request, res: Response): Promise<{
         success: boolean;
+        token: string;
         user: Partial<import("../users/user.entity").User>;
     }>;
     logout(req: Request, res: Response): Promise<{
