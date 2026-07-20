@@ -1,20 +1,29 @@
+import { UsersService } from '../users/users.service';
+import { User } from '../users/user.entity';
 export declare class SsoService {
-    private readonly sessions;
-    login({ username, password }: {
-        username: string;
+    private readonly usersService;
+    constructor(usersService: UsersService);
+    register(dto: {
+        email: string;
         password: string;
-    }): {
+        displayName?: string;
+    }): Promise<{
         token: string;
-        user: {
-            username: string;
-        };
-        expiresAt: number;
-    };
-    resolveSession(token: string | undefined): {
-        user: {
-            username: string;
-        };
-        expiresAt: number;
-    } | null;
-    logout(token: string | undefined): void;
+        user: Partial<User>;
+    }>;
+    login(dto: {
+        email: string;
+        password: string;
+        appOrigin?: string;
+    }): Promise<{
+        token: string;
+        user: Partial<User>;
+    }>;
+    oauthLogin(user: User, appOrigin?: string): Promise<{
+        token: string;
+        user: Partial<User>;
+    }>;
+    resolveSession(rawToken: string | undefined): Promise<User | null>;
+    logout(rawToken: string | undefined): Promise<void>;
+    sanitizeUser(user: User): Partial<User>;
 }

@@ -1,0 +1,127 @@
+name: Deploy vInfiSSO
+
+on:
+  push:
+    branches:
+      - main   # Trigger khi push lên branch main
+  workflow_dispatch:   # Cho phép chạy thủ công từ GitHub UI
+
+jobs:
+  deploy:
+    name: Build & Deploy to sso.vunph.id.vn
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout source ──────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Setup Node.js ────────────────────────────────────────────────────
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # ── 3. Install dependencies ─────────────────────────────────────────────
+      - name: Install dependencies
+        run: npm ci --omit=dev
+        # npm ci = install chính xác theo package-lock.json (reproducible)
+        # --omit=dev = bỏ qua devDependencies để image nhẹ hơn
+
+      # ── 4. Build NestJS ──────────────────────────────────────────────────────
+      - name: Build
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      # ── 5. Tạo .env cho production ──────────────────────────────────────────
+      # Các giá trị này được lưu trong GitHub Secrets (Settings → Secrets → Actions)
+      - name: Create production .env
+        run: |
+          cat > .env << 'EOF'
+          DATABASE_HOST=${{ secrets.DATABASE_HOST }}
+          DATABASE_PORT=${{ secrets.DATABASE_PORT }}
+          DATABASE_USER=${{ secrets.DATABASE_USER }}
+          DATABASE_PASSWORD=${{ secrets.DATABASE_PASSWORD }}
+          DATABASE_NAME=${{ secrets.DATABASE_NAME }}
+          NODE_ENV=production
+          PORT=3000
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          JWT_EXPIRES_IN=7d
+          SESSION_SECRET=${{ secrets.SESSION_SECRET }}
+          GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_CALLBACK_URL=https://sso.vunph.id.vn/sso/oauth/google/callback
+          FACEBOOK_APP_ID=${{ secrets.FACEBOOK_APP_ID }}
+          FACEBOOK_APP_SECRET=${{ secrets.FACEBOOK_APP_SECRET }}
+          FACEBOOK_CALLBACK_URL=https://sso.vunph.id.vn/sso/oauth/facebook/callback
+          SSO_BASE_URL=https://sso.vunph.id.vn
+          ICHINGNOW_URL=https://vunph.id.vn/kinhdich
+          TAROTNOW_URL=https://vunph.id.vn/tarot
+          ALLOWED_ORIGINS=https://vunph.id.vn,https://www.vunph.id.vn
+          EOF
+
+      # ── 6. Deploy via SSH (rsync + restart) ─────────────────────────────────
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          # Hoặc dùng key: key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+
+            # Đường dẫn deploy trên server
+            DEPLOY_DIR="/domains/sso.vunph.id.vn/public_html"
+
+            echo "📦 Tạo thư mục nếu chưa có..."
+            mkdir -p $DEPLOY_DIR
+
+            echo "✅ Deploy hoàn tất (rsync sẽ upload ở bước tiếp)"
+
+      # ── 7. Upload files qua rsync/SCP ────────────────────────────────────────
+      - name: Upload dist + source via rsync
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          source: "dist/,node_modules/,.env,package.json"
+          target: "/domains/sso.vunph.id.vn/public_html"
+          strip_components: 0
+
+      # ── 8. Restart app trên server ───────────────────────────────────────────
+      - name: Restart Node.js app (PM2)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          script: |
+            set -e
+            DEPLOY_DIR="/domains/sso.vunph.id.vn/public_html"
+            cd $DEPLOY_DIR
+
+            echo "🔄 Khởi động/restart app với PM2..."
+            # Nếu PM2 chưa có process thì start, có rồi thì restart
+            pm2 describe vinfi-sso > /dev/null 2>&1 \
+              && pm2 restart vinfi-sso \
+              || pm2 start dist/main.js --name vinfi-sso --env production
+
+            pm2 save
+            echo "✅ Deploy hoàn tất!"
+            pm2 list
+
+      # ── 9. Smoke test ────────────────────────────────────────────────────────
+      - name: Health check
+        run: |
+          sleep 10
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://sso.vunph.id.vn/sso/me)
+          echo "Health check status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ Health check FAILED (got $STATUS)"
+            exit 1
+          fi
+          echo "✅ Health check PASSED"

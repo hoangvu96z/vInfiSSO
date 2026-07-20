@@ -31,6 +31,12 @@ let AppController = class AppController {
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.send(html);
     }
+    getRegisterPage(res) {
+        const htmlPath = (0, node_path_1.join)(process.cwd(), 'src', 'sso', 'register-page.html');
+        const html = (0, node_fs_1.readFileSync)(htmlPath, 'utf8');
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(html);
+    }
     getAppAPage(res) {
         const htmlPath = (0, node_path_1.join)(process.cwd(), 'src', 'sso', 'app-a-page.html');
         const html = (0, node_fs_1.readFileSync)(htmlPath, 'utf8');
@@ -59,6 +65,13 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], AppController.prototype, "getSsoPage", null);
+__decorate([
+    (0, common_1.Get)('ui/register'),
+    __param(0, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], AppController.prototype, "getRegisterPage", null);
 __decorate([
     (0, common_1.Get)('ui/app-a'),
     __param(0, (0, common_1.Res)()),

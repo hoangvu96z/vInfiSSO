@@ -5,6 +5,7 @@ export declare class AppController {
     constructor(appService: AppService);
     getHello(res: Response): void;
     getSsoPage(res: Response): void;
+    getRegisterPage(res: Response): void;
     getAppAPage(res: Response): void;
     getAppBPage(res: Response): void;
 }

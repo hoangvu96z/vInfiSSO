@@ -1,24 +1,39 @@
 import type { Request, Response } from 'express';
 import { SsoService } from './sso.service';
+import { ConfigService } from '@nestjs/config';
 export declare class SsoController {
     private readonly ssoService;
-    constructor(ssoService: SsoService);
-    private getTokenFromCookie;
-    me(req: Request): {
-        user: {
-            username: string;
-        } | null;
-    };
-    login(body: {
-        username: string;
+    private readonly configService;
+    constructor(ssoService: SsoService, configService: ConfigService);
+    private getToken;
+    private setSessionCookie;
+    me(req: Request): Promise<{
+        user: Partial<import("../users/user.entity").User> | null;
+    }>;
+    register(body: {
+        email: string;
         password: string;
-    }, res: Response): {
+        displayName?: string;
+    }, res: Response): Promise<{
         success: boolean;
-        user: {
-            username: string;
-        };
-    };
-    logout(req: Request, res: Response): {
+        user: Partial<import("../users/user.entity").User>;
+    }>;
+    login(body: {
+        email: string;
+        password: string;
+    }, req: Request, res: Response): Promise<{
         success: boolean;
-    };
+        user: Partial<import("../users/user.entity").User>;
+    }>;
+    logout(req: Request, res: Response): Promise<{
+        success: boolean;
+    }>;
+    googleLogin(): void;
+    googleCallback(req: Request & {
+        user?: any;
+    }, res: Response): Promise<void>;
+    facebookLogin(): void;
+    facebookCallback(req: Request & {
+        user?: any;
+    }, res: Response): Promise<void>;
 }

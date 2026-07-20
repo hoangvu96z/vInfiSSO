@@ -14,44 +14,83 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SsoController = void 0;
 const common_1 = require("@nestjs/common");
+const passport_1 = require("@nestjs/passport");
 const sso_service_1 = require("./sso.service");
+const config_1 = require("@nestjs/config");
+const COOKIE_NAME = 'sso_token';
+const COOKIE_OPTIONS = {
+    httpOnly: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+};
 let SsoController = class SsoController {
     ssoService;
-    constructor(ssoService) {
+    configService;
+    constructor(ssoService, configService) {
         this.ssoService = ssoService;
+        this.configService = configService;
     }
-    getTokenFromCookie(req) {
-        const cookieHeader = req.headers.cookie ?? '';
-        const cookieEntry = cookieHeader
+    getToken(req) {
+        const raw = req.headers.cookie ?? '';
+        const entry = raw
             .split(';')
-            .map((item) => item.trim())
-            .find((item) => item.startsWith('sso_token='));
-        if (!cookieEntry) {
+            .map((s) => s.trim())
+            .find((s) => s.startsWith(`${COOKIE_NAME}=`));
+        if (!entry)
             return undefined;
-        }
-        const [, rawValue] = cookieEntry.split('=');
-        return rawValue ? decodeURIComponent(rawValue) : undefined;
+        const [, val] = entry.split('=');
+        return val ? decodeURIComponent(val) : undefined;
     }
-    me(req) {
-        const token = this.getTokenFromCookie(req);
-        const session = this.ssoService.resolveSession(token);
-        return { user: session?.user ?? null };
+    setSessionCookie(res, token) {
+        res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
     }
-    login(body, res) {
-        const session = this.ssoService.login(body);
-        res.cookie('sso_token', session.token, {
-            httpOnly: true,
-            sameSite: 'lax',
-            path: '/',
-            maxAge: 1000 * 60 * 60,
+    async me(req) {
+        const token = this.getToken(req);
+        const user = await this.ssoService.resolveSession(token);
+        return { user: user ? this.ssoService.sanitizeUser(user) : null };
+    }
+    async register(body, res) {
+        const { token, user } = await this.ssoService.register(body);
+        this.setSessionCookie(res, token);
+        return { success: true, user };
+    }
+    async login(body, req, res) {
+        const appOrigin = req.headers.origin ?? req.headers.referer;
+        const { token, user } = await this.ssoService.login({
+            ...body,
+            appOrigin: typeof appOrigin === 'string' ? appOrigin : undefined,
         });
-        return { success: true, user: session.user };
+        this.setSessionCookie(res, token);
+        return { success: true, user };
     }
-    logout(req, res) {
-        const token = this.getTokenFromCookie(req);
-        this.ssoService.logout(token);
-        res.clearCookie('sso_token', { path: '/' });
+    async logout(req, res) {
+        const token = this.getToken(req);
+        await this.ssoService.logout(token);
+        res.clearCookie(COOKIE_NAME, { path: '/' });
         return { success: true };
+    }
+    googleLogin() {
+    }
+    async googleCallback(req, res) {
+        if (!req.user) {
+            throw new common_1.BadRequestException('Google OAuth failed');
+        }
+        const { token } = await this.ssoService.oauthLogin(req.user, 'google');
+        this.setSessionCookie(res, token);
+        const redirect = this.configService.get('SSO_BASE_URL', 'http://localhost:3000');
+        res.redirect(`${redirect}/ui/sso`);
+    }
+    facebookLogin() {
+    }
+    async facebookCallback(req, res) {
+        if (!req.user) {
+            throw new common_1.BadRequestException('Facebook OAuth failed');
+        }
+        const { token } = await this.ssoService.oauthLogin(req.user, 'facebook');
+        this.setSessionCookie(res, token);
+        const redirect = this.configService.get('SSO_BASE_URL', 'http://localhost:3000');
+        res.redirect(`${redirect}/ui/sso`);
     }
 };
 exports.SsoController = SsoController;
@@ -60,15 +99,24 @@ __decorate([
     __param(0, (0, common_1.Req)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
-    __metadata("design:returntype", void 0)
+    __metadata("design:returntype", Promise)
 ], SsoController.prototype, "me", null);
 __decorate([
-    (0, common_1.Post)('login'),
+    (0, common_1.Post)('register'),
     __param(0, (0, common_1.Body)()),
     __param(1, (0, common_1.Res)({ passthrough: true })),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object, Object]),
-    __metadata("design:returntype", void 0)
+    __metadata("design:returntype", Promise)
+], SsoController.prototype, "register", null);
+__decorate([
+    (0, common_1.Post)('login'),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Req)()),
+    __param(2, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object, Object]),
+    __metadata("design:returntype", Promise)
 ], SsoController.prototype, "login", null);
 __decorate([
     (0, common_1.Post)('logout'),
@@ -76,10 +124,43 @@ __decorate([
     __param(1, (0, common_1.Res)({ passthrough: true })),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object, Object]),
-    __metadata("design:returntype", void 0)
+    __metadata("design:returntype", Promise)
 ], SsoController.prototype, "logout", null);
+__decorate([
+    (0, common_1.Get)('oauth/google'),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('google')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], SsoController.prototype, "googleLogin", null);
+__decorate([
+    (0, common_1.Get)('oauth/google/callback'),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('google')),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], SsoController.prototype, "googleCallback", null);
+__decorate([
+    (0, common_1.Get)('oauth/facebook'),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('facebook')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], SsoController.prototype, "facebookLogin", null);
+__decorate([
+    (0, common_1.Get)('oauth/facebook/callback'),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('facebook')),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], SsoController.prototype, "facebookCallback", null);
 exports.SsoController = SsoController = __decorate([
     (0, common_1.Controller)('sso'),
-    __metadata("design:paramtypes", [sso_service_1.SsoService])
+    __metadata("design:paramtypes", [sso_service_1.SsoService,
+        config_1.ConfigService])
 ], SsoController);
 //# sourceMappingURL=sso.controller.js.map
