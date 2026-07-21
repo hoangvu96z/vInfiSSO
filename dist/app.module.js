@@ -16,9 +16,11 @@ const auth_module_1 = require("./auth/auth.module");
 const member_app_module_1 = require("./member-app/member-app.module");
 const sso_module_1 = require("./sso/sso.module");
 const users_module_1 = require("./users/users.module");
+const readings_module_1 = require("./readings/readings.module");
 const user_entity_1 = require("./users/user.entity");
 const oauth_account_entity_1 = require("./users/oauth-account.entity");
 const session_entity_1 = require("./users/session.entity");
+const reading_entity_1 = require("./readings/reading.entity");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -38,7 +40,7 @@ exports.AppModule = AppModule = __decorate([
                     username: config.get('DATABASE_USER', 'postgres'),
                     password: config.get('DATABASE_PASSWORD', ''),
                     database: config.get('DATABASE_NAME', 'vinfi_sso'),
-                    entities: [user_entity_1.User, oauth_account_entity_1.OAuthAccount, session_entity_1.Session],
+                    entities: [user_entity_1.User, oauth_account_entity_1.OAuthAccount, session_entity_1.Session, reading_entity_1.Reading],
                     synchronize: true,
                     logging: config.get('NODE_ENV') !== 'production',
                 }),
@@ -47,6 +49,7 @@ exports.AppModule = AppModule = __decorate([
             auth_module_1.AuthModule,
             member_app_module_1.MemberAppModule,
             sso_module_1.SsoModule,
+            readings_module_1.ReadingsModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService],

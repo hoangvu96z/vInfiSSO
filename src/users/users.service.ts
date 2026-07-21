@@ -222,7 +222,12 @@ export class UsersService {
     user.emailVerificationToken = null;
     user.emailVerificationTokenExpiresAt = null;
 
-    return this.usersRepo.save(user);
+    const savedUser = await this.usersRepo.save(user);
+
+    // Xoá tất cả sessions cũ → bắt buộc user phải đăng nhập lại
+    await this.deleteAllSessionsForUser(savedUser.id);
+
+    return savedUser;
   }
 
   async resendVerificationEmail(email: string): Promise<void> {
