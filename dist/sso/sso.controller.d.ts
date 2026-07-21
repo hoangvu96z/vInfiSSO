@@ -39,4 +39,32 @@ export declare class SsoController {
     facebookCallback(req: Request & {
         user?: any;
     }, res: Response): Promise<void>;
+    verifyEmail(body: {
+        token: string;
+    }): Promise<{
+        success: boolean;
+        message: string;
+        user: Partial<import("../users/user.entity").User> | null;
+    }>;
+    resendVerificationEmail(body: {
+        email: string;
+    }): Promise<{
+        success: boolean;
+        message: string;
+    }>;
+    forgotPassword(body: {
+        email: string;
+    }): Promise<{
+        success: boolean;
+        message: string;
+    }>;
+    resetPassword(body: {
+        token: string;
+        password: string;
+    }, res: Response): Promise<{
+        success: boolean;
+        message: string;
+        token: string;
+        user: Partial<import("../users/user.entity").User>;
+    }>;
 }

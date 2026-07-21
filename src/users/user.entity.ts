@@ -32,6 +32,18 @@ export class User {
   @Column({ default: false })
   isVerified: boolean;
 
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  emailVerificationToken: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  emailVerificationTokenExpiresAt: Date | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  passwordResetToken: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  passwordResetTokenExpiresAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

@@ -26,4 +26,9 @@ export declare class SsoService {
     resolveSession(rawToken: string | undefined): Promise<User | null>;
     logout(rawToken: string | undefined): Promise<void>;
     sanitizeUser(user: User): Partial<User>;
+    verifyEmail(token: string): Promise<User | null>;
+    resendVerificationEmail(email: string): Promise<void>;
+    requestPasswordReset(email: string): Promise<void>;
+    resetPassword(token: string, newPassword: string): Promise<User>;
+    createSessionForUser(userId: string): Promise<string>;
 }

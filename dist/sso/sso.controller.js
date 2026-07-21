@@ -101,6 +101,48 @@ let SsoController = class SsoController {
         const redirect = this.configService.get('SSO_BASE_URL', 'http://localhost:3000');
         res.redirect(`${redirect}/ui/sso`);
     }
+    async verifyEmail(body) {
+        if (!body.token) {
+            throw new common_1.BadRequestException('Token là bắt buộc');
+        }
+        const user = await this.ssoService.verifyEmail(body.token);
+        return {
+            success: true,
+            message: 'Email đã được xác nhận thành công',
+            user: user ? this.ssoService.sanitizeUser(user) : null,
+        };
+    }
+    async resendVerificationEmail(body) {
+        if (!body.email) {
+            throw new common_1.BadRequestException('Email là bắt buộc');
+        }
+        await this.ssoService.resendVerificationEmail(body.email);
+        return { success: true, message: 'Email xác nhận đã được gửi' };
+    }
+    async forgotPassword(body) {
+        if (!body.email) {
+            throw new common_1.BadRequestException('Email là bắt buộc');
+        }
+        await this.ssoService.requestPasswordReset(body.email);
+        return {
+            success: true,
+            message: 'Hướng dẫn đặt lại mật khẩu đã được gửi đến email của bạn',
+        };
+    }
+    async resetPassword(body, res) {
+        if (!body.token || !body.password) {
+            throw new common_1.BadRequestException('Token và mật khẩu là bắt buộc');
+        }
+        const user = await this.ssoService.resetPassword(body.token, body.password);
+        const token = await this.ssoService.createSessionForUser(user.id);
+        this.setSessionCookie(res, token);
+        return {
+            success: true,
+            message: 'Mật khẩu đã được đặt lại thành công',
+            token,
+            user: this.ssoService.sanitizeUser(user),
+        };
+    }
 };
 exports.SsoController = SsoController;
 __decorate([
@@ -167,6 +209,35 @@ __decorate([
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], SsoController.prototype, "facebookCallback", null);
+__decorate([
+    (0, common_1.Post)('verify-email'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], SsoController.prototype, "verifyEmail", null);
+__decorate([
+    (0, common_1.Post)('resend-verification-email'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], SsoController.prototype, "resendVerificationEmail", null);
+__decorate([
+    (0, common_1.Post)('forgot-password'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], SsoController.prototype, "forgotPassword", null);
+__decorate([
+    (0, common_1.Post)('reset-password'),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], SsoController.prototype, "resetPassword", null);
 exports.SsoController = SsoController = __decorate([
     (0, common_1.Controller)('sso'),
     __metadata("design:paramtypes", [sso_service_1.SsoService,

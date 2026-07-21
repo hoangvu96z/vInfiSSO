@@ -155,4 +155,67 @@ export class SsoController {
     const redirect = this.configService.get<string>('SSO_BASE_URL', 'http://localhost:3000');
     res.redirect(`${redirect}/ui/sso`);
   }
+
+  // ─── POST /sso/verify-email ───────────────────────────────────────────────
+
+  @Post('verify-email')
+  async verifyEmail(@Body() body: { token: string }) {
+    if (!body.token) {
+      throw new BadRequestException('Token là bắt buộc');
+    }
+    const user = await this.ssoService.verifyEmail(body.token);
+    return {
+      success: true,
+      message: 'Email đã được xác nhận thành công',
+      user: user ? this.ssoService.sanitizeUser(user) : null,
+    };
+  }
+
+  // ─── POST /sso/resend-verification-email ──────────────────────────────────
+
+  @Post('resend-verification-email')
+  async resendVerificationEmail(@Body() body: { email: string }) {
+    if (!body.email) {
+      throw new BadRequestException('Email là bắt buộc');
+    }
+    await this.ssoService.resendVerificationEmail(body.email);
+    return { success: true, message: 'Email xác nhận đã được gửi' };
+  }
+
+  // ─── POST /sso/forgot-password ────────────────────────────────────────────
+
+  @Post('forgot-password')
+  async forgotPassword(@Body() body: { email: string }) {
+    if (!body.email) {
+      throw new BadRequestException('Email là bắt buộc');
+    }
+    await this.ssoService.requestPasswordReset(body.email);
+    return {
+      success: true,
+      message: 'Hướng dẫn đặt lại mật khẩu đã được gửi đến email của bạn',
+    };
+  }
+
+  // ─── POST /sso/reset-password ─────────────────────────────────────────────
+
+  @Post('reset-password')
+  async resetPassword(
+    @Body() body: { token: string; password: string },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (!body.token || !body.password) {
+      throw new BadRequestException('Token và mật khẩu là bắt buộc');
+    }
+    const user = await this.ssoService.resetPassword(body.token, body.password);
+    // Create new session for user after password reset
+    const token = await this.ssoService.createSessionForUser(user.id);
+    this.setSessionCookie(res, token);
+    return {
+      success: true,
+      message: 'Mật khẩu đã được đặt lại thành công',
+      token,
+      user: this.ssoService.sanitizeUser(user),
+    };
+  }
 }
+

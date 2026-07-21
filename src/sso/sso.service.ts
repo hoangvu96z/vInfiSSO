@@ -83,4 +83,28 @@ export class SsoService {
     const { passwordHash: _, ...safe } = user as any;
     return safe;
   }
+
+  // ─── Email Verification ───────────────────────────────────────────────────
+
+  async verifyEmail(token: string) {
+    return this.usersService.verifyEmail(token);
+  }
+
+  async resendVerificationEmail(email: string) {
+    return this.usersService.resendVerificationEmail(email);
+  }
+
+  // ─── Password Reset ───────────────────────────────────────────────────────
+
+  async requestPasswordReset(email: string) {
+    return this.usersService.requestPasswordReset(email);
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    return this.usersService.resetPassword(token, newPassword);
+  }
+
+  async createSessionForUser(userId: string): Promise<string> {
+    return this.usersService.createSession(userId);
+  }
 }

@@ -5,6 +5,7 @@ import * as bcryptjs from 'bcryptjs';
 import { User } from './user.entity';
 import { OAuthAccount } from './oauth-account.entity';
 import { Session } from './session.entity';
+import { MailService } from '../mail/mail.service';
 import * as crypto from 'node:crypto';
 
 @Injectable()
@@ -18,6 +19,8 @@ export class UsersService {
 
     @InjectRepository(Session)
     private readonly sessionsRepo: Repository<Session>,
+
+    private readonly mailService: MailService,
   ) {}
 
   // ─── Users ────────────────────────────────────────────────────────────────
@@ -48,14 +51,35 @@ export class UsersService {
       ? await bcryptjs.hash(dto.password, 12)
       : null;
 
+    // Generate email verification token (expires in 24 hours)
+    const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+    const emailVerificationTokenExpiresAt = new Date(
+      Date.now() + 24 * 60 * 60 * 1000,
+    );
+
     const user = this.usersRepo.create({
       email: normalizedEmail,
       passwordHash,
       displayName: dto.displayName?.trim() || normalizedEmail.split('@')[0],
       avatarUrl: dto.avatarUrl ?? null,
+      emailVerificationToken,
+      emailVerificationTokenExpiresAt,
     });
 
-    return this.usersRepo.save(user);
+    const savedUser = await this.usersRepo.save(user);
+
+    // Send verification email
+    try {
+      await this.mailService.sendVerificationEmail(
+        normalizedEmail,
+        emailVerificationToken,
+      );
+    } catch (error) {
+      console.error('Failed to send verification email:', error);
+      // Don't throw - user is still created, they can request email resend
+    }
+
+    return savedUser;
   }
 
   async verifyPassword(user: User, password: string): Promise<boolean> {
@@ -168,5 +192,127 @@ export class UsersService {
       .delete()
       .where('user_id = :userId', { userId })
       .execute();
+  }
+
+  // ─── Email Verification ───────────────────────────────────────────────────
+
+  async verifyEmail(token: string): Promise<User | null> {
+    const user = await this.usersRepo.findOne({
+      where: { emailVerificationToken: token },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Token không hợp lệ');
+    }
+
+    // Check if token has expired
+    if (
+      user.emailVerificationTokenExpiresAt &&
+      user.emailVerificationTokenExpiresAt < new Date()
+    ) {
+      throw new NotFoundException('Token đã hết hạn');
+    }
+
+    // Mark email as verified
+    user.isVerified = true;
+    user.emailVerificationToken = null;
+    user.emailVerificationTokenExpiresAt = null;
+
+    return this.usersRepo.save(user);
+  }
+
+  async resendVerificationEmail(email: string): Promise<void> {
+    const user = await this.findByEmail(email);
+
+    if (!user) {
+      throw new NotFoundException('Email không tồn tại');
+    }
+
+    if (user.isVerified) {
+      throw new ConflictException('Email đã được xác nhận');
+    }
+
+    // Generate new verification token
+    const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+    const emailVerificationTokenExpiresAt = new Date(
+      Date.now() + 24 * 60 * 60 * 1000,
+    );
+
+    user.emailVerificationToken = emailVerificationToken;
+    user.emailVerificationTokenExpiresAt = emailVerificationTokenExpiresAt;
+
+    await this.usersRepo.save(user);
+
+    // Send verification email
+    try {
+      await this.mailService.sendVerificationEmail(
+        user.email,
+        emailVerificationToken,
+      );
+    } catch (error) {
+      console.error('Failed to send verification email:', error);
+      throw new Error('Không thể gửi email xác nhận');
+    }
+  }
+
+  // ─── Password Reset ───────────────────────────────────────────────────────
+
+  async requestPasswordReset(email: string): Promise<void> {
+    const user = await this.findByEmail(email);
+
+    if (!user) {
+      // Don't reveal if email exists for security
+      return;
+    }
+
+    // Generate password reset token (expires in 1 hour)
+    const passwordResetToken = crypto.randomBytes(32).toString('hex');
+    const passwordResetTokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+    user.passwordResetToken = passwordResetToken;
+    user.passwordResetTokenExpiresAt = passwordResetTokenExpiresAt;
+
+    await this.usersRepo.save(user);
+
+    // Send password reset email
+    try {
+      await this.mailService.sendPasswordResetEmail(
+        user.email,
+        passwordResetToken,
+        user.displayName,
+      );
+    } catch (error) {
+      console.error('Failed to send password reset email:', error);
+      // Don't throw - we already saved the token
+    }
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<User> {
+    if (newPassword.length < 8) {
+      throw new ConflictException('Mật khẩu phải có ít nhất 8 ký tự');
+    }
+
+    const user = await this.usersRepo.findOne({
+      where: { passwordResetToken: token },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Token không hợp lệ');
+    }
+
+    // Check if token has expired
+    if (
+      user.passwordResetTokenExpiresAt &&
+      user.passwordResetTokenExpiresAt < new Date()
+    ) {
+      throw new NotFoundException('Token đã hết hạn');
+    }
+
+    // Update password
+    user.passwordHash = await bcryptjs.hash(newPassword, 12);
+    user.passwordResetToken = null;
+    user.passwordResetTokenExpiresAt = null;
+
+    return this.usersRepo.save(user);
   }
 }

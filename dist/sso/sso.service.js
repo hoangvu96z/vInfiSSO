@@ -62,6 +62,21 @@ let SsoService = class SsoService {
         const { passwordHash: _, ...safe } = user;
         return safe;
     }
+    async verifyEmail(token) {
+        return this.usersService.verifyEmail(token);
+    }
+    async resendVerificationEmail(email) {
+        return this.usersService.resendVerificationEmail(email);
+    }
+    async requestPasswordReset(email) {
+        return this.usersService.requestPasswordReset(email);
+    }
+    async resetPassword(token, newPassword) {
+        return this.usersService.resetPassword(token, newPassword);
+    }
+    async createSessionForUser(userId) {
+        return this.usersService.createSession(userId);
+    }
 };
 exports.SsoService = SsoService;
 exports.SsoService = SsoService = __decorate([
