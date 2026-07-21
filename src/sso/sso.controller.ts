@@ -5,6 +5,7 @@ import {
   Post,
   Req,
   Res,
+  Query,
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
@@ -71,11 +72,9 @@ export class SsoController {
   @Post('register')
   async register(
     @Body() body: { email: string; password: string; displayName?: string },
-    @Res({ passthrough: true }) res: Response,
   ) {
-    const { token, user } = await this.ssoService.register(body);
-    this.setSessionCookie(res, token);
-    return { success: true, token, user };
+    const result = await this.ssoService.register(body);
+    return { success: true, ...result };
   }
 
   // ─── POST /sso/login ──────────────────────────────────────────────────────
@@ -156,7 +155,21 @@ export class SsoController {
     res.redirect(`${redirect}/ui/sso`);
   }
 
-  // ─── POST /sso/verify-email ───────────────────────────────────────────────
+  // ─── GET & POST /sso/verify-email ──────────────────────────────────────────
+
+  @Get('verify-email')
+  async verifyEmailGet(
+    @Query('token') token: string,
+    @Res() res: Response,
+  ) {
+    try {
+      await this.ssoService.verifyEmail(token);
+      res.redirect('/ui/sso?verified=true');
+    } catch (err) {
+      const msg = encodeURIComponent(err.message || 'Xác nhận email thất bại');
+      res.redirect(`/ui/sso?verify_error=${msg}`);
+    }
+  }
 
   @Post('verify-email')
   async verifyEmail(@Body() body: { token: string }) {
@@ -171,7 +184,16 @@ export class SsoController {
     };
   }
 
-  // ─── POST /sso/resend-verification-email ──────────────────────────────────
+  // ─── POST /sso/resend-verification & /sso/resend-verification-email ──────
+
+  @Post('resend-verification')
+  async resendVerification(@Body() body: { email: string }) {
+    if (!body.email) {
+      throw new BadRequestException('Email là bắt buộc');
+    }
+    await this.ssoService.resendVerificationEmail(body.email);
+    return { success: true, message: 'Đã gửi lại email xác nhận. Vui lòng kiểm tra hộp thư của bạn.' };
+  }
 
   @Post('resend-verification-email')
   async resendVerificationEmail(@Body() body: { email: string }) {
@@ -179,7 +201,7 @@ export class SsoController {
       throw new BadRequestException('Email là bắt buộc');
     }
     await this.ssoService.resendVerificationEmail(body.email);
-    return { success: true, message: 'Email xác nhận đã được gửi' };
+    return { success: true, message: 'Đã gửi lại email xác nhận. Vui lòng kiểm tra hộp thư của bạn.' };
   }
 
   // ─── POST /sso/forgot-password ────────────────────────────────────────────

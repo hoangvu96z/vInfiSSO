@@ -29,8 +29,10 @@ let SsoService = class SsoService {
             password: dto.password,
             displayName: dto.displayName,
         });
-        const token = await this.usersService.createSession(user.id, 'register');
-        return { token, user: this.sanitizeUser(user) };
+        return {
+            message: 'Đăng ký thành công! Vui lòng kiểm tra hộp thư email của bạn để xác nhận tài khoản trong vòng 24 giờ.',
+            email: user.email,
+        };
     }
     async login(dto) {
         const user = await this.usersService.findByEmail(dto.email);
@@ -41,10 +43,23 @@ let SsoService = class SsoService {
         if (!valid) {
             throw new common_1.UnauthorizedException('Email hoặc mật khẩu không đúng');
         }
+        if (!user.isVerified) {
+            throw new common_1.ForbiddenException({
+                statusCode: 403,
+                error: 'EMAIL_NOT_VERIFIED',
+                message: 'Tài khoản chưa được xác nhận email. Vui lòng kiểm tra hộp thư của bạn hoặc nhấn gửi lại email xác nhận.',
+                requiresVerification: true,
+                email: user.email,
+            });
+        }
         const token = await this.usersService.createSession(user.id, dto.appOrigin);
         return { token, user: this.sanitizeUser(user) };
     }
     async oauthLogin(user, appOrigin) {
+        if (!user.isVerified) {
+            await this.usersService.markAsVerified(user.id);
+            user.isVerified = true;
+        }
         const token = await this.usersService.createSession(user.id, appOrigin);
         return { token, user: this.sanitizeUser(user) };
     }
@@ -59,7 +74,7 @@ let SsoService = class SsoService {
         await this.usersService.deleteSessionByToken(rawToken);
     }
     sanitizeUser(user) {
-        const { passwordHash: _, ...safe } = user;
+        const { passwordHash: _, emailVerificationToken: __, passwordResetToken: ___, ...safe } = user;
         return safe;
     }
     async verifyEmail(token) {

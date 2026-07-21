@@ -1,4 +1,9 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/user.entity';
 
@@ -7,12 +12,13 @@ export class SsoService {
   constructor(private readonly usersService: UsersService) {}
 
   // ─── Register ─────────────────────────────────────────────────────────────
+  // Sau đăng ký CHỈ gửi email, KHÔNG tạo session → user phải xác nhận email trước
 
   async register(dto: {
     email: string;
     password: string;
     displayName?: string;
-  }): Promise<{ token: string; user: Partial<User> }> {
+  }): Promise<{ message: string; email: string }> {
     if (!dto.email || !dto.password) {
       throw new BadRequestException('Email và mật khẩu là bắt buộc');
     }
@@ -21,17 +27,22 @@ export class SsoService {
       throw new BadRequestException('Mật khẩu phải có ít nhất 8 ký tự');
     }
 
+    // createUser tự động gửi email xác nhận (24h token)
     const user = await this.usersService.createUser({
       email: dto.email,
       password: dto.password,
       displayName: dto.displayName,
     });
 
-    const token = await this.usersService.createSession(user.id, 'register');
-    return { token, user: this.sanitizeUser(user) };
+    return {
+      message:
+        'Đăng ký thành công! Vui lòng kiểm tra hộp thư email của bạn để xác nhận tài khoản trong vòng 24 giờ.',
+      email: user.email,
+    };
   }
 
   // ─── Login ────────────────────────────────────────────────────────────────
+  // Chặn nếu chưa verify email
 
   async login(dto: {
     email: string;
@@ -49,16 +60,34 @@ export class SsoService {
       throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
     }
 
+    // ⛔ Chặn đăng nhập nếu chưa verify email
+    if (!user.isVerified) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        error: 'EMAIL_NOT_VERIFIED',
+        message:
+          'Tài khoản chưa được xác nhận email. Vui lòng kiểm tra hộp thư của bạn hoặc nhấn gửi lại email xác nhận.',
+        requiresVerification: true,
+        email: user.email,
+      });
+    }
+
     const token = await this.usersService.createSession(user.id, dto.appOrigin);
     return { token, user: this.sanitizeUser(user) };
   }
 
   // ─── OAuth Login (after passport validates) ───────────────────────────────
+  // OAuth users auto-verified
 
   async oauthLogin(
     user: User,
     appOrigin?: string,
   ): Promise<{ token: string; user: Partial<User> }> {
+    // Auto-verify OAuth users nếu chưa verify
+    if (!user.isVerified) {
+      await this.usersService.markAsVerified(user.id);
+      user.isVerified = true;
+    }
     const token = await this.usersService.createSession(user.id, appOrigin);
     return { token, user: this.sanitizeUser(user) };
   }
@@ -80,7 +109,7 @@ export class SsoService {
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
   sanitizeUser(user: User): Partial<User> {
-    const { passwordHash: _, ...safe } = user as any;
+    const { passwordHash: _, emailVerificationToken: __, passwordResetToken: ___, ...safe } = user as any;
     return safe;
   }
 

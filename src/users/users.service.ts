@@ -87,6 +87,10 @@ export class UsersService {
     return bcryptjs.compare(password, user.passwordHash);
   }
 
+  async markAsVerified(userId: string): Promise<void> {
+    await this.usersRepo.update(userId, { isVerified: true });
+  }
+
   // ─── OAuth ────────────────────────────────────────────────────────────────
 
   async findOrCreateOAuthUser(dto: {
@@ -279,7 +283,7 @@ export class UsersService {
       await this.mailService.sendPasswordResetEmail(
         user.email,
         passwordResetToken,
-        user.displayName,
+        user.displayName ?? undefined,
       );
     } catch (error) {
       console.error('Failed to send password reset email:', error);

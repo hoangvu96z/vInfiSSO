@@ -8,8 +8,8 @@ export declare class SsoService {
         password: string;
         displayName?: string;
     }): Promise<{
-        token: string;
-        user: Partial<User>;
+        message: string;
+        email: string;
     }>;
     login(dto: {
         email: string;

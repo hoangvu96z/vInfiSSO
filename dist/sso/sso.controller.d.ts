@@ -15,10 +15,10 @@ export declare class SsoController {
         email: string;
         password: string;
         displayName?: string;
-    }, res: Response): Promise<{
+    }): Promise<{
+        message: string;
+        email: string;
         success: boolean;
-        token: string;
-        user: Partial<import("../users/user.entity").User>;
     }>;
     login(body: {
         email: string;
@@ -39,12 +39,19 @@ export declare class SsoController {
     facebookCallback(req: Request & {
         user?: any;
     }, res: Response): Promise<void>;
+    verifyEmailGet(token: string, res: Response): Promise<void>;
     verifyEmail(body: {
         token: string;
     }): Promise<{
         success: boolean;
         message: string;
         user: Partial<import("../users/user.entity").User> | null;
+    }>;
+    resendVerification(body: {
+        email: string;
+    }): Promise<{
+        success: boolean;
+        message: string;
     }>;
     resendVerificationEmail(body: {
         email: string;

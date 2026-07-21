@@ -1,157 +1,150 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class MailService {
+  private readonly logger = new Logger(MailService.name);
   private transporter: nodemailer.Transporter;
 
   constructor(private readonly configService: ConfigService) {
-    this.initializeTransporter();
+    const host = this.configService.get<string>('SMTP_HOST', 'localhost');
+    const rawPort = this.configService.get<string | number>('SMTP_PORT', 465);
+    const port = typeof rawPort === 'string' ? parseInt(rawPort, 10) : rawPort;
+    const user = this.configService.get<string>('SMTP_USER');
+    const pass = this.configService.get<string>('SMTP_PASS');
+
+    if (user && pass) {
+      const isSecure = port === 465;
+      this.transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure: isSecure,
+        auth: { user, pass },
+        tls: {
+          rejectUnauthorized: false,
+        },
+      });
+      this.logger.log(`Configured external SMTP: ${host}:${port} (secure: ${isSecure})`);
+    } else {
+      this.transporter = nodemailer.createTransport({
+        host,
+        port: 25,
+        ignoreTLS: true,
+      });
+      this.logger.log(`Configured local Mail Server on VPS (${host}:25)`);
+    }
   }
 
-  private initializeTransporter() {
-    const mailHost = this.configService.get<string>('MAIL_HOST');
-    const mailPort = this.configService.get<number>('MAIL_PORT', 587);
-    const mailUser = this.configService.get<string>('MAIL_USER');
-    const mailPassword = this.configService.get<string>('MAIL_PASSWORD');
-    const mailFrom = this.configService.get<string>(
-      'MAIL_FROM',
-      `noreply@${mailHost}`,
-    );
+  async sendVerificationEmail(email: string, displayNameOrToken: string, token?: string): Promise<void> {
+    let displayName = displayNameOrToken;
+    let verifyToken = token;
+    if (!token) {
+      verifyToken = displayNameOrToken;
+      displayName = email;
+    }
 
-    // For local Postfix (no auth needed)
-    const auth =
-      mailUser && mailPassword
-        ? {
-            user: mailUser,
-            pass: mailPassword,
-          }
-        : undefined;
+    const ssoBaseUrl = this.configService.get<string>('SSO_BASE_URL', 'https://sso.vunph.click');
+    const verifyLink = `${ssoBaseUrl}/sso/verify-email?token=${verifyToken}`;
+    const fromAddress = this.configService.get<string>('SMTP_FROM', '"vInfi SSO" <admin@vunph.id.vn>');
 
-    this.transporter = nodemailer.createTransport({
-      host: mailHost,
-      port: mailPort,
-      secure: mailPort === 465, // true for 465, false for other ports
-      auth,
-    });
-  }
-
-  async sendVerificationEmail(email: string, verificationToken: string) {
-    const ssoBaseUrl = this.configService.get<string>('SSO_BASE_URL');
-    const verificationUrl = `${ssoBaseUrl}/sso/verify-email?token=${verificationToken}`;
-
-    const mailFrom = this.configService.get<string>(
-      'MAIL_FROM',
-      'noreply@vinfisso.com',
-    );
-
-    return this.transporter.sendMail({
-      from: mailFrom,
-      to: email,
-      subject: '🔐 Xác nhận email của bạn - vInfi SSO',
-      html: `
-        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h2 style="color: #7c5cfc;">Xác nhận Email</h2>
-            <p>Cảm ơn bạn đã đăng ký tài khoản tại <strong>vInfi SSO</strong>!</p>
-            <p>Để hoàn tất quá trình đăng ký, vui lòng xác nhận email của bạn bằng cách nhấp vào nút bên dưới:</p>
-            
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${verificationUrl}" style="
-                display: inline-block;
-                padding: 12px 30px;
-                background-color: #7c5cfc;
-                color: white;
-                text-decoration: none;
-                border-radius: 5px;
-                font-weight: bold;
-              ">
-                ✓ Xác nhận Email
-              </a>
-            </div>
-
-            <p style="color: #888; font-size: 0.9em;">
-              Hoặc copy link này vào trình duyệt:<br>
-              <code style="word-break: break-all;">${verificationUrl}</code>
-            </p>
-
-            <p style="color: #888; font-size: 0.9em; margin-top: 30px;">
-              Đường link này sẽ hết hạn trong 24 giờ.
-            </p>
-
-            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-            <p style="color: #999; font-size: 0.85em; text-align: center;">
-              © 2026 vInfi SSO. All rights reserved.
-            </p>
-          </div>
+    const htmlContent = `
+    <!DOCTYPE html>
+    <html lang="vi">
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0f0f14; color: #e8e8f0; margin: 0; padding: 40px 20px; }
+        .container { max-width: 520px; margin: 0 auto; background: #1a1a24; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 36px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+        .logo { text-align: center; margin-bottom: 24px; font-size: 28px; font-weight: bold; color: #a78bfa; }
+        h2 { color: #ffffff; font-size: 20px; margin-bottom: 16px; }
+        p { color: #a0a0b0; line-height: 1.6; font-size: 15px; margin-bottom: 24px; }
+        .btn-container { text-align: center; margin: 32px 0; }
+        .btn { display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #7c5cfc, #a78bfa); color: #ffffff !important; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 16px; box-shadow: 0 8px 20px rgba(124,92,252,0.3); }
+        .expire-notice { font-size: 13px; color: #888899; text-align: center; margin-top: 24px; }
+        .footer { text-align: center; font-size: 12px; color: #666677; margin-top: 32px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 20px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="logo">✦ vInfi SSO</div>
+        <h2>Xin chào ${displayName || email},</h2>
+        <p>Cảm ơn bạn đã đăng ký tài khoản tại <strong>vInfi SSO</strong>. Vui lòng bấm vào nút bên dưới để xác nhận địa chỉ email của bạn:</p>
+        <div class="btn-container">
+          <a href="${verifyLink}" class="btn" target="_blank">Xác nhận Email</a>
         </div>
-      `,
-      text: `Xác nhận email của bạn tại: ${verificationUrl}`,
-    });
+        <p class="expire-notice">⚠️ Thư xác nhận này có hiệu lực trong vòng <strong>24 giờ</strong>. Nếu bạn không thực hiện đăng ký, xin vui lòng bỏ qua email này.</p>
+        <div class="footer">
+          <p>© 2026 vInfi SSO. All rights reserved.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+    `;
+
+    try {
+      await this.transporter.sendMail({
+        from: fromAddress,
+        to: email,
+        subject: '✦ [vInfi SSO] Xác nhận địa chỉ email tài khoản của bạn',
+        html: htmlContent,
+      });
+      this.logger.log(`Verification email sent successfully to ${email}`);
+    } catch (error) {
+      this.logger.error(`Failed to send email to ${email}: ${error.message}`);
+      this.logger.log(`[VERIFICATION LINK] ${email}: ${verifyLink}`);
+    }
   }
 
-  async sendPasswordResetEmail(
-    email: string,
-    resetToken: string,
-    displayName?: string | null,
-  ) {
-    const ssoBaseUrl = this.configService.get<string>('SSO_BASE_URL');
-    const resetUrl = `${ssoBaseUrl}/sso/reset-password?token=${resetToken}`;
+  async sendPasswordResetEmail(email: string, token: string, displayName?: string): Promise<void> {
+    const ssoBaseUrl = this.configService.get<string>('SSO_BASE_URL', 'https://sso.vunph.click');
+    const resetLink = `${ssoBaseUrl}/ui/sso?reset_token=${token}`;
+    const fromAddress = this.configService.get<string>('SMTP_FROM', '"vInfi SSO" <admin@vunph.id.vn>');
 
-    const mailFrom = this.configService.get<string>(
-      'MAIL_FROM',
-      'noreply@vinfisso.com',
-    );
-
-    return this.transporter.sendMail({
-      from: mailFrom,
-      to: email,
-      subject: '🔑 Đặt lại mật khẩu - vInfi SSO',
-      html: `
-        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h2 style="color: #7c5cfc;">Đặt lại Mật khẩu</h2>
-            <p>${displayName ? `Xin chào ${displayName},` : 'Xin chào,'}</p>
-            <p>Chúng tôi đã nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn.</p>
-            <p>Nhấp vào nút bên dưới để tạo mật khẩu mới:</p>
-            
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${resetUrl}" style="
-                display: inline-block;
-                padding: 12px 30px;
-                background-color: #7c5cfc;
-                color: white;
-                text-decoration: none;
-                border-radius: 5px;
-                font-weight: bold;
-              ">
-                🔑 Đặt lại Mật khẩu
-              </a>
-            </div>
-
-            <p style="color: #888; font-size: 0.9em;">
-              Hoặc copy link này vào trình duyệt:<br>
-              <code style="word-break: break-all;">${resetUrl}</code>
-            </p>
-
-            <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
-              <strong>⚠️ Lưu ý bảo mật:</strong><br>
-              Nếu bạn không yêu cầu đặt lại mật khẩu, vui lòng bỏ qua email này. Tài khoản của bạn vẫn an toàn.
-            </div>
-
-            <p style="color: #888; font-size: 0.9em;">
-              Đường link này sẽ hết hạn trong 1 giờ.
-            </p>
-
-            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-            <p style="color: #999; font-size: 0.85em; text-align: center;">
-              © 2026 vInfi SSO. All rights reserved.
-            </p>
-          </div>
+    const htmlContent = `
+    <!DOCTYPE html>
+    <html lang="vi">
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0f0f14; color: #e8e8f0; margin: 0; padding: 40px 20px; }
+        .container { max-width: 520px; margin: 0 auto; background: #1a1a24; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 36px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+        .logo { text-align: center; margin-bottom: 24px; font-size: 28px; font-weight: bold; color: #a78bfa; }
+        h2 { color: #ffffff; font-size: 20px; margin-bottom: 16px; }
+        p { color: #a0a0b0; line-height: 1.6; font-size: 15px; margin-bottom: 24px; }
+        .btn-container { text-align: center; margin: 32px 0; }
+        .btn { display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #7c5cfc, #a78bfa); color: #ffffff !important; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 16px; box-shadow: 0 8px 20px rgba(124,92,252,0.3); }
+        .expire-notice { font-size: 13px; color: #888899; text-align: center; margin-top: 24px; }
+        .footer { text-align: center; font-size: 12px; color: #666677; margin-top: 32px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 20px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="logo">✦ vInfi SSO</div>
+        <h2>Xin chào ${displayName || email},</h2>
+        <p>Bạn đã yêu cầu đặt lại mật khẩu cho tài khoản tại <strong>vInfi SSO</strong>. Vui lòng bấm vào nút bên dưới để tiến hành đặt mật khẩu mới:</p>
+        <div class="btn-container">
+          <a href="${resetLink}" class="btn" target="_blank">Đặt lại mật khẩu</a>
         </div>
-      `,
-      text: `Đặt lại mật khẩu của bạn tại: ${resetUrl}`,
-    });
+        <p class="expire-notice">⚠️ Thư này có hiệu lực trong vòng <strong>1 giờ</strong>. Nếu bạn không thực hiện yêu cầu này, xin vui lòng bỏ qua email.</p>
+        <div class="footer">
+          <p>© 2026 vInfi SSO. All rights reserved.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+    `;
+
+    try {
+      await this.transporter.sendMail({
+        from: fromAddress,
+        to: email,
+        subject: '✦ [vInfi SSO] Yêu cầu đặt lại mật khẩu',
+        html: htmlContent,
+      });
+      this.logger.log(`Password reset email sent successfully to ${email}`);
+    } catch (error) {
+      this.logger.error(`Failed to send password reset email to ${email}: ${error.message}`);
+    }
   }
 }

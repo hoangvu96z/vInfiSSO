@@ -59,10 +59,9 @@ let SsoController = class SsoController {
             token: user ? token : null,
         };
     }
-    async register(body, res) {
-        const { token, user } = await this.ssoService.register(body);
-        this.setSessionCookie(res, token);
-        return { success: true, token, user };
+    async register(body) {
+        const result = await this.ssoService.register(body);
+        return { success: true, ...result };
     }
     async login(body, req, res) {
         const appOrigin = req.headers.origin ?? req.headers.referer;
@@ -101,6 +100,16 @@ let SsoController = class SsoController {
         const redirect = this.configService.get('SSO_BASE_URL', 'http://localhost:3000');
         res.redirect(`${redirect}/ui/sso`);
     }
+    async verifyEmailGet(token, res) {
+        try {
+            await this.ssoService.verifyEmail(token);
+            res.redirect('/ui/sso?verified=true');
+        }
+        catch (err) {
+            const msg = encodeURIComponent(err.message || 'Xác nhận email thất bại');
+            res.redirect(`/ui/sso?verify_error=${msg}`);
+        }
+    }
     async verifyEmail(body) {
         if (!body.token) {
             throw new common_1.BadRequestException('Token là bắt buộc');
@@ -112,12 +121,19 @@ let SsoController = class SsoController {
             user: user ? this.ssoService.sanitizeUser(user) : null,
         };
     }
+    async resendVerification(body) {
+        if (!body.email) {
+            throw new common_1.BadRequestException('Email là bắt buộc');
+        }
+        await this.ssoService.resendVerificationEmail(body.email);
+        return { success: true, message: 'Đã gửi lại email xác nhận. Vui lòng kiểm tra hộp thư của bạn.' };
+    }
     async resendVerificationEmail(body) {
         if (!body.email) {
             throw new common_1.BadRequestException('Email là bắt buộc');
         }
         await this.ssoService.resendVerificationEmail(body.email);
-        return { success: true, message: 'Email xác nhận đã được gửi' };
+        return { success: true, message: 'Đã gửi lại email xác nhận. Vui lòng kiểm tra hộp thư của bạn.' };
     }
     async forgotPassword(body) {
         if (!body.email) {
@@ -155,9 +171,8 @@ __decorate([
 __decorate([
     (0, common_1.Post)('register'),
     __param(0, (0, common_1.Body)()),
-    __param(1, (0, common_1.Res)({ passthrough: true })),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], SsoController.prototype, "register", null);
 __decorate([
@@ -210,12 +225,27 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], SsoController.prototype, "facebookCallback", null);
 __decorate([
+    (0, common_1.Get)('verify-email'),
+    __param(0, (0, common_1.Query)('token')),
+    __param(1, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], SsoController.prototype, "verifyEmailGet", null);
+__decorate([
     (0, common_1.Post)('verify-email'),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], SsoController.prototype, "verifyEmail", null);
+__decorate([
+    (0, common_1.Post)('resend-verification'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], SsoController.prototype, "resendVerification", null);
 __decorate([
     (0, common_1.Post)('resend-verification-email'),
     __param(0, (0, common_1.Body)()),
