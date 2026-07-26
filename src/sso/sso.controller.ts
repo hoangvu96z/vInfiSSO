@@ -142,11 +142,33 @@ export class SsoController {
     return { success: true, token, user };
   }
 
-  // ─── GET & POST /sso/logout ──────────────────────────────────────────────
+  // ─── POST /sso/logout (API call từ app, trả về JSON) ──────────────────────
+
+  @Post('logout')
+  async logoutApi(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const token = this.getToken(req);
+    if (token) {
+      await this.ssoService.logout(token);
+    }
+
+    const clearOpts = {
+      path: '/',
+      sameSite: (isProd ? 'none' : 'lax') as 'none' | 'lax',
+      secure: isProd,
+    };
+    res.clearCookie(COOKIE_NAME, clearOpts);
+    res.clearCookie(COOKIE_NAME, { path: '/' });
+
+    return { success: true, message: 'Logged out successfully' };
+  }
+
+  // ─── GET /sso/logout (browser redirect flow) ──────────────────────────────
 
   @Get('logout')
-  @Post('logout')
-  async logout(
+  async logoutRedirect(
     @Req() req: Request,
     @Res() res: Response,
     @Query('redirect') redirectQuery?: string,

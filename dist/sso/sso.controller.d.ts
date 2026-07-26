@@ -29,7 +29,11 @@ export declare class SsoController {
         token: string;
         user: Partial<import("../users/user.entity").User>;
     }>;
-    logout(req: Request, res: Response, redirectQuery?: string, redirectUriQuery?: string): Promise<void>;
+    logoutApi(req: Request, res: Response): Promise<{
+        success: boolean;
+        message: string;
+    }>;
+    logoutRedirect(req: Request, res: Response, redirectQuery?: string, redirectUriQuery?: string): Promise<void>;
     googleLogin(): void;
     googleCallback(req: Request & {
         user?: any;

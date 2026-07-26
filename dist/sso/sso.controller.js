@@ -123,7 +123,21 @@ let SsoController = class SsoController {
         this.setSessionCookie(res, token);
         return { success: true, token, user };
     }
-    async logout(req, res, redirectQuery, redirectUriQuery) {
+    async logoutApi(req, res) {
+        const token = this.getToken(req);
+        if (token) {
+            await this.ssoService.logout(token);
+        }
+        const clearOpts = {
+            path: '/',
+            sameSite: (isProd ? 'none' : 'lax'),
+            secure: isProd,
+        };
+        res.clearCookie(COOKIE_NAME, clearOpts);
+        res.clearCookie(COOKIE_NAME, { path: '/' });
+        return { success: true, message: 'Logged out successfully' };
+    }
+    async logoutRedirect(req, res, redirectQuery, redirectUriQuery) {
         const token = this.getToken(req);
         if (token) {
             await this.ssoService.logout(token);
@@ -288,8 +302,15 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], SsoController.prototype, "login", null);
 __decorate([
-    (0, common_1.Get)('logout'),
     (0, common_1.Post)('logout'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], SsoController.prototype, "logoutApi", null);
+__decorate([
+    (0, common_1.Get)('logout'),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
     __param(2, (0, common_1.Query)('redirect')),
@@ -297,7 +318,7 @@ __decorate([
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object, Object, String, String]),
     __metadata("design:returntype", Promise)
-], SsoController.prototype, "logout", null);
+], SsoController.prototype, "logoutRedirect", null);
 __decorate([
     (0, common_1.Get)('oauth/google'),
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('google')),
