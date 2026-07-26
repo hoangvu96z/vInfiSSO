@@ -35,11 +35,11 @@ export declare class SsoController {
     googleLogin(): void;
     googleCallback(req: Request & {
         user?: any;
-    }, res: Response): Promise<void>;
+    }, res: Response, redirectQuery?: string): Promise<void>;
     facebookLogin(): void;
     facebookCallback(req: Request & {
         user?: any;
-    }, res: Response): Promise<void>;
+    }, res: Response, redirectQuery?: string): Promise<void>;
     verifyEmailGet(token: string, res: Response): Promise<void>;
     verifyEmail(body: {
         token: string;

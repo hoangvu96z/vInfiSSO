@@ -165,6 +165,7 @@ export class SsoController {
   async googleCallback(
     @Req() req: Request & { user?: any },
     @Res() res: Response,
+    @Query('redirect') redirectQuery?: string,
   ) {
     if (!req.user) {
       throw new BadRequestException('Google OAuth failed');
@@ -174,8 +175,15 @@ export class SsoController {
     const { token } = await this.ssoService.oauthLogin(req.user, 'google', reqMeta);
     this.setSessionCookie(res, token);
 
-    const redirect = this.configService.get<string>('SSO_BASE_URL', 'http://localhost:3000');
-    res.redirect(`${redirect}/ui/sso`);
+    const base = this.configService.get<string>('SSO_BASE_URL', 'http://localhost:3000');
+    if (redirectQuery) {
+      try {
+        const target = new URL(redirectQuery);
+        target.searchParams.set('sso_token', token);
+        return res.redirect(target.toString());
+      } catch (e) {}
+    }
+    res.redirect(`${base}/ui/sso`);
   }
 
   // ─── GET /sso/oauth/facebook ──────────────────────────────────────────────
@@ -191,6 +199,7 @@ export class SsoController {
   async facebookCallback(
     @Req() req: Request & { user?: any },
     @Res() res: Response,
+    @Query('redirect') redirectQuery?: string,
   ) {
     if (!req.user) {
       throw new BadRequestException('Facebook OAuth failed');
@@ -199,8 +208,15 @@ export class SsoController {
     const { token } = await this.ssoService.oauthLogin(req.user, 'facebook');
     this.setSessionCookie(res, token);
 
-    const redirect = this.configService.get<string>('SSO_BASE_URL', 'http://localhost:3000');
-    res.redirect(`${redirect}/ui/sso`);
+    const base = this.configService.get<string>('SSO_BASE_URL', 'http://localhost:3000');
+    if (redirectQuery) {
+      try {
+        const target = new URL(redirectQuery);
+        target.searchParams.set('sso_token', token);
+        return res.redirect(target.toString());
+      } catch (e) {}
+    }
+    res.redirect(`${base}/ui/sso`);
   }
 
   // ─── GET & POST /sso/verify-email ──────────────────────────────────────────

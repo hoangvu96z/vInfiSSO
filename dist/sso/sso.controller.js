@@ -131,26 +131,42 @@ let SsoController = class SsoController {
     }
     googleLogin() {
     }
-    async googleCallback(req, res) {
+    async googleCallback(req, res, redirectQuery) {
         if (!req.user) {
             throw new common_1.BadRequestException('Google OAuth failed');
         }
         const reqMeta = this.extractRequestMetadata(req);
         const { token } = await this.ssoService.oauthLogin(req.user, 'google', reqMeta);
         this.setSessionCookie(res, token);
-        const redirect = this.configService.get('SSO_BASE_URL', 'http://localhost:3000');
-        res.redirect(`${redirect}/ui/sso`);
+        const base = this.configService.get('SSO_BASE_URL', 'http://localhost:3000');
+        if (redirectQuery) {
+            try {
+                const target = new URL(redirectQuery);
+                target.searchParams.set('sso_token', token);
+                return res.redirect(target.toString());
+            }
+            catch (e) { }
+        }
+        res.redirect(`${base}/ui/sso`);
     }
     facebookLogin() {
     }
-    async facebookCallback(req, res) {
+    async facebookCallback(req, res, redirectQuery) {
         if (!req.user) {
             throw new common_1.BadRequestException('Facebook OAuth failed');
         }
         const { token } = await this.ssoService.oauthLogin(req.user, 'facebook');
         this.setSessionCookie(res, token);
-        const redirect = this.configService.get('SSO_BASE_URL', 'http://localhost:3000');
-        res.redirect(`${redirect}/ui/sso`);
+        const base = this.configService.get('SSO_BASE_URL', 'http://localhost:3000');
+        if (redirectQuery) {
+            try {
+                const target = new URL(redirectQuery);
+                target.searchParams.set('sso_token', token);
+                return res.redirect(target.toString());
+            }
+            catch (e) { }
+        }
+        res.redirect(`${base}/ui/sso`);
     }
     async verifyEmailGet(token, res) {
         try {
@@ -257,8 +273,9 @@ __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('google')),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
+    __param(2, (0, common_1.Query)('redirect')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:paramtypes", [Object, Object, String]),
     __metadata("design:returntype", Promise)
 ], SsoController.prototype, "googleCallback", null);
 __decorate([
@@ -273,8 +290,9 @@ __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('facebook')),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
+    __param(2, (0, common_1.Query)('redirect')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:paramtypes", [Object, Object, String]),
     __metadata("design:returntype", Promise)
 ], SsoController.prototype, "facebookCallback", null);
 __decorate([
