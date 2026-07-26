@@ -34,15 +34,33 @@ let AppController = class AppController {
         const query = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
         return res.redirect(`/ui/register${query}`);
     }
-    getSsoPage(res) {
-        const html = (0, node_fs_1.readFileSync)((0, node_path_1.join)(HTML_DIR, 'sso-page.html'), 'utf8');
+    getReactApp(res) {
+        try {
+            const reactIndex = (0, node_path_1.join)(__dirname, '..', 'admin-ui', 'dist', 'index.html');
+            if ((0, node_fs_1.existsSync)(reactIndex)) {
+                const html = (0, node_fs_1.readFileSync)(reactIndex, 'utf8');
+                res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                return res.send(html);
+            }
+        }
+        catch (e) { }
+        const html = (0, node_fs_1.readFileSync)((0, node_path_1.join)(HTML_DIR, 'admin-page.html'), 'utf8');
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.send(html);
     }
-    getRegisterPage(res) {
-        const html = (0, node_fs_1.readFileSync)((0, node_path_1.join)(HTML_DIR, 'register-page.html'), 'utf8');
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        res.send(html);
+    getReactAsset(file, res) {
+        try {
+            const assetPath = (0, node_path_1.join)(__dirname, '..', 'admin-ui', 'dist', 'assets', file);
+            if ((0, node_fs_1.existsSync)(assetPath)) {
+                if (file.endsWith('.js'))
+                    res.setHeader('Content-Type', 'application/javascript');
+                else if (file.endsWith('.css'))
+                    res.setHeader('Content-Type', 'text/css');
+                return res.sendFile(assetPath);
+            }
+        }
+        catch (e) { }
+        return res.status(404).send('Not found');
     }
     getAppAPage(res) {
         try {
@@ -57,16 +75,6 @@ let AppController = class AppController {
     getAppBPage(res) {
         try {
             const html = (0, node_fs_1.readFileSync)((0, node_path_1.join)(HTML_DIR, 'app-b-page.html'), 'utf8');
-            res.setHeader('Content-Type', 'text/html; charset=utf-8');
-            res.send(html);
-        }
-        catch {
-            res.status(404).send('Not found');
-        }
-    }
-    getAdminPage(res) {
-        try {
-            const html = (0, node_fs_1.readFileSync)((0, node_path_1.join)(HTML_DIR, 'admin-page.html'), 'utf8');
             res.setHeader('Content-Type', 'text/html; charset=utf-8');
             res.send(html);
         }
@@ -99,7 +107,7 @@ __decorate([
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Request, Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", void 0)
 ], AppController.prototype, "redirectToLogin", null);
 __decorate([
@@ -107,23 +115,24 @@ __decorate([
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Request, Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", void 0)
 ], AppController.prototype, "redirectToRegister", null);
 __decorate([
-    (0, common_1.Get)('ui/sso'),
+    (0, common_1.Get)(['ui/sso', 'ui/admin', 'ui/register']),
     __param(0, (0, common_1.Res)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
-], AppController.prototype, "getSsoPage", null);
+], AppController.prototype, "getReactApp", null);
 __decorate([
-    (0, common_1.Get)('ui/register'),
-    __param(0, (0, common_1.Res)()),
+    (0, common_1.Get)('assets/:file'),
+    __param(0, (0, common_1.Param)('file')),
+    __param(1, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
-], AppController.prototype, "getRegisterPage", null);
+], AppController.prototype, "getReactAsset", null);
 __decorate([
     (0, common_1.Get)('ui/app-a'),
     __param(0, (0, common_1.Res)()),
@@ -138,13 +147,6 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], AppController.prototype, "getAppBPage", null);
-__decorate([
-    (0, common_1.Get)(['admin', 'sso/admin', 'ui/admin']),
-    __param(0, (0, common_1.Res)()),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
-    __metadata("design:returntype", void 0)
-], AppController.prototype, "getAdminPage", null);
 __decorate([
     (0, common_1.Get)(['vlnfi_sso_favicon_option_1.svg', 'vinfi_sso_favicon_option_1.svg', 'favicon.ico']),
     __param(0, (0, common_1.Res)()),

@@ -1,11 +1,9 @@
-import { Controller, Get, Req, Res } from '@nestjs/common';
-import type { Response } from 'express';
-import { readFileSync } from 'node:fs';
+import { Controller, Get, Req, Res, Param } from '@nestjs/common';
+import type { Request, Response } from 'express';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { AppService } from './app.service';
 
-// __dirname trỏ tới dist/ sau khi build
-// HTML files được copy vào dist/ bởi nest-cli assets config
 const HTML_DIR = join(__dirname, 'sso');
 
 @Controller()
@@ -29,18 +27,33 @@ export class AppController {
     return res.redirect(`/ui/register${query}`);
   }
 
-  @Get('ui/sso')
-  getSsoPage(@Res() res: Response) {
-    const html = readFileSync(join(HTML_DIR, 'sso-page.html'), 'utf8');
+  @Get(['ui/sso', 'ui/admin', 'ui/register'])
+  getReactApp(@Res() res: Response) {
+    try {
+      const reactIndex = join(__dirname, '..', 'admin-ui', 'dist', 'index.html');
+      if (existsSync(reactIndex)) {
+        const html = readFileSync(reactIndex, 'utf8');
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        return res.send(html);
+      }
+    } catch (e) {}
+    // Fallback to static HTML
+    const html = readFileSync(join(HTML_DIR, 'admin-page.html'), 'utf8');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
   }
 
-  @Get('ui/register')
-  getRegisterPage(@Res() res: Response) {
-    const html = readFileSync(join(HTML_DIR, 'register-page.html'), 'utf8');
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
+  @Get('assets/:file')
+  getReactAsset(@Param('file') file: string, @Res() res: Response) {
+    try {
+      const assetPath = join(__dirname, '..', 'admin-ui', 'dist', 'assets', file);
+      if (existsSync(assetPath)) {
+        if (file.endsWith('.js')) res.setHeader('Content-Type', 'application/javascript');
+        else if (file.endsWith('.css')) res.setHeader('Content-Type', 'text/css');
+        return res.sendFile(assetPath);
+      }
+    } catch (e) {}
+    return res.status(404).send('Not found');
   }
 
   @Get('ui/app-a')
@@ -58,17 +71,6 @@ export class AppController {
   getAppBPage(@Res() res: Response) {
     try {
       const html = readFileSync(join(HTML_DIR, 'app-b-page.html'), 'utf8');
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.send(html);
-    } catch {
-      res.status(404).send('Not found');
-    }
-  }
-
-  @Get(['admin', 'sso/admin', 'ui/admin'])
-  getAdminPage(@Res() res: Response) {
-    try {
-      const html = readFileSync(join(HTML_DIR, 'admin-page.html'), 'utf8');
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.send(html);
     } catch {

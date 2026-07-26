@@ -1,4 +1,4 @@
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { AppService } from './app.service';
 export declare class AppController {
     private readonly appService;
@@ -6,10 +6,9 @@ export declare class AppController {
     getHello(res: Response): void;
     redirectToLogin(req: Request, res: Response): void;
     redirectToRegister(req: Request, res: Response): void;
-    getSsoPage(res: Response): void;
-    getRegisterPage(res: Response): void;
+    getReactApp(res: Response): Response<any, Record<string, any>> | undefined;
+    getReactAsset(file: string, res: Response): void | Response<any, Record<string, any>>;
     getAppAPage(res: Response): void;
     getAppBPage(res: Response): void;
-    getAdminPage(res: Response): void;
     getFavicon(res: Response): void;
 }
