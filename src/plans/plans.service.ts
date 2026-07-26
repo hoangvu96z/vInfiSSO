@@ -148,9 +148,39 @@ export class PlansService {
     bonusUsedToday: number;
     bonusMaxPerDay: number;
     remaining: number; // câu còn lại hôm nay (dailyLimit - dailyUsed + bonusRemaining)
+    expiresAt: string | null;
+    daysRemaining: number | null;
+    isExpiringSoon: boolean;
+    isOverride: boolean;
   }> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
     const plan = await this.getEffectivePlan(userId);
     const usage = await this.getOrCreateUsage(userId);
+
+    const sub = await this.subRepo.findOne({
+      where: [
+        { userId, expiresAt: MoreThan(new Date()) },
+        { userId, expiresAt: null as any },
+      ],
+      order: { createdAt: 'DESC' },
+    });
+
+    const baseFreePlan = await this.planRepo.findOne({ where: { name: 'free' } });
+    const isOverride = user?.planName === 'free' && (baseFreePlan?.overrideFreeToLite || baseFreePlan?.overrideFreeToPremium);
+
+    let expiresAt: string | null = sub?.expiresAt ? new Date(sub.expiresAt).toISOString() : null;
+    let daysRemaining: number | null = null;
+    let isExpiringSoon = false;
+
+    if (sub?.expiresAt) {
+      const now = new Date();
+      const exp = new Date(sub.expiresAt);
+      const diffMs = exp.getTime() - now.getTime();
+      daysRemaining = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+      if (daysRemaining <= 5) {
+        isExpiringSoon = true;
+      }
+    }
 
     // Tính monthly count tháng này
     const month = this.currentMonth();
@@ -189,6 +219,10 @@ export class PlansService {
       bonusUsedToday: usage.bonusUsedToday,
       bonusMaxPerDay: plan.bonusMaxPerDay,
       remaining,
+      expiresAt,
+      daysRemaining,
+      isExpiringSoon,
+      isOverride: !!isOverride,
     };
   }
 
