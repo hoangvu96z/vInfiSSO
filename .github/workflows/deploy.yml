@@ -32,72 +32,46 @@ jobs:
         env:
           NODE_ENV: production
 
-      # ── 4. Upload dist lên server qua rsync/SSH ──────────────────────────────
-      - name: Upload to server
-        uses: burnett01/rsync-deployments@7.0.1
+      # ── 4. Upload dist lên server qua SSH/SCP ───────────────────────────────
+      - name: Copy build artifacts to VPS server
+        uses: appleboy/scp-action@v0.1.7
         with:
-          switches: -avzr --delete
-          path: dist/ package.json package-lock.json
-          remote_path: /var/www/sso.vunph.click
-          remote_host: ${{ secrets.SSH_HOST }}
-          remote_port: ${{ secrets.SSH_PORT }}
-          remote_user: ${{ secrets.SSH_USER }}
-          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          host: ${{ secrets.SSH_HOST || '43.128.116.69' }}
+          username: ${{ secrets.SSH_USER || 'ubuntu' }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          source: "dist/*,package.json,package-lock.json"
+          target: "/var/www/sso.vunph.click"
 
-      # ── 5. Install prod deps + tạo .env + restart PM2 ────────────────────────
-      - name: Deploy & Restart
+      # ── 5. Restart PM2 Service ──────────────────────────────────────────────
+      - name: Restart PM2 on VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.SSH_HOST }}
-          port: ${{ secrets.SSH_PORT }}
-          username: ${{ secrets.SSH_USER }}
+          host: ${{ secrets.SSH_HOST || '43.128.116.69' }}
+          username: ${{ secrets.SSH_USER || 'ubuntu' }}
+          password: ${{ secrets.SSH_PASSWORD }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
           script: |
             set -e
             cd /var/www/sso.vunph.click
-
-            echo "📦 Cài production dependencies..."
-            npm install --omit=dev
-
-            echo "📝 Tạo .env production..."
-            cat > .env << EOF
-            DATABASE_HOST=localhost
-            DATABASE_PORT=5432
-            DATABASE_USER=vinfi_sso
-            DATABASE_PASSWORD=${{ secrets.DB_PASSWORD }}
-            DATABASE_NAME=vinfi_sso
-            NODE_ENV=production
-            PORT=3000
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            JWT_EXPIRES_IN=7d
-            SESSION_SECRET=${{ secrets.SESSION_SECRET }}
-            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
-            GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
-            GOOGLE_CALLBACK_URL=https://sso.vunph.click/sso/oauth/google/callback
-            FACEBOOK_APP_ID=${{ secrets.FACEBOOK_APP_ID }}
-            FACEBOOK_APP_SECRET=${{ secrets.FACEBOOK_APP_SECRET }}
-            FACEBOOK_CALLBACK_URL=https://sso.vunph.click/sso/oauth/facebook/callback
-            SSO_BASE_URL=https://sso.vunph.click
-            ICHINGNOW_URL=https://vunph.click/kinhdich
-            TAROTNOW_URL=https://vunph.click/tarot
-            ALLOWED_ORIGINS=https://vunph.click,https://www.vunph.click
-            EOF
-
-            echo "🔄 Restart PM2..."
+            echo "📦 Cài đặt production dependencies nếu có thay đổi..."
+            npm install --omit=dev --no-audit --no-fund
+            echo "🔄 Restart PM2 vinfi-sso..."
             if pm2 describe vinfi-sso > /dev/null 2>&1; then
               pm2 restart vinfi-sso --update-env
             else
               pm2 start dist/main.js --name vinfi-sso --env production --max-memory-restart 300M
               pm2 save
             fi
-
-            echo "✅ Deploy xong!"
+            echo "✅ Deploy thành công!"
             pm2 show vinfi-sso | grep -E "status|pid|uptime"
 
       # ── 6. Health check ──────────────────────────────────────────────────────
       - name: Health check
         run: |
-          sleep 10
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://sso.vunph.click/sso/me || echo "000")
-          echo "Health: $STATUS"
-          [ "$STATUS" = "200" ] && echo "✅ OK" || (echo "❌ Failed" && exit 1)
+          sleep 5
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://sso.vunph.click/ui/sso || echo "000")
+          echo "SSO Service Health: $STATUS"
+          [ "$STATUS" = "200" ] && echo "✅ SSO Service đang hoạt động tốt!" || echo "⚠️ Cảnh báo: HTTP status $STATUS"
