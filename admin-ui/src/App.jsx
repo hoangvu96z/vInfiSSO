@@ -46,8 +46,10 @@ export default function App() {
       });
     } catch (e) {}
     localStorage.removeItem('sso_token');
+    // Mark that user just logged out — prevents SsoPage from auto-redirecting back to app
+    sessionStorage.setItem('just_logged_out', '1');
     setUser(null);
-    window.location.href = '/ui/sso';
+    window.location.href = '/ui/sso?logged_out=true';
   };
 
   const handleLoginSuccess = (data) => {

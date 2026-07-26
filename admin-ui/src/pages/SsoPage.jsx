@@ -48,12 +48,24 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
   useEffect(() => {
     const queryParams = new URLSearchParams(window.location.search);
     const isLoggedOut = queryParams.get('logged_out') === 'true';
+    const justLoggedOut = sessionStorage.getItem('just_logged_out') === '1';
 
-    if (isLoggedOut) {
+    if (isLoggedOut || justLoggedOut) {
+      // Clear all auth state and flags
       localStorage.removeItem('sso_token');
+      sessionStorage.removeItem('just_logged_out');
+      // Remove the logged_out param from URL so refreshing doesn't keep showing it
+      if (isLoggedOut) {
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete('logged_out');
+        newUrl.searchParams.delete('redirect');
+        newUrl.searchParams.delete('redirect_uri');
+        window.history.replaceState({}, '', newUrl.toString());
+      }
       return;
     }
 
+    // Only auto-redirect if user is authenticated AND there's a redirect target AND we didn't just log out
     const redirectTarget = getRedirectTargetUrl();
     const token = localStorage.getItem('sso_token');
     if (user && token && redirectTarget) {
