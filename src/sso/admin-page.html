@@ -626,6 +626,12 @@
   </div>
 
   <script>
+    // ===== GLOBAL STATE & CHART VARS =====
+    var trafficChart = null, appShareChart = null, geoChart = null, aiChart = null;
+    let userPage = 1, userTotalPages = 1;
+    let auditPage = 1, auditTotalPages = 1;
+    let debounceTimer;
+
     // ===== THEME TOGGLE SYSTEM =====
     function initTheme() {
       const savedTheme = localStorage.getItem('vinfi_theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -654,13 +660,6 @@
     }
 
     initTheme();
-
-    // ===== STATE & DATA =====
-    let userPage = 1, userTotalPages = 1;
-    let auditPage = 1, auditTotalPages = 1;
-    let debounceTimer;
-
-    let trafficChart, appShareChart, geoChart, aiChart;
 
     function getAuthHeaders() {
       const token = localStorage.getItem('sso_token');
@@ -828,7 +827,9 @@
     }
 
     function updateChartColors() {
-      if (trafficChart) loadAnalyticsCharts();
+      if (typeof trafficChart !== 'undefined' && trafficChart) {
+        loadAnalyticsCharts();
+      }
     }
 
     // ===== USERS TABLE =====
