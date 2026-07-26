@@ -210,25 +210,47 @@ export default function AdminPage({ user, onLogout }) {
   };
 
   const handleTogglePlan = async (planName, isActive) => {
-    await authFetch(`/admin/plans/${planName}`, {
+    const res = await authFetch(`/admin/plans/${planName}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isActive }),
     });
-    message.info(`Đã ${isActive ? 'bật' : 'tắt'} gói ${planName.toUpperCase()}! 🔄`);
+    if (res && res.ok) {
+      message.success(`✅ Đã ${isActive ? 'bật' : 'tắt'} gói ${planName.toUpperCase()}!`);
+    } else {
+      message.error('❌ Không thể thay đổi trạng thái gói!');
+    }
+    loadPlans();
+  };
+
+  const handleTogglePlanField = async (planName, field, value, label) => {
+    const res = await authFetch(`/admin/plans/${planName}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [field]: value }),
+    });
+    if (res && res.ok) {
+      message.success(`✅ ${label}: ${value ? 'Bật' : 'Tắt'} thành công!`);
+    } else {
+      message.error(`❌ Không thể cập nhật "${label}"!`);
+    }
     loadPlans();
   };
 
   const handleSavePlan = async (values) => {
     if (!editingPlan) return;
-    await authFetch(`/admin/plans/${editingPlan.name}`, {
+    const res = await authFetch(`/admin/plans/${editingPlan.name}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(values),
     });
-    setEditingPlan(null);
-    message.success(`Đã lưu thay đổi gói ${editingPlan.label} thành công! 💎`);
-    loadPlans();
+    if (res && res.ok) {
+      message.success(`💎 Đã lưu thay đổi gói "${editingPlan.label}" thành công!`);
+      setEditingPlan(null);
+      loadPlans();
+    } else {
+      message.error('❌ Lưu thất bại! Vui lòng thử lại.');
+    }
   };
 
   const handleSaveCoupon = async (values) => {
@@ -596,16 +618,7 @@ export default function AdminPage({ user, onLogout }) {
                     { title: 'Email', dataIndex: 'email' },
                     { title: 'Họ Tên', dataIndex: 'displayName' },
                     { title: 'Lượt Kinh Dịch', dataIndex: 'ichingReadings' },
-                    { title: 'Lượt Tarot', dataIndex: 'tarotReadings' },
-                    { title: 'Số Lượt Hỏi AI', dataIndex: 'totalAiQuestions', sorter: (a, b) => a.totalAiQuestions - b.totalAiQuestions },
-                    { title: 'Lần Cuối', dataIndex: 'lastActive', render: d => d ? new Date(d).toLocaleString('vi-VN') : 'Chưa có' },
-                  ]}
-                />
-              </Card>
-            )}
-
-            {/* ROUTE 5: GÓI DỊCH VỤ */}
-            {currentRoute === 'plans' && (
+                    { title: 'Lượt Tarot', dataIndex: '            {currentRoute === 'plans' && (
               <div>
                 <Row gutter={[20, 20]} style={{ marginBottom: 24 }}>
                   {safeArr(plans).map(plan => (
@@ -613,10 +626,39 @@ export default function AdminPage({ user, onLogout }) {
                       <Card
                         title={<span>{plan.name === 'premium' ? '💎' : plan.name === 'lite' ? '🌟' : '⚡'} {plan.label}</span>}
                         extra={<Switch checked={plan.isActive} onChange={checked => handleTogglePlan(plan.name, checked)} />}
-                        actions={[<Button type="link" icon={<EditOutlined />} onClick={() => { setEditingPlan(plan); formPlan.setFieldsValue(plan); }}>Chỉnh Sửa</Button>]}
+                        actions={[<Button type="link" icon={<EditOutlined />} onClick={() => { setEditingPlan(plan); formPlan.setFieldsValue({ ...plan }); }}>Chỉnh Sửa</Button>]}
                       >
                         <Title level={3} style={{ margin: '0 0 12px 0', color: '#6366f1' }}>{plan.price === 0 ? 'Miễn phí' : `${Number(plan.price).toLocaleString('vi-VN')}đ/tháng`}</Title>
-                        <div>📅 {plan.dailyLimit === -1 ? 'Không giới hạn lượt/ngày' : `${plan.dailyLimit} lượt/ngày`}</div>
+                        <div style={{ marginBottom: 4 }}>📅 {plan.dailyLimit === -1 ? 'Không giới hạn lượt/ngày' : `${plan.dailyLimit} lượt/ngày`}</div>
+                        <div style={{ marginBottom: 4 }}>📆 {plan.monthlyLimit === -1 ? 'Không giới hạn lượt/tháng' : `${plan.monthlyLimit} lượt/tháng`}</div>
+                        <div style={{ marginBottom: 12 }}>{plan.canBonus ? `✨ Hỏi thêm ${plan.bonusAmount} câu/lần` : '❌ Không có hỏi thêm'}</div>
+                        {/* Free-override toggles — chỉ hiện trên gói Free */}
+                        {plan.name === 'free' && (
+                          <div style={{ borderTop: '1px dashed rgba(255,255,255,0.15)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <Text style={{ fontSize: 12 }}>🆓 Free dùng Lite miễn phí</Text>
+                              <Switch
+                                size="small"
+                                checked={plan.overrideFreeToLite}
+                                onChange={v => handleTogglePlanField('free', 'overrideFreeToLite', v, 'Free dùng Lite miễn phí')}
+                              />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <Text style={{ fontSize: 12 }}>👑 Free dùng Premium miễn phí</Text>
+                              <Switch
+                                size="small"
+                                checked={plan.overrideFreeToPremium}
+                                onChange={v => handleTogglePlanField('free', 'overrideFreeToPremium', v, 'Free dùng Premium miễn phí')}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </Card>
+                    </Col>
+                  ))}
+                </Row>
+              </div>
+            )}�ng giới hạn lượt/ngày' : `${plan.dailyLimit} lượt/ngày`}</div>
                         <div>📆 {plan.monthlyLimit === -1 ? 'Không giới hạn lượt/tháng' : `${plan.monthlyLimit} lượt/tháng`}</div>
                         <div>{plan.canBonus ? `✨ Hỏi thêm ${plan.bonusAmount} câu/lần` : '❌ Không có hỏi thêm'}</div>
                       </Card>
@@ -658,12 +700,70 @@ export default function AdminPage({ user, onLogout }) {
         </Layout>
 
         {/* MODAL: EDIT PLAN */}
-        <Modal title="✏️ Chỉnh Sửa Gói Dịch Vụ" open={!!editingPlan} onCancel={() => setEditingPlan(null)} onOk={() => formPlan.submit()}>
+        <Modal
+          title={editingPlan ? `✏️ Chỉnh Sửa Gói: ${editingPlan.label}` : '✏️ Chỉnh Sửa Gói Dịch Vụ'}
+          open={!!editingPlan}
+          onCancel={() => setEditingPlan(null)}
+          onOk={() => formPlan.submit()}
+          okText="💾 Lưu Thay Đổi"
+          cancelText="Huỷ"
+          width={560}
+        >
           <Form form={formPlan} layout="vertical" onFinish={handleSavePlan}>
-            <Form.Item name="dailyLimit" label="Giới hạn/ngày (-1 = không giới hạn)"><InputNumber style={{ width: '100%' }} /></Form.Item>
-            <Form.Item name="monthlyLimit" label="Giới hạn/tháng (-1 = không giới hạn)"><InputNumber style={{ width: '100%' }} /></Form.Item>
-            <Form.Item name="price" label="Giá (VND, 0 = miễn phí)"><InputNumber style={{ width: '100%' }} /></Form.Item>
-            <Form.Item name="canBonus" valuePropName="checked"><Switch /> Cho phép "Hỏi thêm câu"</Form.Item>
+            <Row gutter={12}>
+              <Col span={12}>
+                <Form.Item name="label" label="Tên gói hiển thị" rules={[{ required: true }]}>
+                  <Input placeholder="VD: Gói Lite, Gói Premium..." />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="price" label="Giá (VND, 0 = miễn phí)">
+                  <InputNumber style={{ width: '100%' }} min={0} step={1000} formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Form.Item name="description" label="Mô tả ngắn (hiển thị trên app)">
+              <Input.TextArea rows={2} placeholder="Mô tả gói dịch vụ..." />
+            </Form.Item>
+            <Row gutter={12}>
+              <Col span={12}>
+                <Form.Item name="dailyLimit" label="Giới hạn/ngày (-1 = không giới hạn)">
+                  <InputNumber style={{ width: '100%' }} min={-1} />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="monthlyLimit" label="Giới hạn/tháng (-1 = không giới hạn)">
+                  <InputNumber style={{ width: '100%' }} min={-1} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={12}>
+              <Col span={8}>
+                <Form.Item name="canBonus" valuePropName="checked" label="Cho phép hỏi thêm">
+                  <Switch />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="bonusAmount" label="Số câu bonus/lần">
+                  <InputNumber style={{ width: '100%' }} min={1} />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="bonusMaxPerDay" label="Tối đa lần bonus/ngày">
+                  <InputNumber style={{ width: '100%' }} min={0} />
+                </Form.Item>
+              </Col>
+            </Row>
+            {editingPlan?.name === 'free' && (
+              <>
+                <Form.Item name="overrideFreeToLite" valuePropName="checked" label="🆓 Cho phép Free dùng Lite miễn phí">
+                  <Switch />
+                </Form.Item>
+                <Form.Item name="overrideFreeToPremium" valuePropName="checked" label="👑 Cho phép Free dùng Premium miễn phí">
+                  <Switch />
+                </Form.Item>
+              </>
+            )}
           </Form>
         </Modal>
 
