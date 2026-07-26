@@ -142,14 +142,46 @@ export class SsoController {
     return { success: true, token, user };
   }
 
-  // ─── POST /sso/logout ─────────────────────────────────────────────────────
+  // ─── GET & POST /sso/logout ──────────────────────────────────────────────
 
+  @Get('logout')
   @Post('logout')
-  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async logout(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Query('redirect') redirectQuery?: string,
+    @Query('redirect_uri') redirectUriQuery?: string,
+  ) {
     const token = this.getToken(req);
-    await this.ssoService.logout(token);
+    if (token) {
+      await this.ssoService.logout(token);
+    }
+
+    const clearOpts = {
+      path: '/',
+      sameSite: (isProd ? 'none' : 'lax') as 'none' | 'lax',
+      secure: isProd,
+    };
+    res.clearCookie(COOKIE_NAME, clearOpts);
     res.clearCookie(COOKIE_NAME, { path: '/' });
-    return { success: true };
+
+    const redirectRaw =
+      redirectQuery ||
+      redirectUriQuery ||
+      (req.query.redirect_url as string) ||
+      (req.query.app as string) ||
+      (req.query.app_url as string);
+
+    if (redirectRaw) {
+      try {
+        const decoded = redirectRaw.includes('%3A') ? decodeURIComponent(redirectRaw) : redirectRaw;
+        const target = new URL(decoded.startsWith('http') ? decoded : `https://${decoded}`);
+        return res.redirect(target.toString());
+      } catch (e) {}
+    }
+
+    const base = this.configService.get<string>('SSO_BASE_URL', 'http://localhost:3000');
+    return res.redirect(`${base}/ui/sso?logged_out=true`);
   }
 
   // ─── GET /sso/oauth/google ────────────────────────────────────────────────

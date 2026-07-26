@@ -123,11 +123,33 @@ let SsoController = class SsoController {
         this.setSessionCookie(res, token);
         return { success: true, token, user };
     }
-    async logout(req, res) {
+    async logout(req, res, redirectQuery, redirectUriQuery) {
         const token = this.getToken(req);
-        await this.ssoService.logout(token);
+        if (token) {
+            await this.ssoService.logout(token);
+        }
+        const clearOpts = {
+            path: '/',
+            sameSite: (isProd ? 'none' : 'lax'),
+            secure: isProd,
+        };
+        res.clearCookie(COOKIE_NAME, clearOpts);
         res.clearCookie(COOKIE_NAME, { path: '/' });
-        return { success: true };
+        const redirectRaw = redirectQuery ||
+            redirectUriQuery ||
+            req.query.redirect_url ||
+            req.query.app ||
+            req.query.app_url;
+        if (redirectRaw) {
+            try {
+                const decoded = redirectRaw.includes('%3A') ? decodeURIComponent(redirectRaw) : redirectRaw;
+                const target = new URL(decoded.startsWith('http') ? decoded : `https://${decoded}`);
+                return res.redirect(target.toString());
+            }
+            catch (e) { }
+        }
+        const base = this.configService.get('SSO_BASE_URL', 'http://localhost:3000');
+        return res.redirect(`${base}/ui/sso?logged_out=true`);
     }
     googleLogin() {
     }
@@ -266,11 +288,14 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], SsoController.prototype, "login", null);
 __decorate([
+    (0, common_1.Get)('logout'),
     (0, common_1.Post)('logout'),
     __param(0, (0, common_1.Req)()),
-    __param(1, (0, common_1.Res)({ passthrough: true })),
+    __param(1, (0, common_1.Res)()),
+    __param(2, (0, common_1.Query)('redirect')),
+    __param(3, (0, common_1.Query)('redirect_uri')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:paramtypes", [Object, Object, String, String]),
     __metadata("design:returntype", Promise)
 ], SsoController.prototype, "logout", null);
 __decorate([

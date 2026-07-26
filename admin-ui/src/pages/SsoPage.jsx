@@ -46,6 +46,14 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
 
   // 🔄 CASE B: Nếu user ĐÃ ĐĂNG NHẬP sẵn ở SSO & URL có redirect_uri -> Tự động quay lại App ngay lập tức!
   useEffect(() => {
+    const queryParams = new URLSearchParams(window.location.search);
+    const isLoggedOut = queryParams.get('logged_out') === 'true';
+
+    if (isLoggedOut) {
+      localStorage.removeItem('sso_token');
+      return;
+    }
+
     const redirectTarget = getRedirectTargetUrl();
     const token = localStorage.getItem('sso_token');
     if (user && token && redirectTarget) {
