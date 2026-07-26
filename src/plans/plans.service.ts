@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan } from 'typeorm';
+import { Repository, MoreThan, IsNull } from 'typeorm';
 import { Plan } from './plan.entity';
 import { UserSubscription } from './user-subscription.entity';
 import { AiUsage } from './ai-usage.entity';
@@ -66,7 +66,7 @@ export class PlansService {
     const sub = await this.subRepo.findOne({
       where: [
         { userId, expiresAt: MoreThan(new Date()) },
-        { userId, expiresAt: null as any },
+        { userId, expiresAt: IsNull() },
       ],
       order: { createdAt: 'DESC' },
     });
@@ -184,7 +184,7 @@ export class PlansService {
     const sub = await this.subRepo.findOne({
       where: [
         { userId, expiresAt: MoreThan(new Date()) },
-        { userId, expiresAt: null as any },
+        { userId, expiresAt: IsNull() },
       ],
       order: { createdAt: 'DESC' },
     });
