@@ -35,6 +35,10 @@ export class User {
   @Column({ type: 'varchar', default: 'user' })
   role: string;
 
+  @Column({ type: 'varchar', length: 50, default: 'free' })
+  planName: string; // 'free' | 'lite' | 'premium'
+
+
   @Column({ type: 'varchar', length: 500, nullable: true })
   emailVerificationToken: string | null;
 

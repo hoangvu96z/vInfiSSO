@@ -8,14 +8,17 @@ import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
 import { AdminGuard } from '../auth/admin.guard';
 import { SsoModule } from '../sso/sso.module';
+import { PlansModule } from '../plans/plans.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([User, Session, AuditLog, Reading]),
     SsoModule,
+    PlansModule,
   ],
   providers: [AdminService, AdminGuard],
   controllers: [AdminController],
   exports: [AdminService],
 })
 export class AdminModule {}
+

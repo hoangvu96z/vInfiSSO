@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Post,
   Patch,
   Delete,
   Param,
@@ -12,11 +13,15 @@ import {
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { AdminGuard } from '../auth/admin.guard';
+import { PlansService } from '../plans/plans.service';
 
 @Controller('admin')
 @UseGuards(AdminGuard)
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly plansService: PlansService,
+  ) {}
 
   // GET /admin/stats — Dashboard General Indicators
   @Get('stats')
@@ -80,5 +85,86 @@ export class AdminController {
   @Get('analytics')
   async getAnalytics() {
     return this.adminService.getAnalyticsData();
+  }
+
+  // ─── Plans Admin ──────────────────────────────────────────────────────────
+
+  // GET /admin/plans — Lấy tất cả cấu hình gói
+  @Get('plans')
+  async getPlans() {
+    const plans = await this.plansService.getAllPlans();
+    return { plans };
+  }
+
+  // PATCH /admin/plans/:name — Cập nhật config gói
+  @Patch('plans/:name')
+  async updatePlan(
+    @Param('name') name: string,
+    @Body() body: Record<string, any>,
+  ) {
+    const plan = await this.plansService.updatePlan(name, body);
+    return { plan };
+  }
+
+  // ─── Coupons Admin ────────────────────────────────────────────────────────
+
+  // GET /admin/coupons — Danh sách coupon
+  @Get('coupons')
+  async getCoupons() {
+    const coupons = await this.plansService.getAllCoupons();
+    return { coupons };
+  }
+
+  // POST /admin/coupons — Tạo coupon mới
+  @Post('coupons')
+  async createCoupon(@Body() body: Record<string, any>) {
+    const coupon = await this.plansService.createCoupon(body);
+    return { coupon };
+  }
+
+  // PATCH /admin/coupons/:id — Cập nhật coupon
+  @Patch('coupons/:id')
+  async updateCoupon(
+    @Param('id') id: string,
+    @Body() body: Record<string, any>,
+  ) {
+    const coupon = await this.plansService.updateCoupon(id, body);
+    return { coupon };
+  }
+
+  // DELETE /admin/coupons/:id — Xóa coupon
+  @Delete('coupons/:id')
+  async deleteCoupon(@Param('id') id: string) {
+    await this.plansService.deleteCoupon(id);
+    return { success: true };
+  }
+
+  // ─── User Plan Management ─────────────────────────────────────────────────
+
+  // POST /admin/users/:id/grant-plan — Admin tặng gói cho user
+  @Post('users/:id/grant-plan')
+  async grantPlan(
+    @Param('id') userId: string,
+    @Body() body: { planName: string; durationDays: number },
+  ) {
+    const sub = await this.plansService.adminGrantPlan(
+      userId,
+      body.planName,
+      body.durationDays,
+    );
+    return { success: true, subscription: sub };
+  }
+
+  // PATCH /admin/users/:id/revoke-plan — Thu hồi gói, reset về Free
+  @Patch('users/:id/revoke-plan')
+  async revokePlan(@Param('id') userId: string) {
+    await this.plansService.adminRevokePlan(userId);
+    return { success: true };
+  }
+
+  // GET /admin/quota-stats — Thống kê AI usage
+  @Get('quota-stats')
+  async getQuotaStats() {
+    return this.plansService.getQuotaStats();
   }
 }

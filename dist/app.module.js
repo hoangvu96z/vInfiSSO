@@ -23,6 +23,11 @@ const oauth_account_entity_1 = require("./users/oauth-account.entity");
 const session_entity_1 = require("./users/session.entity");
 const audit_log_entity_1 = require("./users/audit-log.entity");
 const reading_entity_1 = require("./readings/reading.entity");
+const plans_module_1 = require("./plans/plans.module");
+const plan_entity_1 = require("./plans/plan.entity");
+const user_subscription_entity_1 = require("./plans/user-subscription.entity");
+const ai_usage_entity_1 = require("./plans/ai-usage.entity");
+const coupon_entity_1 = require("./plans/coupon.entity");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -42,7 +47,7 @@ exports.AppModule = AppModule = __decorate([
                     username: config.get('DATABASE_USER', 'postgres'),
                     password: config.get('DATABASE_PASSWORD', ''),
                     database: config.get('DATABASE_NAME', 'vinfi_sso'),
-                    entities: [user_entity_1.User, oauth_account_entity_1.OAuthAccount, session_entity_1.Session, audit_log_entity_1.AuditLog, reading_entity_1.Reading],
+                    entities: [user_entity_1.User, oauth_account_entity_1.OAuthAccount, session_entity_1.Session, audit_log_entity_1.AuditLog, reading_entity_1.Reading, plan_entity_1.Plan, user_subscription_entity_1.UserSubscription, ai_usage_entity_1.AiUsage, coupon_entity_1.Coupon],
                     synchronize: true,
                     logging: config.get('NODE_ENV') !== 'production',
                 }),
@@ -53,6 +58,7 @@ exports.AppModule = AppModule = __decorate([
             sso_module_1.SsoModule,
             readings_module_1.ReadingsModule,
             admin_module_1.AdminModule,
+            plans_module_1.PlansModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService],

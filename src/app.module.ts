@@ -14,6 +14,11 @@ import { OAuthAccount } from './users/oauth-account.entity';
 import { Session } from './users/session.entity';
 import { AuditLog } from './users/audit-log.entity';
 import { Reading } from './readings/reading.entity';
+import { PlansModule } from './plans/plans.module';
+import { Plan } from './plans/plan.entity';
+import { UserSubscription } from './plans/user-subscription.entity';
+import { AiUsage } from './plans/ai-usage.entity';
+import { Coupon } from './plans/coupon.entity';
 
 @Module({
   imports: [
@@ -33,7 +38,7 @@ import { Reading } from './readings/reading.entity';
         username: config.get<string>('DATABASE_USER', 'postgres'),
         password: config.get<string>('DATABASE_PASSWORD', ''),
         database: config.get<string>('DATABASE_NAME', 'vinfi_sso'),
-        entities: [User, OAuthAccount, Session, AuditLog, Reading],
+        entities: [User, OAuthAccount, Session, AuditLog, Reading, Plan, UserSubscription, AiUsage, Coupon],
         synchronize: true,
         logging: config.get<string>('NODE_ENV') !== 'production',
       }),
@@ -45,6 +50,7 @@ import { Reading } from './readings/reading.entity';
     SsoModule,
     ReadingsModule,
     AdminModule,
+    PlansModule,
   ],
   controllers: [AppController],
   providers: [AppService],
