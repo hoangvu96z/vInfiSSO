@@ -148,8 +148,12 @@ export class SsoService {
         action: 'logout',
         app: 'sso',
       });
+      // Xóa TẤT CẢ sessions của user để đảm bảo logout toàn bộ app (global SSO logout)
+      await this.usersService.deleteAllSessionsForUser(user.id);
+    } else {
+      // Nếu không tìm thấy user, vẫn xóa session theo token này
+      await this.usersService.deleteSessionByToken(rawToken);
     }
-    await this.usersService.deleteSessionByToken(rawToken);
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────

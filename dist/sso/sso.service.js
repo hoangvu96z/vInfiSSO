@@ -110,8 +110,11 @@ let SsoService = class SsoService {
                 action: 'logout',
                 app: 'sso',
             });
+            await this.usersService.deleteAllSessionsForUser(user.id);
         }
-        await this.usersService.deleteSessionByToken(rawToken);
+        else {
+            await this.usersService.deleteSessionByToken(rawToken);
+        }
     }
     sanitizeUser(user) {
         const { passwordHash: _, emailVerificationToken: __, passwordResetToken: ___, ...safe } = user;

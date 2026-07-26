@@ -449,6 +449,21 @@
 
     async function loadUser() {
       try {
+        // Nếu vừa logout (có flag hoặc query param), KHÔNG tự động đăng nhập lại
+        const loggedOut = localStorage.getItem('sso_logged_out');
+        const urlLoggedOut = new URLSearchParams(window.location.search).get('logged_out');
+        if (loggedOut || urlLoggedOut === 'true') {
+          // Xóa flag nếu đến đây
+          localStorage.removeItem('sso_logged_out');
+          // Xóa query param khỏi URL
+          if (urlLoggedOut) {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('logged_out');
+            window.history.replaceState({}, document.title, url.toString());
+          }
+          return; // Hiển thị form đăng nhập, không tự đăng nhập lại
+        }
+
         const token = localStorage.getItem('sso_token');
         const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
         const res = await fetch('/sso/me', { headers, credentials: 'include' });
@@ -490,6 +505,10 @@
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
       await fetch('/sso/logout', { method: 'POST', headers, credentials: 'include' });
       localStorage.removeItem('sso_token');
+      // Đặt flag để ngăn tự đăng nhập lại sau khi reload
+      localStorage.setItem('sso_logged_out', '1');
+      // Thông báo cho tất cả tab khác biết đã logout
+      localStorage.setItem('vInfiSSO-state', JSON.stringify({ type: 'logout', t: Date.now() }));
       location.reload();
     }
 
