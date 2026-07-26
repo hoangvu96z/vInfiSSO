@@ -366,6 +366,11 @@
           <div class="user-avatar" id="userAvatar">👤</div>
           <div class="user-name" id="userName">—</div>
           <div class="user-email" id="userEmail">—</div>
+
+          <a href="/ui/admin" id="adminBtn" class="btn-primary" style="display: none; margin-bottom: 12px; background: linear-gradient(135deg, #7c5cfc 0%, #e5c158 100%); color: #0f0a1c; font-weight: 700; text-decoration: none; text-align: center; justify-content: center; align-items: center; gap: 8px; box-shadow: 0 4px 16px rgba(124,92,252,0.4);">
+            🛡️ Trang Quản trị (Admin Dashboard)
+          </a>
+
           <button class="btn-secondary" onclick="logout()">Đăng xuất</button>
         </div>
 
@@ -485,6 +490,13 @@
             userCard.style.display = 'block';
             document.getElementById('userName').textContent = data.user.displayName || data.user.email;
             document.getElementById('userEmail').textContent = data.user.email;
+
+            const adminBtn = document.getElementById('adminBtn');
+            if (data.user.role === 'admin') {
+              adminBtn.style.display = 'flex';
+            } else {
+              adminBtn.style.display = 'none';
+            }
 
             const avatarEl = document.getElementById('userAvatar');
             if (data.user.avatarUrl) {
