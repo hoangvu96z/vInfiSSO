@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Req,
   Body,
@@ -70,6 +71,21 @@ export class ReadingsController {
     }
     const user = await this.requireUser(req);
     const reading = await this.readingsService.createReading(user.id, body);
+    return { reading };
+  }
+
+  // PATCH /readings/:id  (cập nhật data — dùng để lưu AI conversation)
+  @Patch(':id')
+  async updateData(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { data: Record<string, any> },
+  ) {
+    if (!body.data) {
+      throw new BadRequestException('Thiếu trường bắt buộc: data');
+    }
+    const user = await this.requireUser(req);
+    const reading = await this.readingsService.updateReadingData(user.id, id, body.data);
     return { reading };
   }
 

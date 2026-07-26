@@ -1,6 +1,6 @@
 import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Reading } from './reading.entity';
 
 @Injectable()
@@ -37,6 +37,19 @@ export class ReadingsService {
       title: dto.title,
       data: dto.data,
     });
+    return this.readingsRepo.save(reading);
+  }
+
+  async updateReadingData(
+    userId: string,
+    readingId: string,
+    partialData: Record<string, any>,
+  ): Promise<Reading> {
+    const reading = await this.readingsRepo.findOne({ where: { id: readingId } });
+    if (!reading) throw new NotFoundException('Không tìm thấy lịch sử');
+    if (reading.userId !== userId) throw new ForbiddenException('Không có quyền cập nhật');
+    // Deep-merge partialData vào data hiện tại
+    reading.data = { ...reading.data, ...partialData };
     return this.readingsRepo.save(reading);
   }
 
