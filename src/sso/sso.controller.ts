@@ -165,7 +165,6 @@ export class SsoController {
   async googleCallback(
     @Req() req: Request & { user?: any },
     @Res() res: Response,
-    @Query('redirect') redirectQuery?: string,
   ) {
     if (!req.user) {
       throw new BadRequestException('Google OAuth failed');
@@ -176,9 +175,17 @@ export class SsoController {
     this.setSessionCookie(res, token);
 
     const base = this.configService.get<string>('SSO_BASE_URL', 'http://localhost:3000');
-    if (redirectQuery) {
+    const redirectRaw =
+      (req.query.redirect as string) ||
+      (req.query.redirect_uri as string) ||
+      (req.query.redirect_url as string) ||
+      (req.query.app as string) ||
+      (req.query.app_url as string);
+
+    if (redirectRaw) {
       try {
-        const target = new URL(redirectQuery);
+        const decoded = redirectRaw.includes('%3A') ? decodeURIComponent(redirectRaw) : redirectRaw;
+        const target = new URL(decoded.startsWith('http') ? decoded : `https://${decoded}`);
         target.searchParams.set('sso_token', token);
         return res.redirect(target.toString());
       } catch (e) {}
@@ -199,7 +206,6 @@ export class SsoController {
   async facebookCallback(
     @Req() req: Request & { user?: any },
     @Res() res: Response,
-    @Query('redirect') redirectQuery?: string,
   ) {
     if (!req.user) {
       throw new BadRequestException('Facebook OAuth failed');
@@ -209,9 +215,17 @@ export class SsoController {
     this.setSessionCookie(res, token);
 
     const base = this.configService.get<string>('SSO_BASE_URL', 'http://localhost:3000');
-    if (redirectQuery) {
+    const redirectRaw =
+      (req.query.redirect as string) ||
+      (req.query.redirect_uri as string) ||
+      (req.query.redirect_url as string) ||
+      (req.query.app as string) ||
+      (req.query.app_url as string);
+
+    if (redirectRaw) {
       try {
-        const target = new URL(redirectQuery);
+        const decoded = redirectRaw.includes('%3A') ? decodeURIComponent(redirectRaw) : redirectRaw;
+        const target = new URL(decoded.startsWith('http') ? decoded : `https://${decoded}`);
         target.searchParams.set('sso_token', token);
         return res.redirect(target.toString());
       } catch (e) {}

@@ -17,9 +17,45 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
     else localStorage.removeItem('sso_token');
   };
 
-  const queryParams = new URLSearchParams(window.location.search);
-  const appParam = queryParams.get('app') || queryParams.get('redirect_url') || '';
+  const getRedirectTargetUrl = () => {
+    const queryParams = new URLSearchParams(window.location.search);
+    let rawTarget =
+      queryParams.get('redirect_uri') ||
+      queryParams.get('redirect') ||
+      queryParams.get('redirect_url') ||
+      queryParams.get('app') ||
+      queryParams.get('app_url') ||
+      queryParams.get('return_to') ||
+      '';
 
+    if (!rawTarget) return null;
+
+    try {
+      if (rawTarget.includes('%3A') || rawTarget.includes('%2F')) {
+        try {
+          rawTarget = decodeURIComponent(rawTarget);
+        } catch (e) {}
+      }
+      const targetUrl = new URL(rawTarget.startsWith('http') ? rawTarget : `https://${rawTarget}`);
+      return targetUrl;
+    } catch (err) {
+      console.error('Invalid redirect URL:', rawTarget, err);
+      return null;
+    }
+  };
+
+  // 🔄 CASE B: Nếu user ĐÃ ĐĂNG NHẬP sẵn ở SSO & URL có redirect_uri -> Tự động quay lại App ngay lập tức!
+  useEffect(() => {
+    const redirectTarget = getRedirectTargetUrl();
+    const token = localStorage.getItem('sso_token');
+    if (user && token && redirectTarget) {
+      redirectTarget.searchParams.set('sso_token', token);
+      console.log('User already authenticated at SSO. Auto-redirecting to:', redirectTarget.toString());
+      window.location.href = redirectTarget.toString();
+    }
+  }, [user]);
+
+  // 🔄 CASE A: Khi user vừa đăng nhập thành công -> Tự động chuyển hướng về App kèm sso_token
   const handleLogin = async (values) => {
     setLoading(true);
     setAlertInfo(null);
@@ -38,16 +74,19 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
           description: `Chào mừng ${data.user?.fullName || data.user?.email}`,
           placement: 'topRight',
         });
-        if (appParam) {
-          const url = new URL(appParam.startsWith('http') ? appParam : `https://${appParam}`);
-          url.searchParams.set('sso_token', data.token);
-          window.location.href = url.toString();
+
+        const redirectTarget = getRedirectTargetUrl();
+        if (redirectTarget) {
+          redirectTarget.searchParams.set('sso_token', data.token);
+          window.location.href = redirectTarget.toString();
           return;
         }
+
         if (data.user?.role === 'admin') {
           window.location.href = '/ui/admin#analytics';
           return;
         }
+
         if (onLoginSuccess) {
           onLoginSuccess(data.user);
         }
@@ -115,6 +154,9 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
     }
   };
 
+  const redirectTarget = getRedirectTargetUrl();
+  const redirectQueryStr = redirectTarget ? `?redirect=${encodeURIComponent(redirectTarget.toString())}` : '';
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -168,6 +210,27 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
               </Button>
             )}
 
+            {!redirectTarget && (
+              <Space direction="vertical" style={{ width: '100%', marginBottom: 10 }}>
+                <Button
+                  type="default"
+                  block
+                  style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
+                  onClick={() => { window.location.href = 'https://ichingnow.vunph.click'; }}
+                >
+                  ☯️ Đến IChingNow
+                </Button>
+                <Button
+                  type="default"
+                  block
+                  style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
+                  onClick={() => { window.location.href = 'https://tarotnow.vunph.click'; }}
+                >
+                  🔮 Đến TarotNow
+                </Button>
+              </Space>
+            )}
+
             <Button type="default" danger block icon={<LogoutOutlined />} onClick={onLogout} style={{ height: 42 }}>
               Đăng Xuất
             </Button>
@@ -206,7 +269,28 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                           Đăng Nhập
                         </Button>
                       </Form.Item>
-                      <div style={{ textAlign: 'center' }}>
+
+                      <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px dashed rgba(255,255,255,0.1)', textAlign: 'center' }}>
+                        <Text type="secondary" style={{ fontSize: '0.8rem', display: 'block', marginBottom: 10 }}>
+                          Hoặc đăng nhập nhanh bằng:
+                        </Text>
+                        <Space size="middle">
+                          <Button
+                            href={`/sso/oauth/google${redirectQueryStr}`}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, borderRadius: 8 }}
+                          >
+                            🌐 Google
+                          </Button>
+                          <Button
+                            href={`/sso/oauth/facebook${redirectQueryStr}`}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, borderRadius: 8 }}
+                          >
+                            📘 Facebook
+                          </Button>
+                        </Space>
+                      </div>
+
+                      <div style={{ textAlign: 'center', marginTop: 14 }}>
                         <Link onClick={() => setActiveTab('forgot')}>Quên mật khẩu?</Link>
                       </div>
                     </Form>

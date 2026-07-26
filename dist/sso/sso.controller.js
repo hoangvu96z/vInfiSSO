@@ -131,7 +131,7 @@ let SsoController = class SsoController {
     }
     googleLogin() {
     }
-    async googleCallback(req, res, redirectQuery) {
+    async googleCallback(req, res) {
         if (!req.user) {
             throw new common_1.BadRequestException('Google OAuth failed');
         }
@@ -139,9 +139,15 @@ let SsoController = class SsoController {
         const { token } = await this.ssoService.oauthLogin(req.user, 'google', reqMeta);
         this.setSessionCookie(res, token);
         const base = this.configService.get('SSO_BASE_URL', 'http://localhost:3000');
-        if (redirectQuery) {
+        const redirectRaw = req.query.redirect ||
+            req.query.redirect_uri ||
+            req.query.redirect_url ||
+            req.query.app ||
+            req.query.app_url;
+        if (redirectRaw) {
             try {
-                const target = new URL(redirectQuery);
+                const decoded = redirectRaw.includes('%3A') ? decodeURIComponent(redirectRaw) : redirectRaw;
+                const target = new URL(decoded.startsWith('http') ? decoded : `https://${decoded}`);
                 target.searchParams.set('sso_token', token);
                 return res.redirect(target.toString());
             }
@@ -151,16 +157,22 @@ let SsoController = class SsoController {
     }
     facebookLogin() {
     }
-    async facebookCallback(req, res, redirectQuery) {
+    async facebookCallback(req, res) {
         if (!req.user) {
             throw new common_1.BadRequestException('Facebook OAuth failed');
         }
         const { token } = await this.ssoService.oauthLogin(req.user, 'facebook');
         this.setSessionCookie(res, token);
         const base = this.configService.get('SSO_BASE_URL', 'http://localhost:3000');
-        if (redirectQuery) {
+        const redirectRaw = req.query.redirect ||
+            req.query.redirect_uri ||
+            req.query.redirect_url ||
+            req.query.app ||
+            req.query.app_url;
+        if (redirectRaw) {
             try {
-                const target = new URL(redirectQuery);
+                const decoded = redirectRaw.includes('%3A') ? decodeURIComponent(redirectRaw) : redirectRaw;
+                const target = new URL(decoded.startsWith('http') ? decoded : `https://${decoded}`);
                 target.searchParams.set('sso_token', token);
                 return res.redirect(target.toString());
             }
@@ -273,9 +285,8 @@ __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('google')),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
-    __param(2, (0, common_1.Query)('redirect')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object, String]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], SsoController.prototype, "googleCallback", null);
 __decorate([
@@ -290,9 +301,8 @@ __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('facebook')),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
-    __param(2, (0, common_1.Query)('redirect')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object, String]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], SsoController.prototype, "facebookCallback", null);
 __decorate([
