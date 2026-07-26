@@ -126,7 +126,7 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], AppController.prototype, "getReactApp", null);
 __decorate([
-    (0, common_1.Get)('assets/:file'),
+    (0, common_1.Get)(['assets/:file', 'ui/assets/:file']),
     __param(0, (0, common_1.Param)('file')),
     __param(1, (0, common_1.Res)()),
     __metadata("design:type", Function),

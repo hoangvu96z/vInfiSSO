@@ -43,7 +43,7 @@ export class AppController {
     res.send(html);
   }
 
-  @Get('assets/:file')
+  @Get(['assets/:file', 'ui/assets/:file'])
   getReactAsset(@Param('file') file: string, @Res() res: Response) {
     try {
       const assetPath = join(__dirname, '..', 'admin-ui', 'dist', 'assets', file);

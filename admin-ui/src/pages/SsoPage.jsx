@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Input, Button, Tabs, Alert, notification, Typography, Divider } from 'antd';
-import { UserOutlined, LockOutlined, MailOutlined, SafetyOutlined, SmileOutlined } from '@ant-design/icons';
+import { Card, Form, Input, Button, Tabs, Alert, notification, Typography, Tag, Avatar, Space } from 'antd';
+import { UserOutlined, LockOutlined, MailOutlined, SmileOutlined, CheckCircleOutlined, LogoutOutlined, CrownOutlined } from '@ant-design/icons';
 
 const { Title, Text, Link } = Typography;
 
-export default function SsoPage({ onLoginSuccess }) {
+export default function SsoPage({ user, onLoginSuccess, onLogout }) {
   const [activeTab, setActiveTab] = useState('login');
   const [loading, setLoading] = useState(false);
   const [alertInfo, setAlertInfo] = useState(null);
@@ -12,14 +12,11 @@ export default function SsoPage({ onLoginSuccess }) {
   const [formRegister] = Form.useForm();
   const [formForgot] = Form.useForm();
 
-  const getAuthToken = () => localStorage.getItem('sso_token');
-
   const setAuthToken = (token) => {
     if (token) localStorage.setItem('sso_token', token);
     else localStorage.removeItem('sso_token');
   };
 
-  // Check query params e.g. ?app=..., redirect_url=...
   const queryParams = new URLSearchParams(window.location.search);
   const appParam = queryParams.get('app') || queryParams.get('redirect_url') || '';
 
@@ -45,10 +42,14 @@ export default function SsoPage({ onLoginSuccess }) {
           const url = new URL(appParam.startsWith('http') ? appParam : `https://${appParam}`);
           url.searchParams.set('sso_token', data.token);
           window.location.href = url.toString();
-        } else if (onLoginSuccess) {
+          return;
+        }
+        if (data.user?.role === 'admin') {
+          window.location.href = '/ui/admin#analytics';
+          return;
+        }
+        if (onLoginSuccess) {
           onLoginSuccess(data.user);
-        } else {
-          window.location.href = data.user?.role === 'admin' ? '/ui/admin' : '/';
         }
       } else {
         setAlertInfo({ type: 'error', message: data.message || 'Đăng nhập thất bại' });
@@ -139,84 +140,120 @@ export default function SsoPage({ onLoginSuccess }) {
           <Text type="secondary" style={{ fontSize: '0.85rem' }}>Hệ thống đăng nhập tập trung SSO</Text>
         </div>
 
-        {alertInfo && (
-          <Alert
-            type={alertInfo.type}
-            message={alertInfo.message}
-            showIcon
-            closable
-            onClose={() => setAlertInfo(null)}
-            style={{ marginBottom: 20 }}
-          />
-        )}
+        {/* IF USER IS ALREADY LOGGED IN */}
+        {user ? (
+          <div style={{ textAlign: 'center', padding: '12px 0' }}>
+            <Avatar size={64} style={{ backgroundColor: '#6366f1', marginBottom: 12 }}>
+              {(user.fullName || user.email)[0].toUpperCase()}
+            </Avatar>
+            <Title level={4} style={{ margin: 0 }}>{user.fullName || 'Thành viên'}</Title>
+            <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>{user.email}</Text>
 
-        <Tabs
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          centered
-          items={[
-            {
-              key: 'login',
-              label: '🔑 Đăng Nhập',
-              children: (
-                <Form form={formLogin} layout="vertical" onFinish={handleLogin} style={{ marginTop: 12 }}>
-                  <Form.Item name="email" rules={[{ required: true, message: 'Vui lòng nhập Email' }, { type: 'email', message: 'Email không hợp lệ' }]}>
-                    <Input prefix={<MailOutlined />} placeholder="Email của bạn" size="large" />
-                  </Form.Item>
-                  <Form.Item name="password" rules={[{ required: true, message: 'Vui lòng nhập mật khẩu' }]}>
-                    <Input.Password prefix={<LockOutlined />} placeholder="Mật khẩu" size="large" />
-                  </Form.Item>
-                  <Form.Item>
-                    <Button type="primary" htmlType="submit" size="large" block loading={loading} style={{ background: '#6366f1', height: 44, fontWeight: 700 }}>
-                      Đăng Nhập
-                    </Button>
-                  </Form.Item>
-                  <div style={{ textAlign: 'center' }}>
-                    <Link onClick={() => setActiveTab('forgot')}>Quên mật khẩu?</Link>
-                  </div>
-                </Form>
-              ),
-            },
-            {
-              key: 'register',
-              label: '✨ Đăng Ký',
-              children: (
-                <Form form={formRegister} layout="vertical" onFinish={handleRegister} style={{ marginTop: 12 }}>
-                  <Form.Item name="displayName">
-                    <Input prefix={<SmileOutlined />} placeholder="Họ và tên / Biệt danh" size="large" />
-                  </Form.Item>
-                  <Form.Item name="email" rules={[{ required: true, message: 'Vui lòng nhập Email' }, { type: 'email', message: 'Email không hợp lệ' }]}>
-                    <Input prefix={<MailOutlined />} placeholder="Email của bạn" size="large" />
-                  </Form.Item>
-                  <Form.Item name="password" rules={[{ required: true, message: 'Vui lòng nhập mật khẩu' }, { min: 6, message: 'Mật khẩu tối thiểu 6 ký tự' }]}>
-                    <Input.Password prefix={<LockOutlined />} placeholder="Tạo mật khẩu" size="large" />
-                  </Form.Item>
-                  <Form.Item>
-                    <Button type="primary" htmlType="submit" size="large" block loading={loading} style={{ background: '#10b981', borderColor: '#10b981', height: 44, fontWeight: 700 }}>
-                      Đăng Ký Tài Khoản
-                    </Button>
-                  </Form.Item>
-                </Form>
-              ),
-            },
-            {
-              key: 'forgot',
-              label: '🔒 Quên Mật Khẩu',
-              children: (
-                <Form form={formForgot} layout="vertical" onFinish={handleForgot} style={{ marginTop: 12 }}>
-                  <Form.Item name="email" rules={[{ required: true, message: 'Vui lòng nhập Email' }, { type: 'email', message: 'Email không hợp lệ' }]}>
-                    <Input prefix={<MailOutlined />} placeholder="Email đã đăng ký" size="large" />
-                  </Form.Item>
-                  <Form.Item>
-                    <Button type="primary" htmlType="submit" size="large" block loading={loading} style={{ height: 44, fontWeight: 700 }}>
-                      Gửi Link Đặt Lại Mật Khẩu
-                    </Button>
-                  </Form.Item>
-                </Form>
-              ),
-            },
-          ]}
-        />
+            <Space direction="vertical" style={{ width: '100%', marginBottom: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(255,255,255,0.05)', borderRadius: 8 }}>
+                <Text type="secondary">Role:</Text>
+                <Tag color={user.role === 'admin' ? 'purple' : 'blue'}>{user.role.toUpperCase()}</Tag>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(255,255,255,0.05)', borderRadius: 8 }}>
+                <Text type="secondary">Email:</Text>
+                <Tag color={(user.isVerified ?? user.isEmailVerified) ? 'success' : 'warning'}>
+                  {(user.isVerified ?? user.isEmailVerified) ? '✓ Đã xác thực' : 'Chưa xác thực'}
+                </Tag>
+              </div>
+            </Space>
+
+            {user.role === 'admin' && (
+              <Button type="primary" block style={{ height: 42, fontWeight: 700, marginBottom: 10, background: '#6366f1' }} onClick={() => { window.location.href = '/ui/admin#analytics'; }}>
+                <CrownOutlined /> Đến Admin Dashboard
+              </Button>
+            )}
+
+            <Button type="default" danger block icon={<LogoutOutlined />} onClick={onLogout} style={{ height: 42 }}>
+              Đăng Xuất
+            </Button>
+          </div>
+        ) : (
+          <>
+            {alertInfo && (
+              <Alert
+                type={alertInfo.type}
+                message={alertInfo.message}
+                showIcon
+                closable
+                onClose={() => setAlertInfo(null)}
+                style={{ marginBottom: 20 }}
+              />
+            )}
+
+            <Tabs
+              activeKey={activeTab}
+              onChange={setActiveTab}
+              centered
+              items={[
+                {
+                  key: 'login',
+                  label: '🔑 Đăng Nhập',
+                  children: (
+                    <Form form={formLogin} layout="vertical" onFinish={handleLogin} style={{ marginTop: 12 }}>
+                      <Form.Item name="email" rules={[{ required: true, message: 'Vui lòng nhập Email' }, { type: 'email', message: 'Email không hợp lệ' }]}>
+                        <Input prefix={<MailOutlined />} placeholder="Email của bạn" size="large" />
+                      </Form.Item>
+                      <Form.Item name="password" rules={[{ required: true, message: 'Vui lòng nhập mật khẩu' }]}>
+                        <Input.Password prefix={<LockOutlined />} placeholder="Mật khẩu" size="large" />
+                      </Form.Item>
+                      <Form.Item>
+                        <Button type="primary" htmlType="submit" size="large" block loading={loading} style={{ background: '#6366f1', height: 44, fontWeight: 700 }}>
+                          Đăng Nhập
+                        </Button>
+                      </Form.Item>
+                      <div style={{ textAlign: 'center' }}>
+                        <Link onClick={() => setActiveTab('forgot')}>Quên mật khẩu?</Link>
+                      </div>
+                    </Form>
+                  ),
+                },
+                {
+                  key: 'register',
+                  label: '✨ Đăng Ký',
+                  children: (
+                    <Form form={formRegister} layout="vertical" onFinish={handleRegister} style={{ marginTop: 12 }}>
+                      <Form.Item name="displayName">
+                        <Input prefix={<SmileOutlined />} placeholder="Họ và tên / Biệt danh" size="large" />
+                      </Form.Item>
+                      <Form.Item name="email" rules={[{ required: true, message: 'Vui lòng nhập Email' }, { type: 'email', message: 'Email không hợp lệ' }]}>
+                        <Input prefix={<MailOutlined />} placeholder="Email của bạn" size="large" />
+                      </Form.Item>
+                      <Form.Item name="password" rules={[{ required: true, message: 'Vui lòng nhập mật khẩu' }, { min: 6, message: 'Mật khẩu tối thiểu 6 ký tự' }]}>
+                        <Input.Password prefix={<LockOutlined />} placeholder="Tạo mật khẩu" size="large" />
+                      </Form.Item>
+                      <Form.Item>
+                        <Button type="primary" htmlType="submit" size="large" block loading={loading} style={{ background: '#10b981', borderColor: '#10b981', height: 44, fontWeight: 700 }}>
+                          Đăng Ký Tài Khoản
+                        </Button>
+                      </Form.Item>
+                    </Form>
+                  ),
+                },
+                {
+                  key: 'forgot',
+                  label: '🔒 Quên Mật Khẩu',
+                  children: (
+                    <Form form={formForgot} layout="vertical" onFinish={handleForgot} style={{ marginTop: 12 }}>
+                      <Form.Item name="email" rules={[{ required: true, message: 'Vui lòng nhập Email' }, { type: 'email', message: 'Email không hợp lệ' }]}>
+                        <Input prefix={<MailOutlined />} placeholder="Email đã đăng ký" size="large" />
+                      </Form.Item>
+                      <Form.Item>
+                        <Button type="primary" htmlType="submit" size="large" block loading={loading} style={{ height: 44, fontWeight: 700 }}>
+                          Gửi Link Đặt Lại Mật Khẩu
+                        </Button>
+                      </Form.Item>
+                    </Form>
+                  ),
+                },
+              ]}
+            />
+          </>
+        )}
       </Card>
     </div>
   );

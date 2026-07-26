@@ -327,10 +327,11 @@ export class AdminService {
 
       const dateStr = new Date(r.createdAt).toISOString().split('T')[0];
       const entry = daysMap.get(dateStr);
-      if (entry && r.data?.aiConversation) {
+      if (entry) {
         let count = 0;
-        if (r.data.aiConversation.initialInterpretation) count += 1;
-        if (Array.isArray(r.data.aiConversation.followUps)) count += r.data.aiConversation.followUps.length;
+        if (r.data?.aiConversation?.initialInterpretation || r.data?.aiInterpretation || r.data?.interpretation) count += 1;
+        if (Array.isArray(r.data?.aiConversation?.followUps)) count += r.data.aiConversation.followUps.length;
+        if (Array.isArray(r.data?.followUps)) count += r.data.followUps.length;
         entry.ai += count;
       }
     });

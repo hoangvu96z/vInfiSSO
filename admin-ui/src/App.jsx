@@ -17,7 +17,7 @@ export default function App() {
     const checkSession = async () => {
       try {
         const token = localStorage.getItem('sso_token');
-        const res = await fetch('/sso/session', {
+        const res = await fetch('/sso/me', {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
           credentials: 'include',
         });
@@ -50,6 +50,14 @@ export default function App() {
     window.location.href = '/ui/sso';
   };
 
+  const handleLoginSuccess = (data) => {
+    const loggedUser = data.user || data;
+    setUser(loggedUser);
+    if (loggedUser.role === 'admin') {
+      window.location.href = '/ui/admin#analytics';
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#090d16', color: '#6366f1' }}>
@@ -58,11 +66,11 @@ export default function App() {
     );
   }
 
-  const isAdminRoute = pathname.includes('/admin') || window.location.hash.includes('analytics') || window.location.hash.includes('plans');
+  const isAdminRoute = pathname.includes('/admin') || window.location.hash.includes('analytics') || window.location.hash.includes('users') || window.location.hash.includes('plans');
 
-  if (isAdminRoute && user?.role === 'admin') {
+  if ((isAdminRoute || pathname === '/ui/admin') && user?.role === 'admin') {
     return <AdminPage user={user} onLogout={handleLogout} />;
   }
 
-  return <SsoPage onLoginSuccess={(u) => { setUser(u); if (u.role === 'admin') window.location.href = '/ui/admin'; }} />;
+  return <SsoPage user={user} onLoginSuccess={handleLoginSuccess} onLogout={handleLogout} />;
 }

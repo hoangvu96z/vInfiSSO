@@ -2,20 +2,29 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Layout, Menu, Typography, Button, Card, Row, Col, Table, Tag,
   Switch, Modal, Form, Input, InputNumber, Select, message, Space,
-  Statistic, Avatar, Tooltip, ConfigProvider, theme
+  Statistic, Avatar, ConfigProvider, theme
 } from 'antd';
 import {
   BarChartOutlined, UserOutlined, AuditOutlined, RobotOutlined,
   CrownOutlined, TagOutlined, LogoutOutlined, SunOutlined, MoonOutlined,
   CopyOutlined, DeleteOutlined, EditOutlined, GiftOutlined, ReloadOutlined,
-  CheckCircleOutlined, CloseCircleOutlined, PoweroffOutlined
+  CheckCircleOutlined, CloseCircleOutlined, PoweroffOutlined,
+  MenuFoldOutlined, MenuUnfoldOutlined
 } from '@ant-design/icons';
+import {
+  Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
+  BarElement, ArcElement, Title as ChartTitle, Tooltip as ChartTooltip, Legend, Filler
+} from 'chart.js';
+import { Line, Bar, Doughnut } from 'react-chartjs-2';
+
+ChartJS.register(
+  CategoryScale, LinearScale, PointElement, LineElement,
+  BarElement, ArcElement, ChartTitle, ChartTooltip, Legend, Filler
+);
 
 const { Header, Sider, Content } = Layout;
 const { Title, Text } = Typography;
 const { Option } = Select;
-
-const SSO_BASE = '';
 
 function getAuthHeaders() {
   const token = localStorage.getItem('sso_token');
@@ -35,12 +44,13 @@ async function authFetch(url, options = {}) {
 export default function AdminPage({ user, onLogout }) {
   const [currentRoute, setCurrentRoute] = useState(() => (window.location.hash || '#analytics').replace('#', ''));
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
 
   // Sync hash routing
   useEffect(() => {
     const handleHash = () => {
       const hash = (window.location.hash || '#analytics').replace('#', '');
-      setCurrentRoute(hash);
+      setCurrentRoute(hash || 'analytics');
     };
     window.addEventListener('hashchange', handleHash);
     return () => window.removeEventListener('hashchange', handleHash);
@@ -53,6 +63,8 @@ export default function AdminPage({ user, onLogout }) {
 
   // State data
   const [stats, setStats] = useState(null);
+  const [analyticsData, setAnalyticsData] = useState(null);
+
   const [users, setUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [userSearch, setUserSearch] = useState('');
@@ -78,12 +90,19 @@ export default function AdminPage({ user, onLogout }) {
   const [grantModalUser, setGrantModalUser] = useState(null);
   const [formGrant] = Form.useForm();
 
-  // Load Dashboard Stats
-  const loadStats = useCallback(async () => {
-    const res = await authFetch('/admin/stats');
-    if (res) {
-      const data = await res.json();
-      setStats(data);
+  // Load Dashboard Stats & Charts
+  const loadAnalytics = useCallback(async () => {
+    const [resStats, resCharts] = await Promise.all([
+      authFetch('/admin/stats'),
+      authFetch('/admin/analytics'),
+    ]);
+    if (resStats) {
+      const dataStats = await resStats.json();
+      setStats(dataStats);
+    }
+    if (resCharts) {
+      const dataCharts = await resCharts.json();
+      setAnalyticsData(dataCharts);
     }
   }, []);
 
@@ -96,7 +115,7 @@ export default function AdminPage({ user, onLogout }) {
     const res = await authFetch(`/admin/users?${query.toString()}`);
     if (res) {
       const data = await res.json();
-      setUsers(data.data || []);
+      setUsers(data.users || data.data || []);
     }
     setUsersLoading(false);
   }, [userSearch, roleFilter]);
@@ -109,7 +128,7 @@ export default function AdminPage({ user, onLogout }) {
     const res = await authFetch(`/admin/audit-logs?${query.toString()}`);
     if (res) {
       const data = await res.json();
-      setAuditLogs(data.data || []);
+      setAuditLogs(data.logs || data.data || []);
     }
     setAuditLoading(false);
   }, [auditSearch]);
@@ -120,7 +139,7 @@ export default function AdminPage({ user, onLogout }) {
     const res = await authFetch('/admin/ai-usage');
     if (res) {
       const data = await res.json();
-      setAiUsage(data.data || []);
+      setAiUsage(data.userAiStats || data.data || []);
     }
     setAiLoading(false);
   }, []);
@@ -149,13 +168,13 @@ export default function AdminPage({ user, onLogout }) {
 
   // Route Initializer
   useEffect(() => {
-    if (currentRoute === 'analytics') loadStats();
+    if (currentRoute === 'analytics') loadAnalytics();
     if (currentRoute === 'users') loadUsers();
     if (currentRoute === 'audit') loadAudit();
     if (currentRoute === 'ai') loadAiUsage();
     if (currentRoute === 'plans') loadPlans();
     if (currentRoute === 'coupons') loadCoupons();
-  }, [currentRoute, loadStats, loadUsers, loadAudit, loadAiUsage, loadPlans, loadCoupons]);
+  }, [currentRoute, loadAnalytics, loadUsers, loadAudit, loadAiUsage, loadPlans, loadCoupons]);
 
   // Actions
   const handleUpdateRole = async (userId, newRole) => {
@@ -197,16 +216,6 @@ export default function AdminPage({ user, onLogout }) {
       body: JSON.stringify({ isActive }),
     });
     message.info(`Đã ${isActive ? 'bật' : 'tắt'} gói ${planName.toUpperCase()}! 🔄`);
-    loadPlans();
-  };
-
-  const handleFreeOverride = async (freeToLite, freeToPremium) => {
-    await authFetch('/admin/plans/free', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ overrideFreeToLite: freeToLite, overrideFreeToPremium: freeToPremium }),
-    });
-    message.success('Đã cập nhật chế độ khuyến mãi Override Gói Free! 🎁');
     loadPlans();
   };
 
@@ -275,7 +284,81 @@ export default function AdminPage({ user, onLogout }) {
     }
   };
 
-  // Route Titles
+  const safeArr = (v) => (Array.isArray(v) ? v : []);
+
+  // Chart configs
+  const trafficChartData = {
+    labels: safeArr(analyticsData?.timeSeries).map(d => d.date?.slice(5) || ''),
+    datasets: [
+      {
+        label: 'Đăng ký mới',
+        data: safeArr(analyticsData?.timeSeries).map(d => d.registers || 0),
+        borderColor: '#6366f1',
+        backgroundColor: 'rgba(99, 102, 241, 0.15)',
+        fill: true,
+        tension: 0.4,
+      },
+      {
+        label: 'Đăng nhập',
+        data: safeArr(analyticsData?.timeSeries).map(d => d.logins || 0),
+        borderColor: '#10b981',
+        backgroundColor: 'transparent',
+        tension: 0.4,
+      },
+    ],
+  };
+
+  const appShareData = {
+    labels: ['IChingNow', 'TarotNow'],
+    datasets: [
+      {
+        data: [
+          analyticsData?.appDistribution?.iching || 0,
+          analyticsData?.appDistribution?.tarot || 0,
+        ],
+        backgroundColor: ['#6366f1', '#f59e0b'],
+      },
+    ],
+  };
+
+  const geoData = {
+    labels: safeArr(analyticsData?.topLocations).map(g => g.location || 'Localhost'),
+    datasets: [
+      {
+        label: 'Lượt truy cập',
+        data: safeArr(analyticsData?.topLocations).map(g => g.count || 0),
+        backgroundColor: '#3b82f6',
+        borderRadius: 6,
+      },
+    ],
+  };
+
+  const aiDailyData = {
+    labels: safeArr(analyticsData?.timeSeries).map(a => a.date?.slice(5) || ''),
+    datasets: [
+      {
+        label: 'Số lượt hỏi AI',
+        data: safeArr(analyticsData?.timeSeries).map(a => a.ai || 0),
+        backgroundColor: '#8b5cf6',
+        borderRadius: 6,
+      },
+    ],
+  };
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { labels: { color: isDarkMode ? '#94a3b8' : '#475569' } } },
+    scales: {
+      x: { ticks: { color: isDarkMode ? '#94a3b8' : '#475569' }, grid: { color: isDarkMode ? '#1e293b' : '#e2e8f0' } },
+      y: {
+        beginAtZero: true,
+        ticks: { color: isDarkMode ? '#94a3b8' : '#475569', precision: 0 },
+        grid: { color: isDarkMode ? '#1e293b' : '#e2e8f0' }
+      },
+    },
+  };
+
   const routeTitles = {
     analytics: '📊 Dashboard & Analytics',
     users: '👥 Quản Lý User & Role',
@@ -295,13 +378,26 @@ export default function AdminPage({ user, onLogout }) {
         },
       }}
     >
-      <Layout style={{ minHeight: '100vh' }}>
-        {/* SIDEBAR NAVIGATION */}
-        <Sider width={260} theme={isDarkMode ? 'dark' : 'light'} style={{ borderRight: '1px solid rgba(255,255,255,0.08)' }}>
-          <div style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-            <img src="/vlnfi_sso_favicon_option_1.svg" alt="vInfiSSO" style={{ width: 32, height: 32 }} />
-            <Title level={4} style={{ margin: 0 }}>vInfiSSO</Title>
-            <Tag color="indigo">ADMIN</Tag>
+      <Layout style={{ width: '100vw', minHeight: '100vh', margin: 0, padding: 0 }}>
+        {/* SIDEBAR NAVIGATION WITH COLLAPSIBLE TOGGLE */}
+        <Sider
+          collapsible
+          collapsed={collapsed}
+          onCollapse={setCollapsed}
+          trigger={null}
+          width={260}
+          collapsedWidth={80}
+          theme={isDarkMode ? 'dark' : 'light'}
+          style={{ borderRight: '1px solid rgba(255,255,255,0.08)' }}
+        >
+          <div style={{ padding: '18px 16px', display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-start', gap: 12, borderBottom: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+            <img src="/vlnfi_sso_favicon_option_1.svg" alt="vInfiSSO" style={{ width: 32, height: 32, flexShrink: 0 }} />
+            {!collapsed && (
+              <>
+                <Title level={4} style={{ margin: 0, whiteSpace: 'nowrap' }}>vInfiSSO</Title>
+                <Tag color="indigo">ADMIN</Tag>
+              </>
+            )}
           </div>
 
           <Menu
@@ -321,12 +417,28 @@ export default function AdminPage({ user, onLogout }) {
           />
         </Sider>
 
-        <Layout>
-          {/* TOPBAR HEADER */}
-          <Header style={{ background: isDarkMode ? '#0f172a' : '#fff', padding: '0 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-            <Title level={4} style={{ margin: 0 }}>{routeTitles[currentRoute]}</Title>
+        <Layout style={{ flex: 1, minWidth: 0 }}>
+          {/* TOPBAR HEADER WITH COLLAPSE BUTTON & CLEAN TOP RIGHT PROFILE */}
+          <Header style={{
+            background: isDarkMode ? '#0f172a' : '#fff',
+            padding: '0 24px',
+            display: 'flex',
+            justify: 'space-between',
+            alignItems: 'center',
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
+            height: 64,
+          }}>
+            <Space align="center" size="middle">
+              <Button
+                type="text"
+                icon={collapsed ? <MenuUnfoldOutlined style={{ fontSize: 18 }} /> : <MenuFoldOutlined style={{ fontSize: 18 }} />}
+                onClick={() => setCollapsed(!collapsed)}
+                style={{ width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              />
+              <Title level={4} style={{ margin: 0, lineHeight: 1 }}>{routeTitles[currentRoute]}</Title>
+            </Space>
 
-            <Space size="large">
+            <Space size="large" align="center">
               <Button
                 shape="round"
                 icon={isDarkMode ? <SunOutlined /> : <MoonOutlined />}
@@ -335,19 +447,25 @@ export default function AdminPage({ user, onLogout }) {
                 {isDarkMode ? 'Light Mode' : 'Dark Mode'}
               </Button>
 
-              <Space>
-                <Avatar style={{ backgroundColor: '#6366f1' }}>{(user?.fullName || user?.email || 'A')[0].toUpperCase()}</Avatar>
-                <div>
-                  <Text strong style={{ display: 'block', fontSize: '0.85rem' }}>{user?.fullName || 'Admin'}</Text>
-                  <Text type="secondary" style={{ fontSize: '0.72rem' }}>{user?.email}</Text>
+              <Space align="center" size="middle">
+                <Avatar style={{ backgroundColor: '#6366f1', flexShrink: 0 }}>{(user?.fullName || user?.email || 'A')[0].toUpperCase()}</Avatar>
+                <div style={{ lineHeight: 1.2, textAlign: 'left' }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.85rem', color: isDarkMode ? '#f8fafc' : '#0f172a', whiteSpace: 'nowrap' }}>
+                    {user?.fullName || 'Admin'}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: isDarkMode ? '#94a3b8' : '#64748b', whiteSpace: 'nowrap' }}>
+                    {user?.email}
+                  </div>
                 </div>
-                <Button type="text" danger icon={<LogoutOutlined />} onClick={onLogout}>Đăng xuất</Button>
+                <Button type="text" danger icon={<LogoutOutlined />} onClick={onLogout} style={{ fontWeight: 600 }}>
+                  Đăng xuất
+                </Button>
               </Space>
             </Space>
           </Header>
 
           {/* MAIN CONTENT AREA */}
-          <Content style={{ padding: 28 }}>
+          <Content style={{ padding: 28, width: '100%' }}>
             {/* ROUTE 1: DASHBOARD & CHARTS */}
             {currentRoute === 'analytics' && (
               <div>
@@ -363,6 +481,42 @@ export default function AdminPage({ user, onLogout }) {
                   </Col>
                   <Col xs={24} sm={12} lg={6}>
                     <Card><Statistic title="Số Lượt Hỏi AI" value={stats?.totalAiQuestions || 0} prefix={<RobotOutlined />} /></Card>
+                  </Col>
+                </Row>
+
+                {/* CHARTS ROW 1 */}
+                <Row gutter={[20, 20]} style={{ marginBottom: 24 }}>
+                  <Col xs={24} lg={16}>
+                    <Card title="📈 Lưu Lượng Đăng Nhập & Traffic (14 Ngày Qua)">
+                      <div style={{ height: 280 }}>
+                        <Line data={trafficChartData} options={chartOptions} />
+                      </div>
+                    </Card>
+                  </Col>
+                  <Col xs={24} lg={8}>
+                    <Card title="🥧 Phân Bổ Sử Dụng App">
+                      <div style={{ height: 280, display: 'flex', justifyContent: 'center' }}>
+                        <Doughnut data={appShareData} options={{ responsive: true, maintainAspectRatio: false }} />
+                      </div>
+                    </Card>
+                  </Col>
+                </Row>
+
+                {/* CHARTS ROW 2 */}
+                <Row gutter={[20, 20]}>
+                  <Col xs={24} lg={12}>
+                    <Card title="🌍 Top Vị Trí Địa Lý / Thành Phố">
+                      <div style={{ height: 260 }}>
+                        <Bar data={geoData} options={{ ...chartOptions, indexAxis: 'y' }} />
+                      </div>
+                    </Card>
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <Card title="🤖 Số Lượt Hỏi AI Theo Ngày">
+                      <div style={{ height: 260 }}>
+                        <Bar data={aiDailyData} options={chartOptions} />
+                      </div>
+                    </Card>
                   </Col>
                 </Row>
               </div>
@@ -388,12 +542,13 @@ export default function AdminPage({ user, onLogout }) {
                   dataSource={users}
                   loading={usersLoading}
                   rowKey="id"
+                  scroll={{ x: 800 }}
                   columns={[
-                    { title: 'User Info', dataIndex: 'email', render: (_, r) => <div><strong>{r.fullName || 'User'}</strong><div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>{r.email}</div></div> },
+                    { title: 'User Info', dataIndex: 'email', render: (_, r) => <div><strong>{r.fullName || r.displayName || 'User'}</strong><div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>{r.email}</div></div> },
                     { title: 'Role', dataIndex: 'role', render: role => <Tag color={role === 'admin' ? 'purple' : 'default'}>{role}</Tag> },
                     { title: 'Gói Dịch Vụ', dataIndex: 'planName', render: plan => <Tag color={plan === 'premium' ? 'gold' : plan === 'lite' ? 'blue' : 'default'}>{plan || 'free'}</Tag> },
-                    { title: 'Email Verified', dataIndex: 'isEmailVerified', render: v => v ? <Tag icon={<CheckCircleOutlined />} color="success">Đã xác thực</Tag> : <Tag icon={<CloseCircleOutlined />} color="error">Chưa xác thực</Tag> },
-                    { title: 'Lượt AI', dataIndex: 'aiUsageCount' },
+                    { title: 'Email Verified', dataIndex: 'isVerified', render: (v, r) => (v ?? r.isEmailVerified) ? <Tag icon={<CheckCircleOutlined />} color="success">Đã xác thực</Tag> : <Tag icon={<CloseCircleOutlined />} color="error">Chưa xác thực</Tag> },
+                    { title: 'Lượt AI', dataIndex: 'aiQuestionsCount' },
                     { title: 'Thao Tác', render: (_, r) => (
                       <Space>
                         <Button size="small" onClick={() => handleUpdateRole(r.id, r.role === 'admin' ? 'user' : 'admin')}>Role: {r.role === 'admin' ? 'User' : 'Admin'}</Button>
@@ -416,13 +571,14 @@ export default function AdminPage({ user, onLogout }) {
                   dataSource={auditLogs}
                   loading={auditLoading}
                   rowKey="id"
+                  scroll={{ x: 800 }}
                   columns={[
                     { title: 'Thời Gian', dataIndex: 'createdAt', render: d => new Date(d).toLocaleString('vi-VN') },
                     { title: 'Hành Động', dataIndex: 'action', render: a => <Tag color="indigo">{a}</Tag> },
-                    { title: 'Email', dataIndex: 'userEmail' },
+                    { title: 'Email', render: (_, r) => r.user?.email || r.userEmail || 'Khách' },
                     { title: 'Địa Chỉ IP', dataIndex: 'ipAddress', render: ip => <Tag>{ip || '127.0.0.1'}</Tag> },
-                    { title: 'Vị Trí Geo', dataIndex: 'location' },
-                    { title: 'Ứng Dụng', dataIndex: 'appName' },
+                    { title: 'Vị Trí Geo', render: (_, r) => r.metadata?.city || r.location || 'Hồ Chí Minh, VN' },
+                    { title: 'Ứng Dụng', dataIndex: 'app' },
                   ]}
                 />
               </Card>
@@ -434,12 +590,15 @@ export default function AdminPage({ user, onLogout }) {
                 <Table
                   dataSource={aiUsage}
                   loading={aiLoading}
-                  rowKey="id"
+                  rowKey="userId"
+                  scroll={{ x: 800 }}
                   columns={[
                     { title: 'Email', dataIndex: 'email' },
-                    { title: 'Họ Tên', dataIndex: 'fullName' },
-                    { title: 'Số Lượt Hỏi AI', dataIndex: 'aiQuestionsCount', sorter: (a, b) => a.aiQuestionsCount - b.aiQuestionsCount },
-                    { title: 'Gói Dịch Vụ', dataIndex: 'planName', render: p => <Tag color={p === 'premium' ? 'gold' : 'blue'}>{p || 'free'}</Tag> },
+                    { title: 'Họ Tên', dataIndex: 'displayName' },
+                    { title: 'Lượt Kinh Dịch', dataIndex: 'ichingReadings' },
+                    { title: 'Lượt Tarot', dataIndex: 'tarotReadings' },
+                    { title: 'Số Lượt Hỏi AI', dataIndex: 'totalAiQuestions', sorter: (a, b) => a.totalAiQuestions - b.totalAiQuestions },
+                    { title: 'Lần Cuối', dataIndex: 'lastActive', render: d => d ? new Date(d).toLocaleString('vi-VN') : 'Chưa có' },
                   ]}
                 />
               </Card>
@@ -449,7 +608,7 @@ export default function AdminPage({ user, onLogout }) {
             {currentRoute === 'plans' && (
               <div>
                 <Row gutter={[20, 20]} style={{ marginBottom: 24 }}>
-                  {plans.map(plan => (
+                  {safeArr(plans).map(plan => (
                     <Col xs={24} md={8} key={plan.name}>
                       <Card
                         title={<span>{plan.name === 'premium' ? '💎' : plan.name === 'lite' ? '🌟' : '⚡'} {plan.label}</span>}
@@ -477,6 +636,7 @@ export default function AdminPage({ user, onLogout }) {
                   dataSource={coupons}
                   loading={couponsLoading}
                   rowKey="id"
+                  scroll={{ x: 800 }}
                   columns={[
                     { title: 'Mã Code', dataIndex: 'code', render: code => <Tag color="blue" style={{ fontSize: '0.9rem', fontWeight: 700 }}>{code}</Tag> },
                     { title: 'Mô Tả', dataIndex: 'description' },
