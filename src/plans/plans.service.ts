@@ -154,8 +154,32 @@ export class PlansService {
     isOverride: boolean;
   }> {
     const user = await this.userRepo.findOne({ where: { id: userId } });
-    const plan = await this.getEffectivePlan(userId);
+    if (!user) throw new NotFoundException('User not found');
+
     const usage = await this.getOrCreateUsage(userId);
+    const month = this.currentMonth();
+
+    // TÍNH NĂNG ĐẶC QUYỀN ADMIN: Luôn luôn có quyền hỏi không giới hạn
+    if (user.role === 'admin') {
+      return {
+        plan: 'admin',
+        planLabel: 'Gói Admin (Vĩnh viễn)',
+        dailyLimit: -1,
+        monthlyLimit: -1,
+        dailyUsed: usage.dailyCount,
+        monthlyUsed: 0,
+        bonusRemaining: 999,
+        canAsk: true,
+        canBonus: true,
+        bonusUsedToday: 0,
+        bonusMaxPerDay: 999,
+        remaining: 9999,
+        expiresAt: null,
+        daysRemaining: null,
+        isExpiringSoon: false,
+        isOverride: false,
+      };
+    }
 
     const sub = await this.subRepo.findOne({
       where: [
@@ -165,6 +189,7 @@ export class PlansService {
       order: { createdAt: 'DESC' },
     });
 
+    const plan = await this.getEffectivePlan(userId);
     const baseFreePlan = await this.planRepo.findOne({ where: { name: 'free' } });
     const isOverride = user?.planName === 'free' && (baseFreePlan?.overrideFreeToLite || baseFreePlan?.overrideFreeToPremium);
 
@@ -183,7 +208,6 @@ export class PlansService {
     }
 
     // Tính monthly count tháng này
-    const month = this.currentMonth();
     const monthlyUsage = await this.usageRepo
       .createQueryBuilder('u')
       .select('SUM(u.dailyCount)', 'total')
