@@ -414,8 +414,13 @@
 
     async function loadUser() {
       try {
-        const res = await fetch('/sso/me', { credentials: 'include' });
+        const token = localStorage.getItem('sso_token');
+        const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+        const res = await fetch('/sso/me', { headers, credentials: 'include' });
         const data = await res.json();
+        if (data.token) {
+          localStorage.setItem('sso_token', data.token);
+        }
         if (data.user) {
           document.getElementById('loginSection').style.display = 'none';
           document.getElementById('userCard').style.display = 'block';
@@ -442,6 +447,9 @@
         });
         const data = await res.json();
         if (res.ok && data.success) {
+          if (data.token) {
+            localStorage.setItem('sso_token', data.token);
+          }
           loadUser();
         } else {
           alert(data.message || 'Đăng nhập thất bại');
@@ -450,7 +458,10 @@
     });
 
     async function logout() {
-      await fetch('/sso/logout', { method: 'POST', credentials: 'include' });
+      const token = localStorage.getItem('sso_token');
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+      await fetch('/sso/logout', { method: 'POST', headers, credentials: 'include' });
+      localStorage.removeItem('sso_token');
       location.reload();
     }
 

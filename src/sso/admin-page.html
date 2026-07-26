@@ -662,9 +662,25 @@
 
     let trafficChart, appShareChart, geoChart, aiChart;
 
+    function getAuthHeaders() {
+      const token = localStorage.getItem('sso_token');
+      return token ? { 'Authorization': `Bearer ${token}` } : {};
+    }
+
+    async function authFetch(url, options = {}) {
+      const headers = { ...getAuthHeaders(), ...(options.headers || {}) };
+      const res = await fetch(url, { ...options, headers, credentials: 'include' });
+      if (res.status === 401 || res.status === 403) {
+        alert('Phiên đăng nhập hết hạn hoặc tài khoản không có quyền Admin');
+        window.location.href = '/ui/sso';
+        throw new Error('Unauthorized');
+      }
+      return res;
+    }
+
     async function checkAuth() {
       try {
-        const res = await fetch('/sso/me', { credentials: 'include' });
+        const res = await authFetch('/sso/me');
         const data = await res.json();
         if (!data.user || data.user.role !== 'admin') {
           alert('Bạn không có quyền truy cập Admin Dashboard');
@@ -681,7 +697,7 @@
 
     async function loadStats() {
       try {
-        const res = await fetch('/admin/stats', { credentials: 'include' });
+        const res = await authFetch('/admin/stats');
         const data = await res.json();
         document.getElementById('statUsers').textContent = data.totalUsers || 0;
         document.getElementById('statSessions').textContent = data.activeSessions || 0;
@@ -696,7 +712,7 @@
 
     async function loadAnalyticsCharts() {
       try {
-        const res = await fetch('/admin/analytics', { credentials: 'include' });
+        const res = await authFetch('/admin/analytics');
         const data = await res.json();
         renderCharts(data);
       } catch (e) {
@@ -822,7 +838,7 @@
       const body = document.getElementById('userTableBody');
 
       try {
-        const res = await fetch(`/admin/users?page=${userPage}&limit=15&search=${encodeURIComponent(search)}&role=${role}`, { credentials: 'include' });
+        const res = await authFetch(`/admin/users?page=${userPage}&limit=15&search=${encodeURIComponent(search)}&role=${role}`);
         const data = await res.json();
         userTotalPages = data.totalPages || 1;
 
@@ -875,10 +891,9 @@
       const newRole = prompt('Nhập role mới (user, admin, vip):', currentRole);
       if (!newRole || newRole === currentRole) return;
       try {
-        const res = await fetch(`/admin/users/${userId}/role`, {
+        const res = await authFetch(`/admin/users/${userId}/role`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
           body: JSON.stringify({ role: newRole }),
         });
         if (res.ok) fetchUsers();
@@ -888,9 +903,8 @@
     async function revokeSessions(userId) {
       if (!confirm('Hủy tất cả phiên đăng nhập của người dùng này?')) return;
       try {
-        const res = await fetch(`/admin/users/${userId}/sessions`, {
+        const res = await authFetch(`/admin/users/${userId}/sessions`, {
           method: 'DELETE',
-          credentials: 'include',
         });
         if (res.ok) fetchUsers();
       } catch (err) { alert('Lỗi hủy session'); }
@@ -903,7 +917,7 @@
       const body = document.getElementById('auditTableBody');
 
       try {
-        const res = await fetch(`/admin/audit-logs?page=${auditPage}&limit=20&action=${action}&search=${encodeURIComponent(search)}`, { credentials: 'include' });
+        const res = await authFetch(`/admin/audit-logs?page=${auditPage}&limit=20&action=${action}&search=${encodeURIComponent(search)}`);
         const data = await res.json();
         auditTotalPages = data.totalPages || 1;
 
@@ -955,7 +969,7 @@
     async function fetchAiUsage() {
       const body = document.getElementById('aiTableBody');
       try {
-        const res = await fetch('/admin/ai-usage', { credentials: 'include' });
+        const res = await authFetch('/admin/ai-usage');
         const data = await res.json();
         const list = data.userAiStats || [];
 
@@ -998,7 +1012,8 @@
     }
 
     async function logout() {
-      await fetch('/sso/logout', { method: 'POST', credentials: 'include' });
+      await authFetch('/sso/logout', { method: 'POST' });
+      localStorage.removeItem('sso_token');
       window.location.href = '/ui/sso';
     }
 
