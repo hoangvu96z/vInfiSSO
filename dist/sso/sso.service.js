@@ -8,14 +8,22 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SsoService = void 0;
 const common_1 = require("@nestjs/common");
+const typeorm_1 = require("@nestjs/typeorm");
+const typeorm_2 = require("typeorm");
 const users_service_1 = require("../users/users.service");
+const audit_log_entity_1 = require("../users/audit-log.entity");
 let SsoService = class SsoService {
     usersService;
-    constructor(usersService) {
+    auditLogRepo;
+    constructor(usersService, auditLogRepo) {
         this.usersService = usersService;
+        this.auditLogRepo = auditLogRepo;
     }
     async register(dto) {
         if (!dto.email || !dto.password) {
@@ -28,6 +36,12 @@ let SsoService = class SsoService {
             email: dto.email,
             password: dto.password,
             displayName: dto.displayName,
+        });
+        await this.auditLogRepo.save({
+            userId: user.id,
+            action: 'register',
+            app: 'sso',
+            metadata: { email: user.email },
         });
         return {
             message: 'Đăng ký thành công! Vui lòng kiểm tra hộp thư email của bạn để xác nhận tài khoản trong vòng 24 giờ.',
@@ -53,6 +67,12 @@ let SsoService = class SsoService {
             });
         }
         const token = await this.usersService.createSession(user.id, dto.appOrigin);
+        await this.auditLogRepo.save({
+            userId: user.id,
+            action: 'login',
+            app: 'sso',
+            metadata: { appOrigin: dto.appOrigin || 'direct' },
+        });
         return { token, user: this.sanitizeUser(user) };
     }
     async oauthLogin(user, appOrigin) {
@@ -61,6 +81,12 @@ let SsoService = class SsoService {
             user.isVerified = true;
         }
         const token = await this.usersService.createSession(user.id, appOrigin);
+        await this.auditLogRepo.save({
+            userId: user.id,
+            action: 'login_oauth',
+            app: 'sso',
+            metadata: { appOrigin: appOrigin || 'oauth' },
+        });
         return { token, user: this.sanitizeUser(user) };
     }
     async resolveSession(rawToken) {
@@ -71,6 +97,14 @@ let SsoService = class SsoService {
     async logout(rawToken) {
         if (!rawToken)
             return;
+        const user = await this.resolveSession(rawToken);
+        if (user) {
+            await this.auditLogRepo.save({
+                userId: user.id,
+                action: 'logout',
+                app: 'sso',
+            });
+        }
         await this.usersService.deleteSessionByToken(rawToken);
     }
     sanitizeUser(user) {
@@ -96,6 +130,8 @@ let SsoService = class SsoService {
 exports.SsoService = SsoService;
 exports.SsoService = SsoService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [users_service_1.UsersService])
+    __param(1, (0, typeorm_1.InjectRepository)(audit_log_entity_1.AuditLog)),
+    __metadata("design:paramtypes", [users_service_1.UsersService,
+        typeorm_2.Repository])
 ], SsoService);
 //# sourceMappingURL=sso.service.js.map

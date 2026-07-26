@@ -8,9 +8,11 @@ import { MemberAppModule } from './member-app/member-app.module';
 import { SsoModule } from './sso/sso.module';
 import { UsersModule } from './users/users.module';
 import { ReadingsModule } from './readings/readings.module';
+import { AdminModule } from './admin/admin.module';
 import { User } from './users/user.entity';
 import { OAuthAccount } from './users/oauth-account.entity';
 import { Session } from './users/session.entity';
+import { AuditLog } from './users/audit-log.entity';
 import { Reading } from './readings/reading.entity';
 
 @Module({
@@ -31,7 +33,7 @@ import { Reading } from './readings/reading.entity';
         username: config.get<string>('DATABASE_USER', 'postgres'),
         password: config.get<string>('DATABASE_PASSWORD', ''),
         database: config.get<string>('DATABASE_NAME', 'vinfi_sso'),
-        entities: [User, OAuthAccount, Session, Reading],
+        entities: [User, OAuthAccount, Session, AuditLog, Reading],
         synchronize: true,
         logging: config.get<string>('NODE_ENV') !== 'production',
       }),
@@ -42,6 +44,7 @@ import { Reading } from './readings/reading.entity';
     MemberAppModule,
     SsoModule,
     ReadingsModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],

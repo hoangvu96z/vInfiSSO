@@ -1,8 +1,11 @@
+import { Repository } from 'typeorm';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/user.entity';
+import { AuditLog } from '../users/audit-log.entity';
 export declare class SsoService {
     private readonly usersService;
-    constructor(usersService: UsersService);
+    private readonly auditLogRepo;
+    constructor(usersService: UsersService, auditLogRepo: Repository<AuditLog>);
     register(dto: {
         email: string;
         password: string;

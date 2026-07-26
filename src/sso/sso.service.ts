@@ -4,12 +4,19 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/user.entity';
+import { AuditLog } from '../users/audit-log.entity';
 
 @Injectable()
 export class SsoService {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    @InjectRepository(AuditLog)
+    private readonly auditLogRepo: Repository<AuditLog>,
+  ) {}
 
   // ─── Register ─────────────────────────────────────────────────────────────
   // Sau đăng ký CHỈ gửi email, KHÔNG tạo session → user phải xác nhận email trước
@@ -32,6 +39,13 @@ export class SsoService {
       email: dto.email,
       password: dto.password,
       displayName: dto.displayName,
+    });
+
+    await this.auditLogRepo.save({
+      userId: user.id,
+      action: 'register',
+      app: 'sso',
+      metadata: { email: user.email },
     });
 
     return {
@@ -73,6 +87,14 @@ export class SsoService {
     }
 
     const token = await this.usersService.createSession(user.id, dto.appOrigin);
+
+    await this.auditLogRepo.save({
+      userId: user.id,
+      action: 'login',
+      app: 'sso',
+      metadata: { appOrigin: dto.appOrigin || 'direct' },
+    });
+
     return { token, user: this.sanitizeUser(user) };
   }
 
@@ -89,6 +111,14 @@ export class SsoService {
       user.isVerified = true;
     }
     const token = await this.usersService.createSession(user.id, appOrigin);
+
+    await this.auditLogRepo.save({
+      userId: user.id,
+      action: 'login_oauth',
+      app: 'sso',
+      metadata: { appOrigin: appOrigin || 'oauth' },
+    });
+
     return { token, user: this.sanitizeUser(user) };
   }
 
@@ -103,6 +133,14 @@ export class SsoService {
 
   async logout(rawToken: string | undefined): Promise<void> {
     if (!rawToken) return;
+    const user = await this.resolveSession(rawToken);
+    if (user) {
+      await this.auditLogRepo.save({
+        userId: user.id,
+        action: 'logout',
+        app: 'sso',
+      });
+    }
     await this.usersService.deleteSessionByToken(rawToken);
   }
 

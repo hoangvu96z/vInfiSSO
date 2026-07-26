@@ -32,6 +32,9 @@ export class User {
   @Column({ default: false })
   isVerified: boolean;
 
+  @Column({ type: 'varchar', default: 'user' })
+  role: string;
+
   @Column({ type: 'varchar', length: 500, nullable: true })
   emailVerificationToken: string | null;
 

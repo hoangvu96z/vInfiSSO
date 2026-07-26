@@ -2,12 +2,15 @@ import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/commo
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Reading } from './reading.entity';
+import { AuditLog } from '../users/audit-log.entity';
 
 @Injectable()
 export class ReadingsService {
   constructor(
     @InjectRepository(Reading)
     private readonly readingsRepo: Repository<Reading>,
+    @InjectRepository(AuditLog)
+    private readonly auditLogRepo: Repository<AuditLog>,
   ) {}
 
   async getReadings(userId: string, app?: string): Promise<Reading[]> {
@@ -37,7 +40,16 @@ export class ReadingsService {
       title: dto.title,
       data: dto.data,
     });
-    return this.readingsRepo.save(reading);
+    const saved = await this.readingsRepo.save(reading);
+
+    await this.auditLogRepo.save({
+      userId,
+      action: 'create_reading',
+      app: dto.app,
+      metadata: { type: dto.type, title: dto.title },
+    });
+
+    return saved;
   }
 
   async updateReadingData(
@@ -48,9 +60,23 @@ export class ReadingsService {
     const reading = await this.readingsRepo.findOne({ where: { id: readingId } });
     if (!reading) throw new NotFoundException('Không tìm thấy lịch sử');
     if (reading.userId !== userId) throw new ForbiddenException('Không có quyền cập nhật');
-    // Deep-merge partialData vào data hiện tại
+
     reading.data = { ...reading.data, ...partialData };
-    return this.readingsRepo.save(reading);
+    const saved = await this.readingsRepo.save(reading);
+
+    if (partialData.aiConversation) {
+      await this.auditLogRepo.save({
+        userId,
+        action: 'ai_question',
+        app: reading.app,
+        metadata: {
+          readingId,
+          followUpsCount: partialData.aiConversation.followUps?.length || 0,
+        },
+      });
+    }
+
+    return saved;
   }
 
   async deleteReading(userId: string, readingId: string): Promise<void> {

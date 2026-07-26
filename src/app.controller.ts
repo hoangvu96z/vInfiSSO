@@ -52,4 +52,15 @@ export class AppController {
       res.status(404).send('Not found');
     }
   }
+
+  @Get('ui/admin')
+  getAdminPage(@Res() res: Response) {
+    try {
+      const html = readFileSync(join(HTML_DIR, 'admin-page.html'), 'utf8');
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    } catch {
+      res.status(404).send('Not found');
+    }
+  }
 }

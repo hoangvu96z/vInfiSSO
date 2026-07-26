@@ -8,4 +8,5 @@ export declare class AppController {
     getRegisterPage(res: Response): void;
     getAppAPage(res: Response): void;
     getAppBPage(res: Response): void;
+    getAdminPage(res: Response): void;
 }

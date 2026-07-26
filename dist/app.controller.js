@@ -56,6 +56,16 @@ let AppController = class AppController {
             res.status(404).send('Not found');
         }
     }
+    getAdminPage(res) {
+        try {
+            const html = (0, node_fs_1.readFileSync)((0, node_path_1.join)(HTML_DIR, 'admin-page.html'), 'utf8');
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            res.send(html);
+        }
+        catch {
+            res.status(404).send('Not found');
+        }
+    }
 };
 exports.AppController = AppController;
 __decorate([
@@ -93,6 +103,13 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], AppController.prototype, "getAppBPage", null);
+__decorate([
+    (0, common_1.Get)('ui/admin'),
+    __param(0, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], AppController.prototype, "getAdminPage", null);
 exports.AppController = AppController = __decorate([
     (0, common_1.Controller)(),
     __metadata("design:paramtypes", [app_service_1.AppService])

@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>vInfiSSO — Admin Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Cinzel:wght@600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #0d0914;
+      --bg-card: rgba(26, 18, 40, 0.75);
+      --border-gold: rgba(229, 193, 88, 0.25);
+      --gold-primary: #e5c158;
+      --gold-hover: #f5d78e;
+      --text-main: #f3effa;
+      --text-muted: #a097b8;
+      --accent-purple: #7c5cfc;
+      --accent-green: #2ecc71;
+      --accent-red: #e74c3c;
+      --accent-cyan: #00d2d3;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Be Vietnam Pro', sans-serif;
+      background: var(--bg-dark);
+      background-image: 
+        radial-gradient(at 10% 10%, rgba(124, 92, 252, 0.15) 0px, transparent 50%),
+        radial-gradient(at 90% 90%, rgba(229, 193, 88, 0.1) 0px, transparent 50%);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Top Nav */
+    header {
+      background: rgba(13, 9, 20, 0.9);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-gold);
+      padding: 14px 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-title {
+      font-family: 'Cinzel', serif;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--gold-primary);
+      letter-spacing: 1px;
+    }
+    .admin-badge {
+      background: rgba(124, 92, 252, 0.2);
+      border: 1px solid var(--accent-purple);
+      color: var(--accent-purple);
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    .user-profile {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 0.85rem;
+    }
+    .btn-logout {
+      background: rgba(231, 76, 60, 0.15);
+      border: 1px solid rgba(231, 76, 60, 0.4);
+      color: var(--accent-red);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-logout:hover { background: var(--accent-red); color: #fff; }
+
+    /* Layout */
+    .container {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 24px;
+      width: 100%;
+      flex: 1;
+    }
+
+    /* Stat Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-gold);
+      border-radius: 12px;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+    .stat-label {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+    .stat-value {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--gold-hover);
+      font-family: 'Cinzel', serif;
+    }
+    .stat-sub {
+      font-size: 0.72rem;
+      color: var(--accent-green);
+    }
+
+    /* Tabs Bar */
+    .tabs-nav {
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid var(--border-gold);
+      margin-bottom: 20px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 12px 20px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tab-btn.active {
+      color: var(--gold-primary);
+      border-bottom-color: var(--gold-primary);
+      background: rgba(229, 193, 88, 0.05);
+    }
+    .tab-btn:hover { color: var(--text-main); }
+
+    /* Glass Panel Table Containers */
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border-gold);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    }
+
+    /* Filters Bar */
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .search-input {
+      background: rgba(0,0,0,0.4);
+      border: 1px solid var(--border-gold);
+      color: var(--text-main);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      outline: none;
+      width: 280px;
+    }
+    .select-filter {
+      background: #151022;
+      border: 1px solid var(--border-gold);
+      color: var(--text-main);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      outline: none;
+    }
+
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    th {
+      text-align: left;
+      padding: 12px 14px;
+      color: var(--gold-primary);
+      border-bottom: 1px solid var(--border-gold);
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.72rem;
+      letter-spacing: 0.05em;
+    }
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      vertical-align: middle;
+    }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    /* Badges */
+    .badge {
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .badge-admin { background: rgba(124, 92, 252, 0.2); color: var(--accent-purple); border: 1px solid var(--accent-purple); }
+    .badge-user { background: rgba(229, 193, 88, 0.15); color: var(--gold-primary); border: 1px solid var(--border-gold); }
+    .badge-vip { background: rgba(46, 204, 113, 0.2); color: var(--accent-green); border: 1px solid var(--accent-green); }
+    .badge-active { color: var(--accent-green); }
+    .badge-inactive { color: var(--accent-red); }
+
+    /* Action Buttons */
+    .btn-sm {
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.15s;
+    }
+    .btn-edit { background: rgba(124, 92, 252, 0.15); color: #a48eff; border-color: rgba(124, 92, 252, 0.3); }
+    .btn-edit:hover { background: var(--accent-purple); color: #fff; }
+    .btn-danger { background: rgba(231, 76, 60, 0.15); color: #f1948a; border-color: rgba(231, 76, 60, 0.3); }
+    .btn-danger:hover { background: var(--accent-red); color: #fff; }
+
+    /* Pagination */
+    .pagination {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 10px;
+      margin-top: 16px;
+      font-size: 0.8rem;
+    }
+    .page-btn {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border-gold);
+      color: var(--text-main);
+      padding: 5px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Role Modal */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(4px); display: flex; align-items: center;
+      justify-content: center; z-index: 1000; padding: 16px;
+    }
+    .modal-card {
+      background: #140e21; border: 1px solid var(--gold-primary);
+      border-radius: 14px; width: 100%; max-width: 440px; padding: 24px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 16px;
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- Header Nav -->
+  <header>
+    <div class="brand">
+      <span style="font-size: 1.4rem;">🛡️</span>
+      <div class="brand-title">vInfiSSO Admin</div>
+      <span class="admin-badge">Management</span>
+    </div>
+    <div class="user-profile">
+      <span id="adminName">Admin User</span>
+      <button class="btn-logout" onclick="handleLogout()">Đăng xuất</button>
+    </div>
+  </header>
+
+  <!-- Container -->
+  <div class="container">
+
+    <!-- Stat Cards -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-label">👥 Tổng số Người dùng</span>
+        <span class="stat-value" id="statUsers">...</span>
+        <span class="stat-sub">Đã đăng ký tài khoản</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">⚡ Session Đang Hoạt động</span>
+        <span class="stat-value" id="statSessions">...</span>
+        <span class="stat-sub" style="color: var(--accent-purple);">Phiên active trong 7 ngày</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">📜 Lượt Tạo Quẻ / Trải Bài</span>
+        <span class="stat-value" id="statReadings">...</span>
+        <span class="stat-sub">Tổng IChingNow + TarotNow</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">🤖 Tổng Số Câu Hỏi AI</span>
+        <span class="stat-value" id="statAiQuestions">...</span>
+        <span class="stat-sub" id="statTodayAi" style="color: var(--accent-cyan);">+0 câu hỏi hôm nay</span>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs-nav">
+      <button class="tab-btn active" onclick="switchTab('users')">👥 Quản lý User & Role</button>
+      <button class="tab-btn" onclick="switchTab('audit')">📜 Nhật ký Đăng nhập & Traffic</button>
+      <button class="tab-btn" onclick="switchTab('ai')">🤖 Thống kê Sử dụng AI</button>
+    </div>
+
+    <!-- Tab 1: Users & Roles -->
+    <div id="tab-users" class="panel">
+      <div class="toolbar">
+        <input type="text" id="userSearch" class="search-input" placeholder="🔍 Tìm theo email, tên..." onkeyup="debouncedFetchUsers()" />
+        <select id="roleFilter" class="select-filter" onchange="fetchUsers()">
+          <option value="">Tất cả Role</option>
+          <option value="admin">Admin</option>
+          <option value="user">User</option>
+          <option value="vip">VIP</option>
+        </select>
+      </div>
+
+      <div style="overflow-x: auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>User / Email</th>
+              <th>Role</th>
+              <th>Trạng thái</th>
+              <th>Sessions</th>
+              <th>Số quẻ</th>
+              <th>Số câu AI</th>
+              <th>Ngày tạo</th>
+              <th>Hành động</th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody">
+            <tr><td colspan="8" style="text-align: center; padding: 20px;">Đang tải danh sách người dùng...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pagination">
+        <button class="page-btn" id="btnPrevUser" onclick="changeUserPage(-1)">‹ Trang trước</button>
+        <span id="userPageInfo">Trang 1 / 1</span>
+        <button class="page-btn" id="btnNextUser" onclick="changeUserPage(1)">Trang sau ›</button>
+      </div>
+    </div>
+
+    <!-- Tab 2: Audit Logs -->
+    <div id="tab-audit" class="panel hidden">
+      <div class="toolbar">
+        <input type="text" id="auditSearch" class="search-input" placeholder="🔍 Tìm IP, email..." onkeyup="debouncedFetchAudit()" />
+        <select id="actionFilter" class="select-filter" onchange="fetchAuditLogs()">
+          <option value="">Tất cả hành động</option>
+          <option value="login">Login</option>
+          <option value="login_oauth">Login (OAuth)</option>
+          <option value="logout">Logout</option>
+          <option value="register">Register</option>
+          <option value="ai_question">Hỏi AI</option>
+        </select>
+      </div>
+
+      <div style="overflow-x: auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Hành động</th>
+              <th>Người dùng</th>
+              <th>App</th>
+              <th>IP Address</th>
+              <th>Thiết bị / User Agent</th>
+              <th>Thời gian</th>
+            </tr>
+          </thead>
+          <tbody id="auditTableBody">
+            <tr><td colspan="6" style="text-align: center; padding: 20px;">Đang tải nhật ký...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pagination">
+        <button class="page-btn" id="btnPrevAudit" onclick="changeAuditPage(-1)">‹ Trang trước</button>
+        <span id="auditPageInfo">Trang 1 / 1</span>
+        <button class="page-btn" id="btnNextAudit" onclick="changeAuditPage(1)">Trang sau ›</button>
+      </div>
+    </div>
+
+    <!-- Tab 3: AI Analytics -->
+    <div id="tab-ai" class="panel hidden">
+      <div class="toolbar" style="margin-bottom: 20px;">
+        <h3 style="font-family: 'Cinzel', serif; color: var(--gold-primary); font-size: 1.1rem;">
+          📊 Bảng Thống kê Sử dụng AI theo Người dùng
+        </h3>
+      </div>
+
+      <div style="overflow-x: auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Xếp hạng</th>
+              <th>Người dùng</th>
+              <th>Role</th>
+              <th>Quẻ Kinh Dịch</th>
+              <th>Trải bài Tarot</th>
+              <th>Luận giải ban đầu</th>
+              <th>Câu hỏi thêm</th>
+              <th>Tổng câu hỏi AI</th>
+              <th>Hoạt động cuối</th>
+            </tr>
+          </thead>
+          <tbody id="aiTableBody">
+            <tr><td colspan="9" style="text-align: center; padding: 20px;">Đang tải thống kê AI...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Role Edit Modal -->
+  <div id="roleModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <h3 style="font-family: 'Cinzel', serif; color: var(--gold-primary); font-size: 1.1rem;">Phân quyền Role cho Người dùng</h3>
+      <p style="font-size: 0.85rem; color: var(--text-muted);" id="modalUserEmail">user@example.com</p>
+      
+      <div>
+        <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 6px;">Chọn Role mới:</label>
+        <select id="modalRoleSelect" class="select-filter" style="width: 100%;">
+          <option value="user">User (Thường)</option>
+          <option value="vip">VIP (Thành viên cao cấp)</option>
+          <option value="admin">Admin (Quản trị hệ thống)</option>
+        </select>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+        <button class="btn-sm" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-gold);" onclick="closeRoleModal()">Hủy</button>
+        <button class="btn-sm" style="background: var(--gold-primary); color: #000; font-weight: 700;" onclick="submitRoleChange()">Lưu cập nhật</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let userPage = 1, auditPage = 1;
+    let selectedUserId = null;
+    let debounceTimer = null;
+
+    async function checkAdminAuth() {
+      try {
+        const res = await fetch('/sso/me', { credentials: 'include' });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        if (!data.user || data.user.role !== 'admin') {
+          alert('Bạn không có quyền Admin để truy cập trang này.');
+          window.location.href = '/sso/login';
+          return;
+        }
+        document.getElementById('adminName').innerText = data.user.displayName || data.user.email;
+        initDashboard();
+      } catch (err) {
+        window.location.href = '/sso/login';
+      }
+    }
+
+    async function initDashboard() {
+      fetchStats();
+      fetchUsers();
+    }
+
+    async function fetchStats() {
+      try {
+        const res = await fetch('/admin/stats', { credentials: 'include' });
+        const data = await res.json();
+        document.getElementById('statUsers').innerText = data.totalUsers || 0;
+        document.getElementById('statSessions').innerText = data.activeSessions || 0;
+        document.getElementById('statReadings').innerText = data.totalReadings || 0;
+        document.getElementById('statAiQuestions').innerText = data.totalAiQuestions || 0;
+        document.getElementById('statTodayAi').innerText = `+${data.todayAiQuestions || 0} câu hỏi hôm nay`;
+      } catch (err) { console.error('Failed to load stats', err); }
+    }
+
+    async function fetchUsers() {
+      const search = document.getElementById('userSearch').value;
+      const role = document.getElementById('roleFilter').value;
+      try {
+        const res = await fetch(`/admin/users?page=${userPage}&limit=15&search=${encodeURIComponent(search)}&role=${role}`, { credentials: 'include' });
+        const data = await res.json();
+        renderUsers(data.users || []);
+        document.getElementById('userPageInfo').innerText = `Trang ${data.page || 1} / ${data.totalPages || 1}`;
+        document.getElementById('btnPrevUser').disabled = userPage <= 1;
+        document.getElementById('btnNextUser').disabled = userPage >= data.totalPages;
+      } catch (err) { console.error(err); }
+    }
+
+    function renderUsers(users) {
+      const tbody = document.getElementById('usersTableBody');
+      if (users.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px;">Không tìm thấy người dùng</td></tr>';
+        return;
+      }
+      tbody.innerHTML = users.map(u => `
+        <tr>
+          <td>
+            <div style="font-weight:600; color: #fff;">${escapeHtml(u.displayName || u.email)}</div>
+            <div style="font-size:0.75rem; color: var(--text-muted);">${escapeHtml(u.email)}</div>
+          </td>
+          <td><span class="badge badge-${u.role}">${u.role}</span></td>
+          <td><span class="${u.isVerified ? 'badge-active' : 'badge-inactive'}">${u.isVerified ? '✓ Verified' : '⚠ Unverified'}</span></td>
+          <td>${u.activeSessionsCount > 0 ? `<span style="color:var(--accent-green); font-weight:700;">● ${u.activeSessionsCount} active</span>` : '<span style="color:var(--text-muted);">0</span>'}</td>
+          <td>${u.readingsCount || 0}</td>
+          <td style="font-weight:700; color:var(--gold-hover);">${u.aiQuestionsCount || 0}</td>
+          <td style="font-size:0.75rem; color:var(--text-muted);">${new Date(u.createdAt).toLocaleDateString('vi-VN')}</td>
+          <td>
+            <div style="display:flex; gap:6px;">
+              <button class="btn-sm btn-edit" onclick="openRoleModal('${u.id}', '${escapeHtml(u.email)}', '${u.role}')">Role</button>
+              <button class="btn-sm btn-danger" onclick="revokeSessions('${u.id}', '${escapeHtml(u.email)}')">Revoke</button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function debouncedFetchUsers() {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => { userPage = 1; fetchUsers(); }, 300);
+    }
+
+    function changeUserPage(delta) {
+      userPage += delta;
+      fetchUsers();
+    }
+
+    function openRoleModal(id, email, role) {
+      selectedUserId = id;
+      document.getElementById('modalUserEmail').innerText = email;
+      document.getElementById('modalRoleSelect').value = role;
+      document.getElementById('roleModal').classList.remove('hidden');
+    }
+    function closeRoleModal() {
+      document.getElementById('roleModal').classList.add('hidden');
+    }
+
+    async function submitRoleChange() {
+      const newRole = document.getElementById('modalRoleSelect').value;
+      try {
+        const res = await fetch(`/admin/users/${selectedUserId}/role`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ role: newRole })
+        });
+        if (!res.ok) throw new Error();
+        closeRoleModal();
+        fetchUsers();
+      } catch (err) { alert('Cập nhật Role thất bại'); }
+    }
+
+    async function revokeSessions(userId, email) {
+      if (!confirm(`Bạn có chắc muốn hủy tất cả phiên làm việc của ${email}?`)) return;
+      try {
+        const res = await fetch(`/admin/users/${userId}/sessions`, {
+          method: 'DELETE',
+          credentials: 'include'
+        });
+        if (!res.ok) throw new Error();
+        alert('Đã hủy tất cả phiên đăng nhập thành công');
+        fetchUsers();
+      } catch (err) { alert('Thất bại'); }
+    }
+
+    // Audit Logs
+    async function fetchAuditLogs() {
+      const search = document.getElementById('auditSearch').value;
+      const action = document.getElementById('actionFilter').value;
+      try {
+        const res = await fetch(`/admin/audit-logs?page=${auditPage}&limit=20&search=${encodeURIComponent(search)}&action=${action}`, { credentials: 'include' });
+        const data = await res.json();
+        renderAudit(data.logs || []);
+        document.getElementById('auditPageInfo').innerText = `Trang ${data.page || 1} / ${data.totalPages || 1}`;
+        document.getElementById('btnPrevAudit').disabled = auditPage <= 1;
+        document.getElementById('btnNextAudit').disabled = auditPage >= data.totalPages;
+      } catch (err) { console.error(err); }
+    }
+
+    function renderAudit(logs) {
+      const tbody = document.getElementById('auditTableBody');
+      if (logs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px;">Không tìm thấy nhật ký</td></tr>';
+        return;
+      }
+      tbody.innerHTML = logs.map(l => `
+        <tr>
+          <td><span class="badge badge-admin">${l.action}</span></td>
+          <td>${l.user ? escapeHtml(l.user.email) : '<span style="color:var(--text-muted);">Guest / Unknown</span>'}</td>
+          <td><span style="font-weight:600; color:var(--gold-primary);">${l.app || 'sso'}</span></td>
+          <td style="font-family:monospace;">${l.ipAddress || '—'}</td>
+          <td style="font-size:0.75rem; color:var(--text-muted); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(l.userAgent || '')}">${escapeHtml(l.userAgent || '—')}</td>
+          <td style="font-size:0.75rem; font-family:monospace;">${new Date(l.createdAt).toLocaleString('vi-VN')}</td>
+        </tr>
+      `).join('');
+    }
+
+    function debouncedFetchAudit() {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => { auditPage = 1; fetchAuditLogs(); }, 300);
+    }
+    function changeAuditPage(delta) { auditPage += delta; fetchAuditLogs(); }
+
+    // AI Analytics
+    async function fetchAiStats() {
+      try {
+        const res = await fetch('/admin/ai-usage', { credentials: 'include' });
+        const data = await res.json();
+        renderAiStats(data.userAiStats || []);
+      } catch (err) { console.error(err); }
+    }
+
+    function renderAiStats(list) {
+      const tbody = document.getElementById('aiTableBody');
+      if (list.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:20px;">Chưa có dữ liệu hỏi AI</td></tr>';
+        return;
+      }
+      tbody.innerHTML = list.map((item, idx) => `
+        <tr>
+          <td style="font-weight:700; color:var(--gold-primary);">#${idx + 1}</td>
+          <td>
+            <div style="font-weight:600; color:#fff;">${escapeHtml(item.displayName)}</div>
+            <div style="font-size:0.75rem; color:var(--text-muted);">${escapeHtml(item.email)}</div>
+          </td>
+          <td><span class="badge badge-${item.role}">${item.role}</span></td>
+          <td>${item.ichingReadings}</td>
+          <td>${item.tarotReadings}</td>
+          <td>${item.initialInterpretations}</td>
+          <td>${item.followUpQuestions}</td>
+          <td style="font-size:1.05rem; font-weight:800; color:var(--gold-hover);">${item.totalAiQuestions}</td>
+          <td style="font-size:0.75rem; font-family:monospace;">${item.lastActive ? new Date(item.lastActive).toLocaleString('vi-VN') : '—'}</td>
+        </tr>
+      `).join('');
+    }
+
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.add('hidden'));
+
+      if (tab === 'users') {
+        document.querySelector('.tab-btn:nth-child(1)').classList.add('active');
+        document.getElementById('tab-users').classList.remove('hidden');
+        fetchUsers();
+      } else if (tab === 'audit') {
+        document.querySelector('.tab-btn:nth-child(2)').classList.add('active');
+        document.getElementById('tab-audit').classList.remove('hidden');
+        fetchAuditLogs();
+      } else if (tab === 'ai') {
+        document.querySelector('.tab-btn:nth-child(3)').classList.active = true;
+        document.querySelector('.tab-btn:nth-child(3)').classList.add('active');
+        document.getElementById('tab-ai').classList.remove('hidden');
+        fetchAiStats();
+      }
+    }
+
+    async function handleLogout() {
+      await fetch('/sso/logout', { method: 'POST', credentials: 'include' });
+      window.location.href = '/sso/login';
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    checkAdminAuth();
+  </script>
+</body>
+</html>
