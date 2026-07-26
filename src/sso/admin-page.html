@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>vInfiSSO — Admin Analytics & Management Dashboard</title>
+  <title>vInfiSSO — Enterprise Admin Dashboard</title>
   <link rel="icon" type="image/svg+xml" href="/vlnfi_sso_favicon_option_1.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,7 +18,8 @@
     /* ===== ENTERPRISE SAAS DESIGN SYSTEM ===== */
     :root[data-theme="dark"] {
       --bg-page: #090d16;
-      --bg-header: rgba(15, 23, 42, 0.85);
+      --bg-sidebar: #0d1322;
+      --bg-header: rgba(13, 19, 34, 0.85);
       --bg-card: #131c31;
       --bg-card-hover: #1e294b;
       --bg-input: #1a243d;
@@ -37,6 +38,7 @@
 
     :root[data-theme="light"] {
       --bg-page: #f8fafc;
+      --bg-sidebar: #ffffff;
       --bg-header: rgba(255, 255, 255, 0.85);
       --bg-card: #ffffff;
       --bg-card-hover: #f1f5f9;
@@ -61,12 +63,111 @@
       color: var(--text-primary);
       min-height: 100vh;
       display: flex;
-      flex-direction: column;
       transition: background 0.3s ease, color 0.3s ease;
     }
 
-    /* ===== HEADER ===== */
-    header {
+    /* ===== LAYOUT WRAPPER ===== */
+    .admin-layout {
+      display: flex;
+      width: 100vw;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ===== SIDEBAR NAVIGATION ===== */
+    .sidebar {
+      width: 260px;
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      z-index: 120;
+      transition: all 0.3s ease;
+    }
+
+    .sidebar-brand {
+      padding: 20px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .brand-logo { width: 32px; height: 32px; }
+    .brand-title { font-weight: 800; font-size: 1.2rem; letter-spacing: -0.02em; color: var(--text-primary); }
+    .admin-badge {
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-primary);
+      color: var(--accent-primary);
+      font-size: 0.65rem;
+      font-weight: 800;
+      padding: 2px 7px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .sidebar-menu {
+      padding: 20px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .menu-label {
+      font-size: 0.7rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      padding: 8px 12px 4px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 16px;
+      border-radius: 10px;
+      color: var(--text-secondary);
+      font-size: 0.88rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+
+    .nav-item:hover {
+      background: var(--bg-card-hover);
+      color: var(--text-primary);
+    }
+
+    .nav-item.active {
+      background: var(--accent-primary);
+      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+    }
+
+    .nav-icon {
+      font-size: 1.1rem;
+      width: 22px;
+      text-align: center;
+    }
+
+    /* ===== MAIN CONTENT AREA ===== */
+    .main-content {
+      margin-left: 260px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    /* ===== TOPBAR HEADER ===== */
+    .topbar {
       background: var(--bg-header);
       backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border-color);
@@ -78,27 +179,23 @@
       top: 0;
       z-index: 100;
     }
-    .brand { display: flex; align-items: center; gap: 12px; }
-    .brand-logo { width: 32px; height: 32px; }
-    .brand-title { font-weight: 800; font-size: 1.25rem; letter-spacing: -0.02em; color: var(--text-primary); }
-    .admin-badge {
-      background: var(--accent-soft);
-      border: 1px solid var(--accent-primary);
-      color: var(--accent-primary);
-      font-size: 0.68rem;
-      font-weight: 700;
-      padding: 2px 8px;
-      border-radius: 6px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
+
+    .page-title {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
+
     .header-actions { display: flex; align-items: center; gap: 16px; }
 
     .theme-toggle-btn {
       background: var(--bg-card);
       border: 1px solid var(--border-color);
       color: var(--text-primary);
-      padding: 6px 12px;
+      padding: 6px 14px;
       border-radius: 20px;
       font-size: 0.85rem;
       font-weight: 600;
@@ -128,19 +225,26 @@
     }
     .btn-logout:hover { background: var(--accent-danger); color: #fff; }
 
-    /* ===== CONTAINER & GRID ===== */
-    .container {
-      max-width: 1360px;
-      margin: 0 auto;
-      padding: 24px;
-      width: 100%;
+    /* ===== CONTENT BODY ===== */
+    .content-body {
+      padding: 28px;
       flex: 1;
     }
 
-    /* Stats Grid */
+    .page-view {
+      display: none;
+      animation: fadeIn 0.25s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ===== STATS GRID & CARDS ===== */
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
       gap: 18px;
       margin-bottom: 24px;
     }
@@ -184,26 +288,12 @@
     .chart-title { font-size: 0.95rem; font-weight: 700; color: var(--text-primary); margin-bottom: 16px; }
     .canvas-container { position: relative; height: 260px; width: 100%; }
 
-    /* TABS */
-    .tabs-bar {
-      display: flex; gap: 8px;
-      border-bottom: 1px solid var(--border-color);
-      margin-bottom: 20px;
-    }
-    .tab-item {
-      padding: 10px 18px; font-size: 0.9rem; font-weight: 600;
-      color: var(--text-secondary); cursor: pointer;
-      border-bottom: 2px solid transparent; transition: all 0.2s;
-    }
-    .tab-item:hover { color: var(--accent-primary); }
-    .tab-item.active { color: var(--accent-primary); border-bottom-color: var(--accent-primary); }
-
     /* TABULATOR DATAGRID OVERRIDES */
     .table-container {
       background: var(--bg-card);
       border: 1px solid var(--border-color);
       border-radius: 14px;
-      padding: 16px;
+      padding: 18px;
       box-shadow: var(--shadow-card);
     }
     .table-toolbar {
@@ -323,269 +413,354 @@
     .badge-plan-premium { background: rgba(99,102,241,.15); color: #818cf8; border: 1px solid rgba(99,102,241,.3); }
     .badge-coupon-active { background: rgba(16,185,129,.12); color: var(--accent-success); border: 1px solid rgba(16,185,129,.3); }
     .badge-coupon-inactive { background: rgba(239,68,68,.12); color: var(--accent-danger); border: 1px solid rgba(239,68,68,.3); }
+
+    /* ===== TOAST NOTIFICATION SYSTEM ===== */
+    .toast-container {
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+    }
+    .toast {
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 320px;
+      max-width: 440px;
+      padding: 14px 18px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      box-shadow: 0 12px 35px -5px rgba(0, 0, 0, 0.45);
+      color: var(--text-primary);
+      font-size: 0.88rem;
+      font-weight: 600;
+      transform: translateX(120%);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+      opacity: 0;
+    }
+    .toast.show {
+      transform: translateX(0);
+      opacity: 1;
+    }
+    .toast-success { border-left: 4px solid var(--accent-success); }
+    .toast-error { border-left: 4px solid var(--accent-danger); }
+    .toast-info { border-left: 4px solid var(--accent-primary); }
+    .toast-warning { border-left: 4px solid var(--accent-warning); }
+
+    .toast-icon { font-size: 1.25rem; flex-shrink: 0; }
+    .toast-body { flex: 1; line-height: 1.4; }
+    .toast-close { cursor: pointer; opacity: 0.6; font-size: 0.9rem; padding: 2px; }
+    .toast-close:hover { opacity: 1; }
   </style>
 </head>
 <body>
 
-  <!-- HEADER -->
-  <header>
-    <div class="brand">
-      <img src="/vlnfi_sso_favicon_option_1.svg" alt="vInfiSSO" class="brand-logo" />
-      <span class="brand-title">vInfiSSO</span>
-      <span class="admin-badge">Admin System</span>
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- ADMIN LAYOUT WRAPPER -->
+  <div class="admin-layout">
+
+    <!-- SIDEBAR NAVIGATION -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <img src="/vlnfi_sso_favicon_option_1.svg" alt="vInfiSSO" class="brand-logo" />
+        <span class="brand-title">vInfiSSO</span>
+        <span class="admin-badge">Admin</span>
+      </div>
+
+      <nav class="sidebar-menu">
+        <div class="menu-label">Menu Hệ Thống</div>
+        <a href="#analytics" class="nav-item active" data-route="analytics">
+          <span class="nav-icon">📊</span>
+          <span>Dashboard &amp; Charts</span>
+        </a>
+        <a href="#users" class="nav-item" data-route="users">
+          <span class="nav-icon">👥</span>
+          <span>Quản Lý User &amp; Role</span>
+        </a>
+        <a href="#audit" class="nav-item" data-route="audit">
+          <span class="nav-icon">📋</span>
+          <span>Nhật Ký Traffic &amp; IP</span>
+        </a>
+        <a href="#ai" class="nav-item" data-route="ai">
+          <span class="nav-icon">🤖</span>
+          <span>Leaderboard AI</span>
+        </a>
+
+        <div class="menu-label" style="margin-top:10px;">Dịch Vụ &amp; Quota</div>
+        <a href="#plans" class="nav-item" data-route="plans">
+          <span class="nav-icon">💎</span>
+          <span>Gói Dịch Vụ</span>
+        </a>
+        <a href="#coupons" class="nav-item" data-route="coupons">
+          <span class="nav-icon">🎟️</span>
+          <span>Mã Khuyến Mãi</span>
+        </a>
+      </nav>
+    </aside>
+
+    <!-- MAIN CONTENT AREA -->
+    <main class="main-content">
+      
+      <!-- TOPBAR HEADER -->
+      <header class="topbar">
+        <div class="page-title" id="currentPageTitle">📊 Dashboard &amp; Analytics</div>
+
+        <div class="header-actions">
+          <button class="theme-toggle-btn" onclick="toggleTheme()">
+            <span id="themeIcon">☀️</span> <span id="themeLabel">Light Mode</span>
+          </button>
+
+          <div class="user-profile">
+            <div class="user-avatar-badge" id="adminAvatar">A</div>
+            <div>
+              <div style="font-weight: 700;" id="adminName">Admin</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted);" id="adminEmail">admin@vunph.click</div>
+            </div>
+            <button class="btn-logout" onclick="logout()">Đăng xuất</button>
+          </div>
+        </div>
+      </header>
+
+      <!-- CONTENT BODY -->
+      <div class="content-body">
+
+        <!-- PAGE VIEW 1: DASHBOARD & CHARTS (#analytics) -->
+        <div id="route-analytics" class="page-view">
+          <!-- STATS CARDS -->
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-header"><span>Tổng Người Dùng</span><div class="stat-icon">👥</div></div>
+              <div class="stat-value" id="statUsers">0</div>
+              <div class="stat-footer">Tài khoản đã đăng ký hệ thống</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-header"><span>Session Đang Hoạt Động</span><div class="stat-icon">⚡</div></div>
+              <div class="stat-value" id="statSessions">0</div>
+              <div class="stat-footer" id="statLoginsToday">0 lượt đăng nhập hôm nay</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-header"><span>Tổng Quẻ / Trải Bài</span><div class="stat-icon">📜</div></div>
+              <div class="stat-value" id="statReadings">0</div>
+              <div class="stat-footer">IChingNow + TarotNow</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-header"><span>Số Lượt Hỏi AI</span><div class="stat-icon">🤖</div></div>
+              <div class="stat-value" id="statAi">0</div>
+              <div class="stat-footer" id="statAiToday">0 câu hỏi hôm nay</div>
+            </div>
+          </div>
+
+          <!-- CHARTS GRID -->
+          <div class="charts-grid">
+            <div class="chart-card">
+              <div class="chart-title">📈 Lưu Lượng Đăng Nhập &amp; Traffic (14 Ngày Qua)</div>
+              <div class="canvas-container"><canvas id="trafficChart"></canvas></div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title">🥧 Phân Bổ Sử Dụng App</div>
+              <div class="canvas-container"><canvas id="appShareChart"></canvas></div>
+            </div>
+          </div>
+
+          <div class="charts-grid" style="grid-template-columns: 1fr 1fr;">
+            <div class="chart-card">
+              <div class="chart-title">🌍 Top Vị Trí Địa Lý / Thành Phố</div>
+              <div class="canvas-container"><canvas id="geoChart"></canvas></div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title">🤖 Số Lượt Hỏi AI Theo Ngày</div>
+              <div class="canvas-container"><canvas id="aiChart"></canvas></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAGE VIEW 2: USERS MANAGEMENT (#users) -->
+        <div id="route-users" class="page-view">
+          <div class="table-container">
+            <div class="table-toolbar">
+              <input type="text" id="userSearch" class="search-input" placeholder="🔍 Tìm theo email, tên..." onkeyup="filterUserTable()" />
+              <select id="roleFilter" class="select-filter" onchange="filterUserTable()">
+                <option value="">Tất cả Role</option>
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+                <option value="vip">VIP</option>
+              </select>
+            </div>
+            <div id="userGrid"></div>
+          </div>
+        </div>
+
+        <!-- PAGE VIEW 3: AUDIT LOGS (#audit) -->
+        <div id="route-audit" class="page-view">
+          <div class="table-container">
+            <div class="table-toolbar">
+              <input type="text" id="auditSearch" class="search-input" placeholder="🔍 Tìm theo IP, Email, App..." onkeyup="filterAuditTable()" />
+              <select id="actionFilter" class="select-filter" onchange="filterAuditTable()">
+                <option value="">Tất cả Hành Động</option>
+                <option value="login">Login</option>
+                <option value="register">Register</option>
+                <option value="update_role">Update Role</option>
+              </select>
+            </div>
+            <div id="auditGrid"></div>
+          </div>
+        </div>
+
+        <!-- PAGE VIEW 4: AI LEADERBOARD (#ai) -->
+        <div id="route-ai" class="page-view">
+          <div class="table-container">
+            <div id="aiGrid"></div>
+          </div>
+        </div>
+
+        <!-- PAGE VIEW 5: GÓI DỊCH VỤ (#plans) -->
+        <div id="route-plans" class="page-view">
+          <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom:28px;" id="plansGrid">
+            <!-- Filled by JS -->
+          </div>
+
+          <!-- Override Promotion Controls -->
+          <div class="table-container" style="margin-bottom:20px; padding:24px;">
+            <div style="font-size:1rem; font-weight:700; margin-bottom:16px; color:var(--text-primary);">🎁 Chế Độ Khuyến Mãi — Override Gói Free</div>
+            <div style="display:flex; gap:24px; flex-wrap:wrap;" id="overrideControls">
+              <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.9rem; color:var(--text-secondary);">
+                <div class="toggle-wrapper">
+                  <input type="checkbox" id="toggleFreeToLite" onchange="updateFreeOverride()" />
+                  <span class="toggle-slider"></span>
+                </div>
+                Cho tất cả user Free dùng giới hạn Lite
+              </label>
+              <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.9rem; color:var(--text-secondary);">
+                <div class="toggle-wrapper">
+                  <input type="checkbox" id="toggleFreeToPremium" onchange="updateFreeOverride()" />
+                  <span class="toggle-slider"></span>
+                </div>
+                Cho tất cả user Free dùng giới hạn Premium
+              </label>
+            </div>
+          </div>
+
+          <!-- AI Quota Stats -->
+          <div class="table-container" style="padding:24px;">
+            <div style="font-size:1rem; font-weight:700; margin-bottom:16px; color:var(--text-primary);">📈 Thống Kê AI Quota Hôm Nay</div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:16px; margin-bottom:20px;" id="quotaStatsCards"></div>
+            <div style="font-size:0.9rem; font-weight:600; color:var(--text-secondary); margin-bottom:10px;">Top Users Hỏi AI Hôm Nay</div>
+            <div id="quotaTopGrid"></div>
+          </div>
+        </div>
+
+        <!-- PAGE VIEW 6: MÃ KHUYẾN MÃI (#coupons) -->
+        <div id="route-coupons" class="page-view">
+          <div class="table-container">
+            <div class="table-toolbar">
+              <div style="font-size:1rem; font-weight:700; color:var(--text-primary);">🎟️ Quản Lý Mã Khuyến Mãi</div>
+              <button class="btn btn-primary" onclick="openCreateCouponModal()">+ Tạo Mã Mới</button>
+            </div>
+            <div id="couponsGrid"></div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+  </div>
+
+  <!-- MODALS -->
+  <!-- Modal: Edit Plan -->
+  <div id="editPlanModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:200; align-items:center; justify-content:center; backdrop-filter:blur(4px);">
+    <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:16px; padding:28px; width:480px; max-width:95vw;">
+      <div style="font-size:1.1rem; font-weight:700; color:var(--text-primary); margin-bottom:20px;">✏️ Chỉnh Sửa Gói</div>
+      <div id="editPlanContent"></div>
+      <div style="display:flex; gap:12px; margin-top:20px; justify-content:flex-end;">
+        <button class="btn btn-ghost" onclick="closeEditPlanModal()">Hủy</button>
+        <button class="btn btn-primary" onclick="savePlan()">Lưu Thay Đổi</button>
+      </div>
     </div>
+  </div>
 
-    <div class="header-actions">
-      <button class="theme-toggle-btn" onclick="toggleTheme()">
-        <span id="themeIcon">☀️</span> <span id="themeLabel">Light Mode</span>
-      </button>
-
-      <div class="user-profile">
-        <div class="user-avatar-badge" id="adminAvatar">A</div>
+  <!-- Modal: Create / Edit Coupon -->
+  <div id="couponModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:200; align-items:center; justify-content:center; backdrop-filter:blur(4px);">
+    <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:16px; padding:28px; width:500px; max-width:95vw;">
+      <div style="font-size:1.1rem; font-weight:700; color:var(--text-primary); margin-bottom:20px;" id="couponModalTitle">🎟️ Tạo Mã Khuyến Mãi</div>
+      <div style="display:grid; gap:14px;">
         <div>
-          <div style="font-weight: 700;" id="adminName">Admin</div>
-          <div style="font-size: 0.72rem; color: var(--text-muted);" id="adminEmail">admin@vunph.click</div>
+          <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Mã Code (tự động in hoa)</label>
+          <input id="couponCode" class="search-input" placeholder="VD: TRIAL7, PROMO50..." style="width:100%; text-transform:uppercase;" />
         </div>
-        <button class="btn-logout" onclick="logout()">Đăng xuất</button>
-      </div>
-    </div>
-  </header>
-
-  <!-- MAIN CONTAINER -->
-  <div class="container">
-    
-    <!-- STATS CARDS -->
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-header"><span>Tổng Người Dùng</span><div class="stat-icon">👥</div></div>
-        <div class="stat-value" id="statUsers">0</div>
-        <div class="stat-footer">Tài khoản đã đăng ký hệ thống</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-header"><span>Session Đang Hoạt Động</span><div class="stat-icon">⚡</div></div>
-        <div class="stat-value" id="statSessions">0</div>
-        <div class="stat-footer" id="statLoginsToday">0 lượt đăng nhập hôm nay</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-header"><span>Tổng Quẻ / Trải Bài</span><div class="stat-icon">📜</div></div>
-        <div class="stat-value" id="statReadings">0</div>
-        <div class="stat-footer">IChingNow + TarotNow</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-header"><span>Số Lượt Hỏi AI</span><div class="stat-icon">🤖</div></div>
-        <div class="stat-value" id="statAi">0</div>
-        <div class="stat-footer" id="statAiToday">0 câu hỏi hôm nay</div>
-      </div>
-    </div>
-
-    <!-- CHARTS GRID -->
-    <div class="charts-grid">
-      <div class="chart-card">
-        <div class="chart-title">📈 Lưu Lượng Đăng Nhập & Traffic (14 Ngày Qua)</div>
-        <div class="canvas-container"><canvas id="trafficChart"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <div class="chart-title">🥧 Phân Bổ Sử Dụng App</div>
-        <div class="canvas-container"><canvas id="appShareChart"></canvas></div>
-      </div>
-    </div>
-
-    <div class="charts-grid" style="grid-template-columns: 1fr 1fr;">
-      <div class="chart-card">
-        <div class="chart-title">🌍 Top Vị Trí Địa Lý / Thành Phố</div>
-        <div class="canvas-container"><canvas id="geoChart"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <div class="chart-title">🤖 Số Lượt Hỏi AI Theo Ngày</div>
-        <div class="canvas-container"><canvas id="aiChart"></canvas></div>
-      </div>
-    </div>
-
-    <!-- TABS BAR -->
-    <div class="tabs-bar">
-      <div class="tab-item active" onclick="switchTab('usersTab')">👥 Quản Lý User & Role</div>
-      <div class="tab-item" onclick="switchTab('auditTab')">📋 Nhật Ký Traffic & IP</div>
-      <div class="tab-item" onclick="switchTab('aiTab')">📊 Leaderboard AI</div>
-      <div class="tab-item" onclick="switchTab('plansTab')">💎 Gói Dịch Vụ</div>
-      <div class="tab-item" onclick="switchTab('couponsTab')">🎟️ Mã Khuyến Mãi</div>
-    </div>
-
-    <!-- TAB 1: USERS (TABULATOR) -->
-    <div id="usersTab" class="tab-content">
-      <div class="table-container">
-        <div class="table-toolbar">
-          <input type="text" id="userSearch" class="search-input" placeholder="🔍 Tìm theo email, tên..." onkeyup="filterUserTable()" />
-          <select id="roleFilter" class="select-filter" onchange="filterUserTable()">
-            <option value="">Tất cả Role</option>
-            <option value="user">User</option>
-            <option value="admin">Admin</option>
-            <option value="vip">VIP</option>
-          </select>
+        <div>
+          <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Mô tả</label>
+          <input id="couponDesc" class="search-input" placeholder="Mô tả ngắn..." style="width:100%;" />
         </div>
-        <div id="userGrid"></div>
-      </div>
-    </div>
-
-    <!-- TAB 2: AUDIT LOGS (TABULATOR) -->
-    <div id="auditTab" class="tab-content" style="display: none;">
-      <div class="table-container">
-        <div class="table-toolbar">
-          <input type="text" id="auditSearch" class="search-input" placeholder="🔍 Tìm theo IP, Email, App..." onkeyup="filterAuditTable()" />
-          <select id="actionFilter" class="select-filter" onchange="filterAuditTable()">
-            <option value="">Tất cả Hành Động</option>
-            <option value="login">Login</option>
-            <option value="register">Register</option>
-            <option value="update_role">Update Role</option>
-          </select>
-        </div>
-        <div id="auditGrid"></div>
-      </div>
-    </div>
-
-    <!-- TAB 3: AI USAGE (TABULATOR) -->
-    <div id="aiTab" class="tab-content" style="display: none;">
-      <div class="table-container">
-        <div id="aiGrid"></div>
-      </div>
-    </div>
-
-    <!-- TAB 4: GÓI DỊCH VỤ -->
-    <div id="plansTab" class="tab-content" style="display: none;">
-      <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom:28px;" id="plansGrid">
-        <!-- Filled by JS -->
-      </div>
-
-      <!-- Override Promotion Controls -->
-      <div class="table-container" style="margin-bottom:20px; padding:24px;">
-        <div style="font-size:1rem; font-weight:700; margin-bottom:16px; color:var(--text-primary);">🎁 Chế Độ Khuyến Mãi — Override Gói Free</div>
-        <div style="display:flex; gap:24px; flex-wrap:wrap;" id="overrideControls">
-          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.9rem; color:var(--text-secondary);">
-            <div class="toggle-wrapper">
-              <input type="checkbox" id="toggleFreeToLite" onchange="updateFreeOverride()" />
-              <span class="toggle-slider"></span>
-            </div>
-            Cho tất cả user Free dùng giới hạn Lite
-          </label>
-          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.9rem; color:var(--text-secondary);">
-            <div class="toggle-wrapper">
-              <input type="checkbox" id="toggleFreeToPremium" onchange="updateFreeOverride()" />
-              <span class="toggle-slider"></span>
-            </div>
-            Cho tất cả user Free dùng giới hạn Premium
-          </label>
-        </div>
-      </div>
-
-      <!-- AI Quota Stats -->
-      <div class="table-container" style="padding:24px;">
-        <div style="font-size:1rem; font-weight:700; margin-bottom:16px; color:var(--text-primary);">📈 Thống Kê AI Quota Hôm Nay</div>
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:16px; margin-bottom:20px;" id="quotaStatsCards"></div>
-        <div style="font-size:0.9rem; font-weight:600; color:var(--text-secondary); margin-bottom:10px;">Top Users Hỏi AI Hôm Nay</div>
-        <div id="quotaTopGrid"></div>
-      </div>
-    </div>
-
-    <!-- TAB 5: MÃ KHUYẾN MÃI -->
-    <div id="couponsTab" class="tab-content" style="display: none;">
-      <div class="table-container">
-        <div class="table-toolbar">
-          <div style="font-size:1rem; font-weight:700; color:var(--text-primary);">🎟️ Quản Lý Mã Khuyến Mãi</div>
-          <button class="btn btn-primary" onclick="openCreateCouponModal()">+ Tạo Mã Mới</button>
-        </div>
-        <div id="couponsGrid"></div>
-      </div>
-    </div>
-
-    <!-- Modal: Edit Plan -->
-    <div id="editPlanModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:200; align-items:center; justify-content:center; backdrop-filter:blur(4px);">
-      <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:16px; padding:28px; width:480px; max-width:95vw;">
-        <div style="font-size:1.1rem; font-weight:700; color:var(--text-primary); margin-bottom:20px;">✏️ Chỉnh Sửa Gói</div>
-        <div id="editPlanContent"></div>
-        <div style="display:flex; gap:12px; margin-top:20px; justify-content:flex-end;">
-          <button class="btn btn-ghost" onclick="closeEditPlanModal()">Hủy</button>
-          <button class="btn btn-primary" onclick="savePlan()">Lưu Thay Đổi</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Modal: Create / Edit Coupon -->
-    <div id="couponModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:200; align-items:center; justify-content:center; backdrop-filter:blur(4px);">
-      <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:16px; padding:28px; width:500px; max-width:95vw;">
-        <div style="font-size:1.1rem; font-weight:700; color:var(--text-primary); margin-bottom:20px;" id="couponModalTitle">🎟️ Tạo Mã Khuyến Mãi</div>
-        <div style="display:grid; gap:14px;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
           <div>
-            <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Mã Code (tự động in hoa)</label>
-            <input id="couponCode" class="search-input" placeholder="VD: TRIAL7, PROMO50..." style="width:100%; text-transform:uppercase;" />
+            <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Loại</label>
+            <select id="couponType" class="select-filter" style="width:100%;" onchange="updateCouponTypeUI()">
+              <option value="grant_plan">🎁 Tặng Gói</option>
+              <option value="trial_days">📅 Tặng Số Ngày</option>
+            </select>
           </div>
-          <div>
-            <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Mô tả</label>
-            <input id="couponDesc" class="search-input" placeholder="Mô tả ngắn..." style="width:100%;" />
-          </div>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
-            <div>
-              <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Loại</label>
-              <select id="couponType" class="select-filter" style="width:100%;" onchange="updateCouponTypeUI()">
-                <option value="grant_plan">🎁 Tặng Gói</option>
-                <option value="trial_days">📅 Tặng Số Ngày</option>
-              </select>
-            </div>
-            <div id="couponPlanGroup">
-              <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Gói được tặng</label>
-              <select id="couponPlanName" class="select-filter" style="width:100%;">
-                <option value="lite">Lite</option>
-                <option value="premium">Premium</option>
-              </select>
-            </div>
-          </div>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
-            <div>
-              <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Số ngày</label>
-              <input id="couponDays" type="number" class="search-input" value="30" min="1" style="width:100%;" />
-            </div>
-            <div>
-              <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Tối đa lần dùng (-1 = ∞)</label>
-              <input id="couponMaxUses" type="number" class="search-input" value="-1" style="width:100%;" />
-            </div>
-          </div>
-          <div>
-            <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Hết hạn (để trống = không hạn)</label>
-            <input id="couponExpires" type="date" class="search-input" style="width:100%;" />
-          </div>
-        </div>
-        <div style="display:flex; gap:12px; margin-top:20px; justify-content:flex-end;">
-          <button class="btn btn-ghost" onclick="closeCouponModal()">Hủy</button>
-          <button class="btn btn-primary" onclick="saveCoupon()">Tạo Mã</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Modal: Grant Plan to User -->
-    <div id="grantPlanModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:200; align-items:center; justify-content:center; backdrop-filter:blur(4px);">
-
-      <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:16px; padding:28px; width:420px; max-width:95vw;">
-        <div style="font-size:1.1rem; font-weight:700; color:var(--text-primary); margin-bottom:20px;">🎁 Tặng Gói Cho User</div>
-        <input type="hidden" id="grantUserId" />
-        <div style="display:grid; gap:14px;">
-          <div>
-            <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Gói</label>
-            <select id="grantPlanName" class="select-filter" style="width:100%;">
-              <option value="free">Free</option>
+          <div id="couponPlanGroup">
+            <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Gói được tặng</label>
+            <select id="couponPlanName" class="select-filter" style="width:100%;">
               <option value="lite">Lite</option>
               <option value="premium">Premium</option>
             </select>
           </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
           <div>
-            <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Số ngày (0 = vĩnh viễn)</label>
-            <input id="grantDays" type="number" class="search-input" value="30" min="0" style="width:100%;" />
+            <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Số ngày</label>
+            <input id="couponDays" type="number" class="search-input" value="30" min="1" style="width:100%;" />
+          </div>
+          <div>
+            <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Tối đa lần dùng (-1 = ∞)</label>
+            <input id="couponMaxUses" type="number" class="search-input" value="-1" style="width:100%;" />
           </div>
         </div>
-        <div style="display:flex; gap:12px; margin-top:20px; justify-content:flex-end;">
-          <button class="btn btn-ghost" onclick="closeGrantModal()">Hủy</button>
-          <button class="btn btn-primary" onclick="confirmGrantPlan()">Tặng Gói</button>
+        <div>
+          <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Hết hạn (để trống = không hạn)</label>
+          <input id="couponExpires" type="date" class="search-input" style="width:100%;" />
         </div>
       </div>
+      <div style="display:flex; gap:12px; margin-top:20px; justify-content:flex-end;">
+        <button class="btn btn-ghost" onclick="closeCouponModal()">Hủy</button>
+        <button class="btn btn-primary" onclick="saveCoupon()">Tạo Mã</button>
+      </div>
     </div>
+  </div>
 
+  <!-- Modal: Grant Plan to User -->
+  <div id="grantPlanModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:200; align-items:center; justify-content:center; backdrop-filter:blur(4px);">
+    <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:16px; padding:28px; width:420px; max-width:95vw;">
+      <div style="font-size:1.1rem; font-weight:700; color:var(--text-primary); margin-bottom:20px;">🎁 Tặng Gói Cho User</div>
+      <input type="hidden" id="grantUserId" />
+      <div style="display:grid; gap:14px;">
+        <div>
+          <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Gói</label>
+          <select id="grantPlanName" class="select-filter" style="width:100%;">
+            <option value="free">Free</option>
+            <option value="lite">Lite</option>
+            <option value="premium">Premium</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; display:block; margin-bottom:6px;">Số ngày (0 = vĩnh viễn)</label>
+          <input id="grantDays" type="number" class="search-input" value="30" min="0" style="width:100%;" />
+        </div>
+      </div>
+      <div style="display:flex; gap:12px; margin-top:20px; justify-content:flex-end;">
+        <button class="btn btn-ghost" onclick="closeGrantModal()">Hủy</button>
+        <button class="btn btn-primary" onclick="confirmGrantPlan()">Tặng Gói</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -593,6 +768,36 @@
     var trafficChart = null, appShareChart = null, geoChart = null, aiChart = null;
     var userGrid = null, auditGrid = null, aiGrid = null;
     let debounceTimer;
+
+    // ===== TOAST SYSTEM =====
+    function showToast(message, type = 'success', duration = 3500) {
+      const container = document.getElementById('toastContainer');
+      if (!container) return;
+
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${type}`;
+
+      const icons = {
+        success: '✅',
+        error: '❌',
+        info: 'ℹ️',
+        warning: '⚠️',
+      };
+
+      toast.innerHTML = `
+        <span class="toast-icon">${icons[type] || '🔔'}</span>
+        <div class="toast-body">${message}</div>
+        <span class="toast-close" onclick="this.parentElement.remove()">✕</span>
+      `;
+
+      container.appendChild(toast);
+      setTimeout(() => toast.classList.add('show'), 10);
+
+      setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+      }, duration);
+    }
 
     // ===== THEME TOGGLE SYSTEM =====
     function initTheme() {
@@ -624,159 +829,170 @@
       const headers = { ...getAuthHeaders(), ...(options.headers || {}) };
       const res = await fetch(url, { ...options, headers, credentials: 'include' });
       if (res.status === 401 || res.status === 403) {
-        alert('Phiên đăng nhập hết hạn hoặc tài khoản không có quyền Admin');
         window.location.href = '/ui/sso';
-        throw new Error('Unauthorized');
+        return null;
       }
       return res;
     }
 
+    // ===== ROUTING & SIDEBAR NAVIGATION =====
+    const ROUTE_CONFIG = {
+      analytics: { title: '📊 Dashboard & Analytics', init: () => { loadStats(); loadAnalyticsCharts(); } },
+      users: { title: '👥 Quản Lý User & Role', init: initUserGrid },
+      audit: { title: '📋 Nhật Ký Traffic & IP', init: initAuditGrid },
+      ai: { title: '🤖 Leaderboard AI Usage', init: initAiGrid },
+      plans: { title: '💎 Gói Dịch Vụ & Hạn Mức', init: loadPlansTab },
+      coupons: { title: '🎟️ Quản Lý Mã Khuyến Mãi', init: loadCouponsTab },
+    };
+
+    function handleRoute() {
+      const hash = (window.location.hash || '#analytics').replace('#', '');
+      const routeKey = ROUTE_CONFIG[hash] ? hash : 'analytics';
+      const config = ROUTE_CONFIG[routeKey];
+
+      // Highlight active sidebar item
+      document.querySelectorAll('.sidebar .nav-item').forEach(item => {
+        const isCurrent = item.getAttribute('data-route') === routeKey;
+        item.classList.toggle('active', isCurrent);
+      });
+
+      // Update Topbar page title
+      document.getElementById('currentPageTitle').textContent = config.title;
+
+      // Show target page view
+      document.querySelectorAll('.page-view').forEach(view => {
+        view.style.display = 'none';
+      });
+      const activeView = document.getElementById(`route-${routeKey}`);
+      if (activeView) activeView.style.display = 'block';
+
+      // Run view initializer
+      if (config.init) config.init();
+    }
+
+    window.addEventListener('hashchange', handleRoute);
+
+    // AUTH CHECK
     async function checkAuth() {
       try {
-        const res = await authFetch('/sso/me');
+        const res = await authFetch('/sso/session');
+        if (!res) return;
         const data = await res.json();
-        if (!data.user || data.user.role !== 'admin') {
-          alert('Bạn không có quyền truy cập Admin Dashboard');
-          window.location.href = '/ui/sso';
+        if (data.user?.role !== 'admin') {
+          showToast('Tài khoản của bạn không có quyền truy cập Admin Dashboard', 'error');
+          setTimeout(() => { window.location.href = '/ui/sso'; }, 1500);
           return;
         }
-        document.getElementById('adminName').textContent = data.user.displayName || data.user.email;
+        document.getElementById('adminName').textContent = data.user.fullName || data.user.email.split('@')[0];
         document.getElementById('adminEmail').textContent = data.user.email;
-        document.getElementById('adminAvatar').textContent = (data.user.displayName || data.user.email || 'A')[0].toUpperCase();
+        document.getElementById('adminAvatar').textContent = (data.user.fullName || data.user.email)[0].toUpperCase();
+
+        // Initialize Router
+        handleRoute();
       } catch (err) {
         window.location.href = '/ui/sso';
       }
     }
 
+    // ===== DATA LOADERS =====
     async function loadStats() {
-      try {
-        const res = await authFetch('/admin/stats');
-        const data = await res.json();
-        document.getElementById('statUsers').textContent = data.totalUsers || 0;
-        document.getElementById('statSessions').textContent = data.activeSessions || 0;
-        document.getElementById('statReadings').textContent = data.totalReadings || 0;
-        document.getElementById('statAi').textContent = data.totalAiQuestions || 0;
-        document.getElementById('statLoginsToday').textContent = `${data.todayLogins || 0} lượt đăng nhập hôm nay`;
-        document.getElementById('statAiToday').textContent = `${data.todayAiQuestions || 0} câu hỏi hôm nay`;
-      } catch (e) { console.error(e); }
+      const res = await authFetch('/admin/stats');
+      if (!res) return;
+      const data = await res.json();
+      document.getElementById('statUsers').textContent = data.totalUsers.toLocaleString();
+      document.getElementById('statSessions').textContent = data.activeSessions.toLocaleString();
+      document.getElementById('statLoginsToday').textContent = `${data.loginsToday.toLocaleString()} lượt đăng nhập hôm nay`;
+      document.getElementById('statReadings').textContent = data.totalReadings.toLocaleString();
+      document.getElementById('statAi').textContent = data.totalAiQuestions.toLocaleString();
+      document.getElementById('statAiToday').textContent = `${data.aiQuestionsToday.toLocaleString()} câu hỏi hôm nay`;
     }
 
     async function loadAnalyticsCharts() {
-      try {
-        const res = await authFetch('/admin/analytics');
-        const data = await res.json();
-        renderCharts(data);
-      } catch (e) { console.error('Error loading analytics:', e); }
-    }
-
-    function renderCharts(data) {
+      const res = await authFetch('/admin/analytics');
+      if (!res) return;
+      const data = await res.json();
       const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-      const gridColor = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.06)';
       const textColor = isDark ? '#94a3b8' : '#475569';
+      const gridColor = isDark ? '#1e293b' : '#e2e8f0';
 
-      const timeSeries = data.timeSeries || [];
-      const labels = timeSeries.map(t => t.date.slice(5));
-      const logins = timeSeries.map(t => t.logins);
-      const registers = timeSeries.map(t => t.registers);
-      const aiQuestions = timeSeries.map(t => t.ai);
-
-      // Traffic Chart
-      const ctx1 = document.getElementById('trafficChart').getContext('2d');
+      // 1. Line Chart: Traffic
       if (trafficChart) trafficChart.destroy();
-      trafficChart = new Chart(ctx1, {
+      trafficChart = new Chart(document.getElementById('trafficChart'), {
         type: 'line',
         data: {
-          labels,
+          labels: data.traffic.map(d => d.date.slice(5)),
           datasets: [
-            { label: 'Đăng nhập', data: logins, borderColor: '#6366f1', backgroundColor: 'rgba(99, 102, 241, 0.12)', fill: true, tension: 0.3 },
-            { label: 'Đăng ký', data: registers, borderColor: '#10b981', backgroundColor: 'transparent', borderDash: [4, 4], tension: 0.3 }
+            { label: 'Đăng ký mới', data: data.traffic.map(d => d.registers), borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.15)', fill: true, tension: 0.4 },
+            { label: 'Đăng nhập', data: data.traffic.map(d => d.logins), borderColor: '#10b981', backgroundColor: 'transparent', tension: 0.4 },
           ]
         },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { labels: { color: textColor } } },
-          scales: { x: { grid: { color: gridColor }, ticks: { color: textColor } }, y: { grid: { color: gridColor }, ticks: { color: textColor }, beginAtZero: true } }
-        }
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: textColor } } }, scales: { x: { ticks: { color: textColor }, grid: { color: gridColor } }, y: { ticks: { color: textColor }, grid: { color: gridColor } } } }
       });
 
-      // App Share Chart
-      const ctx2 = document.getElementById('appShareChart').getContext('2d');
+      // 2. Pie Chart: App Share
       if (appShareChart) appShareChart.destroy();
-      appShareChart = new Chart(ctx2, {
+      appShareChart = new Chart(document.getElementById('appShareChart'), {
         type: 'doughnut',
         data: {
-          labels: ['IChingNow (Lập quẻ)', 'TarotNow (Trải bài)'],
-          datasets: [{ data: [data.appDistribution?.iching || 0, data.appDistribution?.tarot || 0], backgroundColor: ['#6366f1', '#e5c158'], borderWidth: 0 }]
+          labels: data.appDistribution.map(a => a.app),
+          datasets: [{ data: data.appDistribution.map(a => a.count), backgroundColor: ['#6366f1', '#f59e0b', '#10b981', '#ec4899'] }]
         },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: textColor } } } }
       });
 
-      // Geo Locations Chart
-      const topLocs = data.topLocations || [];
-      const ctx3 = document.getElementById('geoChart').getContext('2d');
+      // 3. Bar Chart: Geo Location
       if (geoChart) geoChart.destroy();
-      geoChart = new Chart(ctx3, {
+      geoChart = new Chart(document.getElementById('geoChart'), {
         type: 'bar',
         data: {
-          labels: topLocs.map(l => l.location),
-          datasets: [{ label: 'Lượt truy cập', data: topLocs.map(l => l.count), backgroundColor: '#3b82f6', borderRadius: 6 }]
+          labels: data.geoDistribution.map(g => g.location),
+          datasets: [{ label: 'Lượt truy cập', data: data.geoDistribution.map(g => g.count), backgroundColor: '#3b82f6', borderRadius: 6 }]
         },
-        options: {
-          responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-          plugins: { legend: { display: false } },
-          scales: { x: { grid: { color: gridColor }, ticks: { color: textColor }, beginAtZero: true }, y: { grid: { color: gridColor }, ticks: { color: textColor } } }
-        }
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: textColor }, grid: { color: gridColor } }, y: { ticks: { color: textColor }, grid: { color: gridColor } } } }
       });
 
-      // AI Questions Daily Chart
-      const ctx4 = document.getElementById('aiChart').getContext('2d');
+      // 4. Line Chart: AI Daily
       if (aiChart) aiChart.destroy();
-      aiChart = new Chart(ctx4, {
+      aiChart = new Chart(document.getElementById('aiChart'), {
         type: 'bar',
         data: {
-          labels,
-          datasets: [{ label: 'Số câu hỏi AI', data: aiQuestions, backgroundColor: '#10b981', borderRadius: 6 }]
+          labels: data.aiDaily.map(a => a.date.slice(5)),
+          datasets: [{ label: 'Số lượt hỏi AI', data: data.aiDaily.map(a => a.count), backgroundColor: '#8b5cf6', borderRadius: 6 }]
         },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: { x: { grid: { color: gridColor }, ticks: { color: textColor } }, y: { grid: { color: gridColor }, ticks: { color: textColor }, beginAtZero: true } }
-        }
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: textColor }, grid: { color: gridColor } }, y: { ticks: { color: textColor }, grid: { color: gridColor } } } }
       });
     }
 
-    // ===== TABULATOR DATAGRID IMPLEMENTATIONS =====
+    // ===== USER DATAGRID (TABULATOR) =====
     function initUserGrid() {
       if (userGrid) return;
-      userGrid = new Tabulator("#userGrid", {
-        height: "460px",
-        layout: "fitColumns",
-        pagination: true,
-        paginationMode: "remote",
-        paginationSize: 15,
-        ajaxURL: "/admin/users",
-        ajaxConfig: { headers: getAuthHeaders(), credentials: "include" },
-        ajaxResponse: function(url, params, response) {
-          return { last_page: response.totalPages || 1, data: response.users || [] };
-        },
+      userGrid = new Tabulator('#userGrid', {
+        ajaxURL: '/admin/users',
+        ajaxConfig: { headers: getAuthHeaders(), credentials: 'include' },
+        layout: 'fitColumns',
+        pagination: 'remote',
+        paginationSize: 10,
         columns: [
-          { title: "User / Email", field: "email", formatter: cell => {
-              const u = cell.getRow().getData();
-              return `<div style="font-weight: 700;">${u.displayName || u.username || 'User'}</div><div style="font-size:0.75rem; color:var(--text-muted);">${u.email}</div>`;
-            }
-          },
-          { title: "Role", field: "role", width: 110, formatter: cell => `<span class="badge badge-role-${cell.getValue()}">${(cell.getValue()||'').toUpperCase()}</span>` },
-          { title: "Trạng Thái", field: "isVerified", width: 120, formatter: cell => `<span class="badge ${cell.getValue() ? 'badge-verified' : 'badge-unverified'}">${cell.getValue() ? '✓ Verified' : '⚠ Unverified'}</span>` },
-          { title: "Sessions Active", field: "activeSessionsCount", width: 130, formatter: cell => `<span class="badge badge-device">${cell.getValue()} active</span>` },
-          { title: "Số Quẻ", field: "readingsCount", width: 90, hozAlign: "center" },
-          { title: "Số Câu Hỏi AI", field: "aiQuestionsCount", width: 120, hozAlign: "center", formatter: cell => `<strong>${cell.getValue()}</strong>` },
-          { title: "Ngày Tạo", field: "createdAt", width: 120, formatter: cell => new Date(cell.getValue()).toLocaleDateString('vi-VN') },
-          { title: "Hành Động", width: 150, hozAlign: "center", formatter: cell => {
-              const u = cell.getRow().getData();
-              return `<button class="btn-xs btn-action-role" onclick="changeRole('${u.id}', '${u.role}')">Role</button> <button class="btn-xs btn-action-revoke" onclick="revokeSessions('${u.id}')">Revoke</button>`;
-            }
-          }
-        ]
+          { title: 'User Info', field: 'email', formatter: cell => {
+            const row = cell.getRow().getData();
+            return `<div><div style="font-weight:700;">${row.fullName || 'User'}</div><div style="font-size:0.75rem; color:var(--text-muted);">${row.email}</div></div>`;
+          }, minWidth: 200 },
+          { title: 'Role', field: 'role', width: 100, formatter: cell => `<span class="badge badge-role-${cell.getValue()}">${cell.getValue()}</span>` },
+          { title: 'Gói Dịch Vụ', field: 'planName', width: 120, formatter: cell => `<span class="badge badge-plan-${cell.getValue() || 'free'}">${cell.getValue() || 'free'}</span>` },
+          { title: 'Trạng Thái Email', field: 'isEmailVerified', width: 140, formatter: cell => cell.getValue() ? `<span class="badge badge-verified">✓ Đã xác thực</span>` : `<span class="badge badge-unverified">✕ Chưa xác thực</span>` },
+          { title: 'Lượt AI', field: 'aiUsageCount', width: 90, sorter: 'number' },
+          { title: 'Session', field: 'activeSessionCount', width: 90, sorter: 'number' },
+          { title: 'Ngày Đăng Ký', field: 'createdAt', width: 120, formatter: cell => new Date(cell.getValue()).toLocaleDateString('vi-VN') },
+          { title: 'Thao Tác', formatter: cell => {
+            const row = cell.getRow().getData();
+            const nextRole = row.role === 'admin' ? 'user' : 'admin';
+            return `
+              <button class="btn-xs btn-action-role" onclick="updateRole('${row.id}', '${nextRole}')">Role: ${nextRole}</button>
+              <button class="btn-xs btn-action-role" style="margin-left:4px;" onclick="openGrantModal('${row.id}')">🎁 Tặng Gói</button>
+              <button class="btn-xs btn-action-revoke" style="margin-left:4px;" onclick="revokeSessions('${row.id}')">Hủy Session</button>
+            `;
+          }, minWidth: 260 },
+        ],
       });
     }
 
@@ -785,44 +1001,54 @@
       debounceTimer = setTimeout(() => {
         const search = document.getElementById('userSearch').value;
         const role = document.getElementById('roleFilter').value;
-        userGrid.setData("/admin/users", { search, role });
+        userGrid.setData('/admin/users', { search, role });
       }, 300);
     }
 
+    async function updateRole(userId, newRole) {
+      if (!confirm(`Đổi role của người dùng thành ${newRole}?`)) return;
+      try {
+        const res = await authFetch(`/admin/users/${userId}/role`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: newRole }),
+        });
+        if (res && res.ok) {
+          userGrid.replaceData();
+          showToast(`Đã cập nhật role thành ${newRole} thành công! ✅`, 'success');
+        }
+      } catch (err) { showToast('Lỗi khi cập nhật role', 'error'); }
+    }
+
+    async function revokeSessions(userId) {
+      if (!confirm('Hủy tất cả phiên đăng nhập của người dùng này?')) return;
+      try {
+        const res = await authFetch(`/admin/users/${userId}/sessions`, { method: 'DELETE' });
+        if (res && res.ok) {
+          userGrid.replaceData();
+          showToast('Đã hủy tất cả phiên đăng nhập của người dùng! ⚡', 'info');
+        }
+      } catch (err) { showToast('Lỗi khi hủy session', 'error'); }
+    }
+
+    // ===== AUDIT DATAGRID (TABULATOR) =====
     function initAuditGrid() {
       if (auditGrid) return;
-      auditGrid = new Tabulator("#auditGrid", {
-        height: "460px",
-        layout: "fitColumns",
-        pagination: true,
-        paginationMode: "remote",
-        paginationSize: 20,
-        ajaxURL: "/admin/audit-logs",
-        ajaxConfig: { headers: getAuthHeaders(), credentials: "include" },
-        ajaxResponse: function(url, params, response) {
-          return { last_page: response.totalPages || 1, data: response.logs || [] };
-        },
+      auditGrid = new Tabulator('#auditGrid', {
+        ajaxURL: '/admin/audit-logs',
+        ajaxConfig: { headers: getAuthHeaders(), credentials: 'include' },
+        layout: 'fitColumns',
+        pagination: 'remote',
+        paginationSize: 15,
         columns: [
-          { title: "Hành Động / App", field: "action", width: 160, formatter: cell => {
-              const l = cell.getRow().getData();
-              return `<span class="badge badge-role-admin">${l.action}</span> <span style="font-size:0.75rem; color:var(--text-muted);">${l.app}</span>`;
-            }
-          },
-          { title: "User / Email", field: "user", formatter: cell => cell.getValue() ? cell.getValue().email : '(Khách)' },
-          { title: "IP Address", field: "ipAddress", width: 130, formatter: cell => `<span class="badge badge-ip">${cell.getValue() || '127.0.0.1'}</span>` },
-          { title: "Vị Trí (City/Country)", field: "metadata", width: 180, formatter: cell => {
-              const meta = cell.getValue() || {};
-              const city = meta.city || meta.country || 'Hồ Chí Minh, VN';
-              return `📍 ${city}`;
-            }
-          },
-          { title: "Thiết Bị & Trình Duyệt", field: "metadata", formatter: cell => {
-              const meta = cell.getValue() || {};
-              return `<span class="badge badge-device">💻 ${meta.deviceType||'Desktop'} • ${meta.browser||'Browser'} (${meta.os||'OS'})</span>`;
-            }
-          },
-          { title: "Thời Gian", field: "createdAt", width: 160, formatter: cell => new Date(cell.getValue()).toLocaleString('vi-VN') }
-        ]
+          { title: 'Thời Gian', field: 'createdAt', width: 140, formatter: cell => new Date(cell.getValue()).toLocaleString('vi-VN') },
+          { title: 'Hành Động', field: 'action', width: 110, formatter: cell => `<span class="badge badge-role-admin">${cell.getValue()}</span>` },
+          { title: 'Email', field: 'userEmail', minWidth: 160 },
+          { title: 'Địa Chỉ IP', field: 'ipAddress', width: 130, formatter: cell => `<span class="badge badge-ip">${cell.getValue() || '127.0.0.1'}</span>` },
+          { title: 'Vị Trí Geo', field: 'location', width: 140 },
+          { title: 'Ứng Dụng', field: 'appName', width: 110 },
+          { title: 'Thiết Bị / Browser', field: 'device', minWidth: 180, formatter: cell => `<span class="badge badge-device">${cell.getValue() || 'Web'}</span>` },
+        ],
       });
     }
 
@@ -831,77 +1057,27 @@
       debounceTimer = setTimeout(() => {
         const search = document.getElementById('auditSearch').value;
         const action = document.getElementById('actionFilter').value;
-        auditGrid.setData("/admin/audit-logs", { search, action });
+        auditGrid.setData('/admin/audit-logs', { search, action });
       }, 300);
     }
 
-    async function initAiGrid() {
+    // ===== AI USAGE GRID =====
+    function initAiGrid() {
       if (aiGrid) return;
-      try {
-        const res = await authFetch('/admin/ai-usage');
-        const data = await res.json();
-        aiGrid = new Tabulator("#aiGrid", {
-          height: "460px",
-          layout: "fitColumns",
-          data: data.userAiStats || [],
-          columns: [
-            { title: "User", field: "displayName", formatter: cell => {
-                const u = cell.getRow().getData();
-                return `<div style="font-weight: 700;">${u.displayName}</div><div style="font-size:0.75rem; color:var(--text-muted);">${u.email}</div>`;
-              }
-            },
-            { title: "Role", field: "role", width: 110, formatter: cell => `<span class="badge badge-role-${cell.getValue()}">${(cell.getValue()||'').toUpperCase()}</span>` },
-            { title: "Quẻ IChing", field: "ichingReadings", width: 120, hozAlign: "center" },
-            { title: "Trải Bài Tarot", field: "tarotReadings", width: 130, hozAlign: "center" },
-            { title: "Luận Giải Ban Đầu", field: "initialInterpretations", width: 150, hozAlign: "center" },
-            { title: "Hỏi Đáp Tiếp", field: "followUpQuestions", width: 130, hozAlign: "center" },
-            { title: "Tổng Hỏi AI", field: "totalAiQuestions", width: 130, hozAlign: "center", formatter: cell => `<strong style="color:var(--accent-primary); font-size:1.05rem;">${cell.getValue()}</strong>` },
-            { title: "Hoạt Động Cuối", field: "lastActive", width: 140, formatter: cell => cell.getValue() ? new Date(cell.getValue()).toLocaleDateString('vi-VN') : '—' }
-          ]
-        });
-      } catch (err) { console.error('Lỗi tải AI usage:', err); }
-    }
-
-    async function changeRole(userId, currentRole) {
-      const newRole = prompt('Nhập role mới (user, admin, vip):', currentRole);
-      if (!newRole || newRole === currentRole) return;
-      try {
-        const res = await authFetch(`/admin/users/${userId}/role`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ role: newRole }),
-        });
-        if (res.ok) userGrid.replaceData();
-      } catch (err) { alert('Lỗi đổi role'); }
-    }
-
-    async function revokeSessions(userId) {
-      if (!confirm('Hủy tất cả phiên đăng nhập của người dùng này?')) return;
-      try {
-        const res = await authFetch(`/admin/users/${userId}/sessions`, { method: 'DELETE' });
-        if (res.ok) userGrid.replaceData();
-      } catch (err) { alert('Lỗi hủy session'); }
-    }
-
-    // ===== TAB SWITCHING =====
-    function switchTab(tabId) {
-      document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
-
-      document.getElementById(tabId).style.display = 'block';
-      event.target.classList.add('active');
-
-      if (tabId === 'usersTab') initUserGrid();
-      if (tabId === 'auditTab') initAuditGrid();
-      if (tabId === 'aiTab') initAiGrid();
-      if (tabId === 'plansTab') loadPlansTab();
-      if (tabId === 'couponsTab') loadCouponsTab();
-    }
-
-    async function logout() {
-      await authFetch('/sso/logout', { method: 'POST' });
-      localStorage.removeItem('sso_token');
-      window.location.href = '/ui/sso';
+      aiGrid = new Tabulator('#aiGrid', {
+        ajaxURL: '/admin/ai-usage',
+        ajaxConfig: { headers: getAuthHeaders(), credentials: 'include' },
+        layout: 'fitColumns',
+        pagination: 'remote',
+        paginationSize: 15,
+        columns: [
+          { title: 'User Email', field: 'email', minWidth: 180 },
+          { title: 'Họ Tên', field: 'fullName', minWidth: 140 },
+          { title: 'Số Lượt Hỏi AI', field: 'aiQuestionsCount', sorter: 'number', width: 140 },
+          { title: 'Gói Dịch Vụ', field: 'planName', width: 120, formatter: c => `<span class="badge badge-plan-${c.getValue() || 'free'}">${c.getValue() || 'free'}</span>` },
+          { title: 'Quẻ Cuối Cùng', field: 'lastReadingAt', width: 150, formatter: cell => cell.getValue() ? new Date(cell.getValue()).toLocaleString('vi-VN') : 'Chưa có' },
+        ],
+      });
     }
 
     // ===== PLANS TAB =====
@@ -909,7 +1085,6 @@
     let editingPlan = null;
 
     const PLAN_EMOJIS = { free: '⚡', lite: '🌟', premium: '💎' };
-    const PLAN_COLORS = { free: 'var(--text-muted)', lite: 'var(--accent-warning)', premium: 'var(--accent-primary)' };
 
     async function loadPlansTab() {
       await Promise.all([loadPlans(), loadQuotaStats()]);
@@ -917,11 +1092,11 @@
 
     async function loadPlans() {
       const res = await authFetch('/admin/plans');
+      if (!res) return;
       const data = await res.json();
       currentPlans = data.plans || [];
       renderPlanCards(currentPlans);
 
-      // Set override toggles from free plan
       const freePlan = currentPlans.find(p => p.name === 'free');
       if (freePlan) {
         document.getElementById('toggleFreeToLite').checked = freePlan.overrideFreeToLite;
@@ -971,6 +1146,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isActive }),
       });
+      showToast(`Đã ${isActive ? 'bật' : 'tắt'} gói ${planName.toUpperCase()}! 🔄`, 'info');
       await loadPlans();
     }
 
@@ -982,6 +1158,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ overrideFreeToLite: freeToLite, overrideFreeToPremium: freeToPremium }),
       });
+      showToast('Đã cập nhật chế độ khuyến mãi Override Gói Free! 🎁', 'success');
     }
 
     function openEditPlanModal(planName) {
@@ -1050,12 +1227,14 @@
         body: JSON.stringify(body),
       });
       closeEditPlanModal();
+      showToast(`Đã lưu thay đổi gói ${editingPlan.label} thành công! 💎`, 'success');
       await loadPlans();
     }
 
     async function loadQuotaStats() {
       try {
         const res = await authFetch('/admin/quota-stats');
+        if (!res) return;
         const data = await res.json();
 
         const cards = document.getElementById('quotaStatsCards');
@@ -1071,7 +1250,6 @@
           `).join('')}
         `;
 
-        // Top users table
         if ((data.topUsers || []).length > 0 && !document.querySelector('#quotaTopGrid .tabulator')) {
           new Tabulator('#quotaTopGrid', {
             data: data.topUsers,
@@ -1092,6 +1270,7 @@
 
     async function loadCouponsTab() {
       const res = await authFetch('/admin/coupons');
+      if (!res) return;
       const data = await res.json();
       renderCouponsGrid(data.coupons || []);
     }
@@ -1132,7 +1311,9 @@
     }
 
     function copyCoupon(code) {
-      navigator.clipboard.writeText(code).then(() => alert(`Đã copy mã: ${code}`));
+      navigator.clipboard.writeText(code).then(() => {
+        showToast(`Đã sao chép mã ${code} vào khay nhớ tạm! 📋`, 'info');
+      });
     }
 
     async function toggleCoupon(id, isActive) {
@@ -1141,12 +1322,14 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isActive }),
       });
+      showToast(`Đã ${isActive ? 'bật' : 'tắt'} mã khuyến mãi! 🔄`, 'info');
       await loadCouponsTab();
     }
 
     async function deleteCoupon(id) {
       if (!confirm('Xóa mã này?')) return;
       await authFetch(`/admin/coupons/${id}`, { method: 'DELETE' });
+      showToast('Đã xóa mã khuyến mãi! 🗑️', 'info');
       await loadCouponsTab();
     }
 
@@ -1189,17 +1372,18 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (res.ok) {
+        if (res && res.ok) {
           closeCouponModal();
+          showToast('Tạo mã khuyến mãi mới thành công! 🎟️', 'success');
           await loadCouponsTab();
-        } else {
+        } else if (res) {
           const err = await res.json();
-          alert(err.message || 'Lỗi tạo mã');
+          showToast(err.message || 'Lỗi khi tạo mã', 'error');
         }
-      } catch (e) { alert('Lỗi kết nối'); }
+      } catch (e) { showToast('Lỗi kết nối server', 'error'); }
     }
 
-    // ===== GRANT PLAN MODAL (from Users tab) =====
+    // ===== GRANT PLAN MODAL =====
     function openGrantModal(userId) {
       document.getElementById('grantUserId').value = userId;
       document.getElementById('grantPlanName').value = 'lite';
@@ -1221,22 +1405,26 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ planName, durationDays }),
         });
-        if (res.ok) {
+        if (res && res.ok) {
           closeGrantModal();
           if (userGrid) userGrid.replaceData();
-          alert(`Đã tặng gói ${planName} cho user!`);
-        } else {
+          showToast(`Đã tặng gói ${planName.toUpperCase()} cho người dùng thành công! 🎁`, 'success');
+        } else if (res) {
           const err = await res.json();
-          alert(err.message || 'Lỗi tặng gói');
+          showToast(err.message || 'Lỗi khi tặng gói', 'error');
         }
-      } catch (e) { alert('Lỗi kết nối'); }
+      } catch (e) { showToast('Lỗi kết nối server', 'error'); }
+    }
+
+    async function logout() {
+      await authFetch('/sso/logout', { method: 'POST' });
+      localStorage.removeItem('sso_token');
+      showToast('Đã đăng xuất khỏi hệ thống', 'info');
+      setTimeout(() => { window.location.href = '/ui/sso'; }, 800);
     }
 
     // INIT
     checkAuth();
-    loadStats();
-    loadAnalyticsCharts();
-    initUserGrid();
   </script>
 </body>
 </html>
