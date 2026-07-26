@@ -285,4 +285,73 @@ export class AdminService {
       userAiStats: list,
     };
   }
+
+  async getAnalyticsData() {
+    const fourteenDaysAgo = new Date();
+    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+
+    const recentLogs = await this.auditLogRepo.find({
+      where: { createdAt: MoreThan(fourteenDaysAgo) },
+      order: { createdAt: 'ASC' },
+    });
+
+    const daysMap = new Map<string, { logins: number; registers: number; ai: number }>();
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      daysMap.set(dateStr, { logins: 0, registers: 0, ai: 0 });
+    }
+
+    const geoMap = new Map<string, number>();
+
+    recentLogs.forEach((log) => {
+      const dateStr = new Date(log.createdAt).toISOString().split('T')[0];
+      const entry = daysMap.get(dateStr);
+      if (entry) {
+        if (log.action === 'login') entry.logins += 1;
+        if (log.action === 'register') entry.registers += 1;
+      }
+
+      const loc = log.metadata?.city || log.metadata?.country || (log.ipAddress === '127.0.0.1' || log.ipAddress === '::1' ? 'Localhost' : 'Hồ Chí Minh, VN');
+      geoMap.set(loc, (geoMap.get(loc) || 0) + 1);
+    });
+
+    const readings = await this.readingRepo.find({ select: { app: true, data: true, createdAt: true } });
+    let ichingCount = 0;
+    let tarotCount = 0;
+
+    readings.forEach((r) => {
+      if (r.app === 'iching') ichingCount += 1;
+      if (r.app === 'tarot') tarotCount += 1;
+
+      const dateStr = new Date(r.createdAt).toISOString().split('T')[0];
+      const entry = daysMap.get(dateStr);
+      if (entry && r.data?.aiConversation) {
+        let count = 0;
+        if (r.data.aiConversation.initialInterpretation) count += 1;
+        if (Array.isArray(r.data.aiConversation.followUps)) count += r.data.aiConversation.followUps.length;
+        entry.ai += count;
+      }
+    });
+
+    const timeSeriesData = Array.from(daysMap.entries()).map(([date, val]) => ({
+      date,
+      ...val,
+    }));
+
+    const topLocations = Array.from(geoMap.entries())
+      .map(([location, count]) => ({ location, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    return {
+      timeSeries: timeSeriesData,
+      appDistribution: {
+        iching: ichingCount,
+        tarot: tarotCount,
+      },
+      topLocations,
+    };
+  }
 }

@@ -75,4 +75,10 @@ export class AdminController {
   async getAiUsage() {
     return this.adminService.getAiUsageStats();
   }
+
+  // GET /admin/analytics — Time Series & Geo/App Distribution Analytics Charts
+  @Get('analytics')
+  async getAnalytics() {
+    return this.adminService.getAnalyticsData();
+  }
 }

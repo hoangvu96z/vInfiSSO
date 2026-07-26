@@ -55,6 +55,51 @@ export class SsoController {
     res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
   }
 
+  private extractRequestMetadata(req: Request) {
+    const ip = (req.headers['cf-connecting-ip'] as string)
+      || (req.headers['x-real-ip'] as string)
+      || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+      || req.ip
+      || req.socket.remoteAddress
+      || '127.0.0.1';
+
+    const userAgent = (req.headers['user-agent'] as string) || '';
+    const cfCountry = (req.headers['cf-ipcountry'] as string) || '';
+    const cfCity = (req.headers['cf-ipcity'] as string) || '';
+
+    let browser = 'Unknown Browser';
+    if (userAgent.includes('Chrome') && !userAgent.includes('Edg')) browser = 'Chrome';
+    else if (userAgent.includes('Safari') && !userAgent.includes('Chrome')) browser = 'Safari';
+    else if (userAgent.includes('Firefox')) browser = 'Firefox';
+    else if (userAgent.includes('Edg')) browser = 'Edge';
+
+    let os = 'Unknown OS';
+    if (userAgent.includes('Mac OS')) os = 'macOS';
+    else if (userAgent.includes('Windows')) os = 'Windows';
+    else if (userAgent.includes('Android')) os = 'Android';
+    else if (userAgent.includes('iPhone') || userAgent.includes('iPad')) os = 'iOS';
+    else if (userAgent.includes('Linux')) os = 'Linux';
+
+    let deviceType = 'Desktop';
+    if (userAgent.includes('Mobile') || userAgent.includes('Android') || userAgent.includes('iPhone')) deviceType = 'Mobile';
+    if (userAgent.includes('iPad') || userAgent.includes('Tablet')) deviceType = 'Tablet';
+
+    const city = cfCity ? decodeURIComponent(cfCity) : (cfCountry === 'VN' || ip === '127.0.0.1' || ip === '::1' ? 'Hồ Chí Minh' : 'Hà Nội');
+    const country = cfCountry || 'VN';
+
+    return {
+      ipAddress: ip,
+      userAgent,
+      metadata: {
+        browser,
+        os,
+        deviceType,
+        city,
+        country,
+      },
+    };
+  }
+
   // ─── GET /sso/me ──────────────────────────────────────────────────────────
 
   @Get('me')
@@ -72,8 +117,10 @@ export class SsoController {
   @Post('register')
   async register(
     @Body() body: { email: string; password: string; displayName?: string },
+    @Req() req: Request,
   ) {
-    const result = await this.ssoService.register(body);
+    const reqMeta = this.extractRequestMetadata(req);
+    const result = await this.ssoService.register(body, reqMeta);
     return { success: true, ...result };
   }
 
@@ -86,10 +133,11 @@ export class SsoController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const appOrigin = req.headers.origin ?? req.headers.referer;
+    const reqMeta = this.extractRequestMetadata(req);
     const { token, user } = await this.ssoService.login({
       ...body,
       appOrigin: typeof appOrigin === 'string' ? appOrigin : undefined,
-    });
+    }, reqMeta);
     this.setSessionCookie(res, token);
     return { success: true, token, user };
   }
@@ -122,10 +170,10 @@ export class SsoController {
       throw new BadRequestException('Google OAuth failed');
     }
 
-    const { token } = await this.ssoService.oauthLogin(req.user, 'google');
+    const reqMeta = this.extractRequestMetadata(req);
+    const { token } = await this.ssoService.oauthLogin(req.user, 'google', reqMeta);
     this.setSessionCookie(res, token);
 
-    // Redirect back to the app or SSO home
     const redirect = this.configService.get<string>('SSO_BASE_URL', 'http://localhost:3000');
     res.redirect(`${redirect}/ui/sso`);
   }

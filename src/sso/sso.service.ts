@@ -21,11 +21,14 @@ export class SsoService {
   // ─── Register ─────────────────────────────────────────────────────────────
   // Sau đăng ký CHỈ gửi email, KHÔNG tạo session → user phải xác nhận email trước
 
-  async register(dto: {
-    email: string;
-    password: string;
-    displayName?: string;
-  }): Promise<{ message: string; email: string }> {
+  async register(
+    dto: {
+      email: string;
+      password: string;
+      displayName?: string;
+    },
+    reqMeta?: { ipAddress?: string; userAgent?: string; metadata?: any },
+  ): Promise<{ message: string; email: string }> {
     if (!dto.email || !dto.password) {
       throw new BadRequestException('Email và mật khẩu là bắt buộc');
     }
@@ -34,7 +37,6 @@ export class SsoService {
       throw new BadRequestException('Mật khẩu phải có ít nhất 8 ký tự');
     }
 
-    // createUser tự động gửi email xác nhận (24h token)
     const user = await this.usersService.createUser({
       email: dto.email,
       password: dto.password,
@@ -45,7 +47,9 @@ export class SsoService {
       userId: user.id,
       action: 'register',
       app: 'sso',
-      metadata: { email: user.email },
+      ipAddress: reqMeta?.ipAddress || null,
+      userAgent: reqMeta?.userAgent || null,
+      metadata: { email: user.email, ...reqMeta?.metadata },
     });
 
     return {
@@ -56,13 +60,15 @@ export class SsoService {
   }
 
   // ─── Login ────────────────────────────────────────────────────────────────
-  // Chặn nếu chưa verify email
 
-  async login(dto: {
-    email: string;
-    password: string;
-    appOrigin?: string;
-  }): Promise<{ token: string; user: Partial<User> }> {
+  async login(
+    dto: {
+      email: string;
+      password: string;
+      appOrigin?: string;
+    },
+    reqMeta?: { ipAddress?: string; userAgent?: string; metadata?: any },
+  ): Promise<{ token: string; user: Partial<User> }> {
     const user = await this.usersService.findByEmail(dto.email);
 
     if (!user) {
@@ -74,7 +80,6 @@ export class SsoService {
       throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
     }
 
-    // ⛔ Chặn đăng nhập nếu chưa verify email
     if (!user.isVerified) {
       throw new ForbiddenException({
         statusCode: 403,
@@ -92,20 +97,21 @@ export class SsoService {
       userId: user.id,
       action: 'login',
       app: 'sso',
-      metadata: { appOrigin: dto.appOrigin || 'direct' },
+      ipAddress: reqMeta?.ipAddress || null,
+      userAgent: reqMeta?.userAgent || null,
+      metadata: { appOrigin: dto.appOrigin || 'direct', ...reqMeta?.metadata },
     });
 
     return { token, user: this.sanitizeUser(user) };
   }
 
   // ─── OAuth Login (after passport validates) ───────────────────────────────
-  // OAuth users auto-verified
 
   async oauthLogin(
     user: User,
     appOrigin?: string,
+    reqMeta?: { ipAddress?: string; userAgent?: string; metadata?: any },
   ): Promise<{ token: string; user: Partial<User> }> {
-    // Auto-verify OAuth users nếu chưa verify
     if (!user.isVerified) {
       await this.usersService.markAsVerified(user.id);
       user.isVerified = true;
@@ -116,7 +122,9 @@ export class SsoService {
       userId: user.id,
       action: 'login_oauth',
       app: 'sso',
-      metadata: { appOrigin: appOrigin || 'oauth' },
+      ipAddress: reqMeta?.ipAddress || null,
+      userAgent: reqMeta?.userAgent || null,
+      metadata: { appOrigin: appOrigin || 'oauth', ...reqMeta?.metadata },
     });
 
     return { token, user: this.sanitizeUser(user) };

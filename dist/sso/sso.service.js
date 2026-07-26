@@ -25,7 +25,7 @@ let SsoService = class SsoService {
         this.usersService = usersService;
         this.auditLogRepo = auditLogRepo;
     }
-    async register(dto) {
+    async register(dto, reqMeta) {
         if (!dto.email || !dto.password) {
             throw new common_1.BadRequestException('Email và mật khẩu là bắt buộc');
         }
@@ -41,14 +41,16 @@ let SsoService = class SsoService {
             userId: user.id,
             action: 'register',
             app: 'sso',
-            metadata: { email: user.email },
+            ipAddress: reqMeta?.ipAddress || null,
+            userAgent: reqMeta?.userAgent || null,
+            metadata: { email: user.email, ...reqMeta?.metadata },
         });
         return {
             message: 'Đăng ký thành công! Vui lòng kiểm tra hộp thư email của bạn để xác nhận tài khoản trong vòng 24 giờ.',
             email: user.email,
         };
     }
-    async login(dto) {
+    async login(dto, reqMeta) {
         const user = await this.usersService.findByEmail(dto.email);
         if (!user) {
             throw new common_1.UnauthorizedException('Email hoặc mật khẩu không đúng');
@@ -71,11 +73,13 @@ let SsoService = class SsoService {
             userId: user.id,
             action: 'login',
             app: 'sso',
-            metadata: { appOrigin: dto.appOrigin || 'direct' },
+            ipAddress: reqMeta?.ipAddress || null,
+            userAgent: reqMeta?.userAgent || null,
+            metadata: { appOrigin: dto.appOrigin || 'direct', ...reqMeta?.metadata },
         });
         return { token, user: this.sanitizeUser(user) };
     }
-    async oauthLogin(user, appOrigin) {
+    async oauthLogin(user, appOrigin, reqMeta) {
         if (!user.isVerified) {
             await this.usersService.markAsVerified(user.id);
             user.isVerified = true;
@@ -85,7 +89,9 @@ let SsoService = class SsoService {
             userId: user.id,
             action: 'login_oauth',
             app: 'sso',
-            metadata: { appOrigin: appOrigin || 'oauth' },
+            ipAddress: reqMeta?.ipAddress || null,
+            userAgent: reqMeta?.userAgent || null,
+            metadata: { appOrigin: appOrigin || 'oauth', ...reqMeta?.metadata },
         });
         return { token, user: this.sanitizeUser(user) };
     }

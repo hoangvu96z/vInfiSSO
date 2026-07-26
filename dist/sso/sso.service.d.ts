@@ -10,6 +10,10 @@ export declare class SsoService {
         email: string;
         password: string;
         displayName?: string;
+    }, reqMeta?: {
+        ipAddress?: string;
+        userAgent?: string;
+        metadata?: any;
     }): Promise<{
         message: string;
         email: string;
@@ -18,11 +22,19 @@ export declare class SsoService {
         email: string;
         password: string;
         appOrigin?: string;
+    }, reqMeta?: {
+        ipAddress?: string;
+        userAgent?: string;
+        metadata?: any;
     }): Promise<{
         token: string;
         user: Partial<User>;
     }>;
-    oauthLogin(user: User, appOrigin?: string): Promise<{
+    oauthLogin(user: User, appOrigin?: string, reqMeta?: {
+        ipAddress?: string;
+        userAgent?: string;
+        metadata?: any;
+    }): Promise<{
         token: string;
         user: Partial<User>;
     }>;

@@ -51,6 +51,55 @@ let SsoController = class SsoController {
     setSessionCookie(res, token) {
         res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
     }
+    extractRequestMetadata(req) {
+        const ip = req.headers['cf-connecting-ip']
+            || req.headers['x-real-ip']
+            || req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+            || req.ip
+            || req.socket.remoteAddress
+            || '127.0.0.1';
+        const userAgent = req.headers['user-agent'] || '';
+        const cfCountry = req.headers['cf-ipcountry'] || '';
+        const cfCity = req.headers['cf-ipcity'] || '';
+        let browser = 'Unknown Browser';
+        if (userAgent.includes('Chrome') && !userAgent.includes('Edg'))
+            browser = 'Chrome';
+        else if (userAgent.includes('Safari') && !userAgent.includes('Chrome'))
+            browser = 'Safari';
+        else if (userAgent.includes('Firefox'))
+            browser = 'Firefox';
+        else if (userAgent.includes('Edg'))
+            browser = 'Edge';
+        let os = 'Unknown OS';
+        if (userAgent.includes('Mac OS'))
+            os = 'macOS';
+        else if (userAgent.includes('Windows'))
+            os = 'Windows';
+        else if (userAgent.includes('Android'))
+            os = 'Android';
+        else if (userAgent.includes('iPhone') || userAgent.includes('iPad'))
+            os = 'iOS';
+        else if (userAgent.includes('Linux'))
+            os = 'Linux';
+        let deviceType = 'Desktop';
+        if (userAgent.includes('Mobile') || userAgent.includes('Android') || userAgent.includes('iPhone'))
+            deviceType = 'Mobile';
+        if (userAgent.includes('iPad') || userAgent.includes('Tablet'))
+            deviceType = 'Tablet';
+        const city = cfCity ? decodeURIComponent(cfCity) : (cfCountry === 'VN' || ip === '127.0.0.1' || ip === '::1' ? 'Hồ Chí Minh' : 'Hà Nội');
+        const country = cfCountry || 'VN';
+        return {
+            ipAddress: ip,
+            userAgent,
+            metadata: {
+                browser,
+                os,
+                deviceType,
+                city,
+                country,
+            },
+        };
+    }
     async me(req) {
         const token = this.getToken(req);
         const user = await this.ssoService.resolveSession(token);
@@ -59,16 +108,18 @@ let SsoController = class SsoController {
             token: user ? token : null,
         };
     }
-    async register(body) {
-        const result = await this.ssoService.register(body);
+    async register(body, req) {
+        const reqMeta = this.extractRequestMetadata(req);
+        const result = await this.ssoService.register(body, reqMeta);
         return { success: true, ...result };
     }
     async login(body, req, res) {
         const appOrigin = req.headers.origin ?? req.headers.referer;
+        const reqMeta = this.extractRequestMetadata(req);
         const { token, user } = await this.ssoService.login({
             ...body,
             appOrigin: typeof appOrigin === 'string' ? appOrigin : undefined,
-        });
+        }, reqMeta);
         this.setSessionCookie(res, token);
         return { success: true, token, user };
     }
@@ -84,7 +135,8 @@ let SsoController = class SsoController {
         if (!req.user) {
             throw new common_1.BadRequestException('Google OAuth failed');
         }
-        const { token } = await this.ssoService.oauthLogin(req.user, 'google');
+        const reqMeta = this.extractRequestMetadata(req);
+        const { token } = await this.ssoService.oauthLogin(req.user, 'google', reqMeta);
         this.setSessionCookie(res, token);
         const redirect = this.configService.get('SSO_BASE_URL', 'http://localhost:3000');
         res.redirect(`${redirect}/ui/sso`);
@@ -171,8 +223,9 @@ __decorate([
 __decorate([
     (0, common_1.Post)('register'),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], SsoController.prototype, "register", null);
 __decorate([

@@ -7,6 +7,7 @@ export declare class SsoController {
     constructor(ssoService: SsoService, configService: ConfigService);
     private getToken;
     private setSessionCookie;
+    private extractRequestMetadata;
     me(req: Request): Promise<{
         user: Partial<import("../users/user.entity").User> | null;
         token: string | null | undefined;
@@ -15,7 +16,7 @@ export declare class SsoController {
         email: string;
         password: string;
         displayName?: string;
-    }): Promise<{
+    }, req: Request): Promise<{
         message: string;
         email: string;
         success: boolean;

@@ -1,576 +1,460 @@
-<!doctype html>
-<html lang="vi">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>vInfi SSO — Đăng nhập</title>
-    <link rel="icon" type="image/svg+xml" href="/vlnfi_sso_favicon_option_1.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <style>
-      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+<!DOCTYPE html>
+<html lang="vi" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>vInfi SSO — Authentication Portal</title>
+  <link rel="icon" type="image/svg+xml" href="/vlnfi_sso_favicon_option_1.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root[data-theme="dark"] {
+      --bg-page: #090d16;
+      --bg-card: #131c31;
+      --bg-input: #1a243d;
+      --border-color: #1e293b;
+      --border-focus: #6366f1;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --accent-primary: #6366f1;
+      --accent-hover: #4f46e5;
+      --accent-soft: rgba(99, 102, 241, 0.15);
+      --google-bg: #1e293b;
+      --facebook-bg: #1877F2;
+      --shadow-card: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
+    }
 
-      :root {
-        --bg: #0f0f14;
-        --surface: #1a1a24;
-        --surface2: #22222e;
-        --border: rgba(255,255,255,0.08);
-        --primary: #7c5cfc;
-        --primary-hover: #6a4de0;
-        --google: #4285F4;
-        --facebook: #1877F2;
-        --text: #e8e8f0;
-        --muted: #888899;
-        --error: #ff6b6b;
-        --success: #4ade80;
-        --gold: #f0b429;
-      }
+    :root[data-theme="light"] {
+      --bg-page: #f8fafc;
+      --bg-card: #ffffff;
+      --bg-input: #f1f5f9;
+      --border-color: #e2e8f0;
+      --border-focus: #4f46e5;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --accent-primary: #4f46e5;
+      --accent-hover: #4338ca;
+      --accent-soft: rgba(79, 70, 229, 0.1);
+      --google-bg: #ffffff;
+      --facebook-bg: #1877F2;
+      --shadow-card: 0 10px 30px -5px rgba(0, 0, 0, 0.08);
+    }
 
-      body {
-        font-family: 'Inter', sans-serif;
-        background: var(--bg);
-        color: var(--text);
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
-        background-image:
-          radial-gradient(ellipse at 20% 20%, rgba(124, 92, 252, 0.12) 0%, transparent 50%),
-          radial-gradient(ellipse at 80% 80%, rgba(99, 179, 237, 0.08) 0%, transparent 50%);
-      }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-      .wrapper {
-        width: 100%;
-        max-width: 440px;
-      }
+    body {
+      font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+      background: var(--bg-page);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      transition: background 0.3s ease, color 0.3s ease;
+    }
 
-      .logo-area {
-        text-align: center;
-        margin-bottom: 32px;
-      }
+    .top-bar {
+      position: absolute;
+      top: 20px;
+      right: 24px;
+    }
+    .theme-toggle-btn {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: var(--shadow-card);
+      transition: border-color 0.2s;
+    }
+    .theme-toggle-btn:hover { border-color: var(--accent-primary); }
 
-      .logo-icon {
-        width: 56px;
-        height: 56px;
-        background: linear-gradient(135deg, var(--primary), #a78bfa);
-        border-radius: 16px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 28px;
-        margin-bottom: 14px;
-        box-shadow: 0 0 32px rgba(124,92,252,0.4);
-      }
+    .wrapper {
+      width: 100%;
+      max-width: 440px;
+    }
 
-      .logo-title {
-        font-size: 1.5rem;
-        font-weight: 700;
-        background: linear-gradient(135deg, #e8e8f0, #a78bfa);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-      }
+    .logo-area {
+      text-align: center;
+      margin-bottom: 28px;
+    }
 
-      .logo-sub {
-        font-size: 0.875rem;
-        color: var(--muted);
-        margin-top: 6px;
-      }
+    .logo-img {
+      width: 52px;
+      height: 52px;
+      margin-bottom: 12px;
+      filter: drop-shadow(0 0 16px rgba(99, 102, 241, 0.4));
+    }
 
-      .card {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 20px;
-        padding: 32px;
-        backdrop-filter: blur(20px);
-        box-shadow: 0 24px 64px rgba(0,0,0,0.4);
-      }
+    .logo-title {
+      font-size: 1.6rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--text-primary);
+    }
 
-      .card-title {
-        font-size: 1.2rem;
-        font-weight: 600;
-        margin-bottom: 24px;
-        color: var(--text);
-      }
+    .logo-sub {
+      font-size: 0.88rem;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
 
-      /* OAuth buttons */
-      .oauth-group {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        margin-bottom: 24px;
-      }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      padding: 32px;
+      box-shadow: var(--shadow-card);
+    }
 
-      .oauth-btn {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 12px 16px;
-        border-radius: 10px;
-        border: 1px solid var(--border);
-        background: var(--surface2);
-        color: var(--text);
-        font-size: 0.9rem;
-        font-weight: 500;
-        cursor: pointer;
-        text-decoration: none;
-        transition: all 0.2s ease;
-      }
+    .card-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      margin-bottom: 20px;
+      color: var(--text-primary);
+    }
 
-      .oauth-btn:hover {
-        background: rgba(255,255,255,0.06);
-        border-color: rgba(255,255,255,0.16);
-        transform: translateY(-1px);
-      }
+    /* OAuth buttons */
+    .oauth-group {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
 
-      .oauth-btn svg { flex-shrink: 0; }
+    .btn-oauth {
+      width: 100%;
+      padding: 11px 16px;
+      border-radius: 10px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: all 0.2s;
+      text-decoration: none;
+      font-family: inherit;
+    }
 
-      /* Divider */
-      .divider {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 24px;
-        color: var(--muted);
-        font-size: 0.8rem;
-      }
+    .btn-google {
+      background: var(--google-bg);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+    }
+    .btn-google:hover { border-color: var(--accent-primary); }
 
-      .divider::before, .divider::after {
-        content: '';
-        flex: 1;
-        height: 1px;
-        background: var(--border);
-      }
+    .btn-facebook {
+      background: var(--facebook-bg);
+      color: #ffffff;
+      border: none;
+    }
+    .btn-facebook:hover { opacity: 0.9; }
 
-      /* Form */
-      .form-group {
-        margin-bottom: 16px;
-      }
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 20px 0;
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border-color);
+    }
 
-      label {
-        display: block;
-        font-size: 0.8rem;
-        font-weight: 500;
-        color: var(--muted);
-        margin-bottom: 6px;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-      }
+    /* Forms */
+    .form-group {
+      margin-bottom: 16px;
+    }
 
-      input[type="email"],
-      input[type="password"],
-      input[type="text"] {
-        width: 100%;
-        padding: 12px 14px;
-        background: var(--surface2);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        color: var(--text);
-        font-size: 0.95rem;
-        font-family: inherit;
-        outline: none;
-        transition: border-color 0.2s;
-      }
+    label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
 
-      input:focus {
-        border-color: var(--primary);
-        box-shadow: 0 0 0 3px rgba(124,92,252,0.15);
-      }
+    input[type="email"], input[type="password"], input[type="text"] {
+      width: 100%;
+      padding: 11px 14px;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      color: var(--text-primary);
+      font-size: 0.9rem;
+      outline: none;
+      font-family: inherit;
+      transition: border-color 0.2s;
+    }
+    input:focus { border-color: var(--accent-primary); }
 
-      .btn-primary {
-        width: 100%;
-        padding: 13px;
-        background: linear-gradient(135deg, var(--primary), #a78bfa);
-        border: none;
-        border-radius: 10px;
-        color: white;
-        font-size: 0.95rem;
-        font-weight: 600;
-        font-family: inherit;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        margin-top: 8px;
-      }
+    .btn-primary {
+      width: 100%;
+      padding: 12px 16px;
+      background: var(--accent-primary);
+      color: #ffffff;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s;
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .btn-primary:hover { background: var(--accent-hover); }
 
-      .btn-primary:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 8px 24px rgba(124,92,252,0.4);
-      }
+    .btn-secondary {
+      width: 100%;
+      padding: 10px 16px;
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+    }
+    .btn-secondary:hover { border-color: var(--text-secondary); color: var(--text-primary); }
 
-      .btn-primary:active { transform: translateY(0); }
+    .user-card {
+      text-align: center;
+    }
 
-      .btn-primary:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-        transform: none;
-      }
+    .user-avatar {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: var(--accent-primary);
+      color: #ffffff;
+      font-size: 1.6rem;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 12px;
+      overflow: hidden;
+    }
+    .user-avatar img { width: 100%; height: 100%; object-fit: cover; }
 
-      /* Alert */
-      .alert {
-        padding: 12px 14px;
-        border-radius: 8px;
-        font-size: 0.875rem;
-        margin-bottom: 16px;
-        display: none;
-      }
+    .user-name { font-size: 1.15rem; font-weight: 700; color: var(--text-primary); }
+    .user-email { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 20px; }
 
-      .alert.error { background: rgba(255,107,107,0.12); border: 1px solid rgba(255,107,107,0.3); color: #ff8e8e; }
-      .alert.success { background: rgba(74,222,128,0.1); border: 1px solid rgba(74,222,128,0.3); color: var(--success); }
-      .alert.show { display: block; }
+    .apps-section {
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border-color);
+    }
+    .apps-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+    .apps-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .app-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      color: var(--text-primary);
+      text-decoration: none;
+      font-size: 0.82rem;
+      font-weight: 600;
+      transition: border-color 0.2s;
+    }
+    .app-link:hover { border-color: var(--accent-primary); }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; }
 
-      /* User info (logged in state) */
-      .user-card {
-        display: none;
-        text-align: center;
-        padding: 24px;
-      }
+    .alert {
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.83rem;
+      margin-bottom: 16px;
+      display: none;
+    }
+    .alert-error { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; }
+    .alert-success { background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); color: #10b981; }
 
-      .user-avatar {
-        width: 72px;
-        height: 72px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, var(--primary), #a78bfa);
-        margin: 0 auto 16px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 2rem;
-        overflow: hidden;
-        border: 2px solid var(--border);
-      }
+    .footer-links {
+      text-align: center;
+      margin-top: 20px;
+      font-size: 0.83rem;
+      color: var(--text-secondary);
+    }
+    .footer-links a { color: var(--accent-primary); text-decoration: none; font-weight: 600; }
+  </style>
+</head>
+<body>
 
-      .user-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  <div class="top-bar">
+    <button class="theme-toggle-btn" onclick="toggleTheme()">
+      <span id="themeIcon">☀️</span> <span id="themeLabel">Light Mode</span>
+    </button>
+  </div>
 
-      .user-name {
-        font-size: 1.1rem;
-        font-weight: 600;
-        margin-bottom: 4px;
-      }
+  <div class="wrapper">
+    <div class="logo-area">
+      <img src="/vlnfi_sso_favicon_option_1.svg" alt="Logo" class="logo-img" />
+      <div class="logo-title">vInfi SSO</div>
+      <div class="logo-sub">Đăng nhập một lần, truy cập tất cả ứng dụng</div>
+    </div>
 
-      .user-email {
-        color: var(--muted);
-        font-size: 0.875rem;
-        margin-bottom: 20px;
-      }
+    <div class="card">
+      <div class="alert alert-error" id="alertError"></div>
+      <div class="alert alert-success" id="alertSuccess"></div>
 
-      .btn-secondary {
-        padding: 10px 24px;
-        background: transparent;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        color: var(--muted);
-        font-size: 0.875rem;
-        font-family: inherit;
-        cursor: pointer;
-        transition: all 0.2s;
-      }
+      <!-- Logged-In State -->
+      <div class="user-card" id="userCard" style="display: none;">
+        <div class="user-avatar" id="userAvatar">A</div>
+        <div class="user-name" id="userName">—</div>
+        <div class="user-email" id="userEmail">—</div>
 
-      .btn-secondary:hover {
-        border-color: rgba(255,255,255,0.2);
-        color: var(--text);
-      }
+        <a href="/ui/admin" id="adminBtn" class="btn-primary" style="display: none; margin-bottom: 12px; background: linear-gradient(135deg, #6366f1, #8b5cf6); text-decoration: none; text-align: center;">
+          🛡️ Trang Quản Trị (Admin Dashboard)
+        </a>
 
-      .bottom-link {
-        text-align: center;
-        margin-top: 20px;
-        font-size: 0.875rem;
-        color: var(--muted);
-      }
-
-      .bottom-link a {
-        color: var(--primary);
-        text-decoration: none;
-        font-weight: 500;
-      }
-
-      .bottom-link a:hover { text-decoration: underline; }
-
-      /* Apps section */
-      .apps-section {
-        margin-top: 28px;
-        padding-top: 20px;
-        border-top: 1px solid var(--border);
-      }
-
-      .apps-label {
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: var(--muted);
-        margin-bottom: 12px;
-      }
-
-      .apps-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-      }
-
-      .app-chip {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 10px 12px;
-        background: var(--surface2);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        text-decoration: none;
-        color: var(--text);
-        font-size: 0.85rem;
-        font-weight: 500;
-        transition: all 0.2s;
-      }
-
-      .app-chip:hover {
-        border-color: var(--primary);
-        background: rgba(124,92,252,0.08);
-      }
-
-      .app-status {
-        width: 6px; height: 6px;
-        border-radius: 50%;
-        background: var(--success);
-        flex-shrink: 0;
-        margin-left: auto;
-      }
-
-      .app-status.offline { background: var(--muted); }
-
-      /* Loading spinner */
-      @keyframes spin { to { transform: rotate(360deg); } }
-      .spinner {
-        width: 16px; height: 16px;
-        border: 2px solid rgba(255,255,255,0.2);
-        border-top-color: white;
-        border-radius: 50%;
-        animation: spin 0.6s linear infinite;
-        display: inline-block;
-        margin-right: 8px;
-        vertical-align: middle;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="wrapper">
-      <div class="logo-area">
-        <img src="/vlnfi_sso_favicon_option_1.svg" alt="vInfi SSO Logo" style="width: 64px; height: 64px; margin-bottom: 8px; filter: drop-shadow(0 4px 16px rgba(0,229,255,0.4));" />
-        <div class="logo-title">vInfi SSO</div>
-        <div class="logo-sub">Đăng nhập một lần, dùng tất cả ứng dụng</div>
+        <button class="btn-secondary" onclick="logout()">Đăng xuất</button>
       </div>
 
-      <div class="card">
-        <!-- Logged-in state -->
-        <div class="user-card" id="userCard">
-          <div class="user-avatar" id="userAvatar">👤</div>
-          <div class="user-name" id="userName">—</div>
-          <div class="user-email" id="userEmail">—</div>
+      <!-- Login Form State -->
+      <div id="loginSection">
+        <div class="card-title">Đăng nhập</div>
 
-          <a href="/ui/admin" id="adminBtn" class="btn-primary" style="display: none; margin-bottom: 12px; background: linear-gradient(135deg, #7c5cfc 0%, #e5c158 100%); color: #0f0a1c; font-weight: 700; text-decoration: none; text-align: center; justify-content: center; align-items: center; gap: 8px; box-shadow: 0 4px 16px rgba(124,92,252,0.4);">
-            🛡️ Trang Quản trị (Admin Dashboard)
+        <div class="oauth-group">
+          <a href="/sso/oauth/google" class="btn-oauth btn-google">
+            <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>
+            Tiếp tục với Google
           </a>
-
-          <button class="btn-secondary" onclick="logout()">Đăng xuất</button>
+          <a href="/sso/oauth/facebook" class="btn-oauth btn-facebook">
+            <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+            Tiếp tục với Facebook
+          </a>
         </div>
 
-        <!-- Login form -->
-        <div id="loginSection">
-          <div class="card-title">Đăng nhập</div>
+        <div class="divider">Hoặc bằng Email</div>
 
-          <div class="oauth-group">
-            <a href="/sso/oauth/google" class="oauth-btn" id="googleBtn">
-              <svg width="20" height="20" viewBox="0 0 48 48">
-                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.35-8.16 2.35-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-              </svg>
-              Tiếp tục với Google
-            </a>
-            <a href="/sso/oauth/facebook" class="oauth-btn" id="fbBtn">
-              <svg width="20" height="20" viewBox="0 0 48 48">
-                <path fill="#1877F2" d="M48 24C48 10.745 37.255 0 24 0S0 10.745 0 24c0 11.979 8.776 21.908 20.25 23.708V30.938h-6.094V24H20.25v-5.25c0-6.01 3.578-9.328 9.056-9.328 2.624 0 5.37.469 5.37.469v5.906h-3.025C28.759 15.797 28 17.2 28 18.636V24h6.188l-.989 6.938H28v16.77C39.224 45.908 48 35.979 48 24z"/>
-              </svg>
-              Tiếp tục với Facebook
-            </a>
+        <form id="loginForm">
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" required placeholder="name@example.com" />
           </div>
-
-          <div class="divider">hoặc đăng nhập với email</div>
-
-          <div class="alert error" id="alertEl"></div>
-
-          <form id="loginForm">
-            <div class="form-group">
-              <label for="email">Email</label>
-              <input type="email" id="email" placeholder="ten@email.com" autocomplete="email" required />
-            </div>
-            <div class="form-group">
-              <label for="password">Mật khẩu</label>
-              <input type="password" id="password" placeholder="••••••••" autocomplete="current-password" required />
-            </div>
-            <button class="btn-primary" type="submit" id="loginBtn">Đăng nhập</button>
-          </form>
-
-          <div class="bottom-link">
-            Chưa có tài khoản? <a href="/ui/register">Đăng ký ngay</a>
+          <div class="form-group">
+            <label for="password">Mật khẩu</label>
+            <input type="password" id="password" required placeholder="••••••••" />
           </div>
-        </div>
+          <button type="submit" class="btn-primary" id="loginBtn">Đăng nhập</button>
+        </form>
+      </div>
 
-        <!-- Apps section (always visible) -->
-        <div class="apps-section">
-          <div class="apps-label">Ứng dụng kết nối</div>
-          <div class="apps-grid">
-            <a href="https://vunph.id.vn/kinhdich" class="app-chip" target="_blank">
-              ☯ IChingNow
-              <span class="app-status" id="ichingStatus"></span>
-            </a>
-            <a href="https://vunph.id.vn/tarot" class="app-chip" target="_blank">
-              🃏 TarotNow
-              <span class="app-status" id="tarotStatus"></span>
-            </a>
-          </div>
+      <div class="apps-section">
+        <div class="apps-title">Ứng dụng kết nối</div>
+        <div class="apps-grid">
+          <a href="https://vunph.click/kinhdich" class="app-link">
+            <span>☯️ IChingNow</span>
+            <span class="dot"></span>
+          </a>
+          <a href="https://vunph.click/tarot" class="app-link">
+            <span>🎴 TarotNow</span>
+            <span class="dot"></span>
+          </a>
         </div>
       </div>
     </div>
 
-    <script>
-      const alertEl = document.getElementById('alertEl');
-      const loginSection = document.getElementById('loginSection');
-      const userCard = document.getElementById('userCard');
+    <div class="footer-links">
+      Chưa có tài khoản? <a href="/ui/register">Đăng ký ngay</a>
+    </div>
+  </div>
 
-      function getRedirectUrl() {
-        const params = new URLSearchParams(window.location.search);
-        return params.get('redirect');
-      }
+  <script>
+    function setTheme(t) {
+      document.documentElement.setAttribute('data-theme', t);
+      localStorage.setItem('vinfi_theme', t);
+      document.getElementById('themeIcon').textContent = t === 'dark' ? '☀️' : '🌙';
+      document.getElementById('themeLabel').textContent = t === 'dark' ? 'Light Mode' : 'Dark Mode';
+    }
+    function toggleTheme() {
+      const cur = document.documentElement.getAttribute('data-theme');
+      setTheme(cur === 'dark' ? 'light' : 'dark');
+    }
+    setTheme(localStorage.getItem('vinfi_theme') || 'dark');
 
-      function showAlert(msg, type = 'error') {
-        alertEl.textContent = msg;
-        alertEl.className = `alert ${type} show`;
-      }
-
-      function hideAlert() {
-        alertEl.className = 'alert error';
-      }
-
-      // Update register link to preserve redirect parameter
-      const redirectUrl = getRedirectUrl();
-      if (redirectUrl) {
-        const regLink = document.querySelector('.bottom-link a');
-        if (regLink) {
-          regLink.href = `/ui/register?redirect=${encodeURIComponent(redirectUrl)}`;
-        }
-      }
-
-      function redirectWithToken(target, token) {
-        if (!target) return;
-        try {
-          const url = new URL(target);
-          if (token) url.searchParams.set('sso_token', token);
-          window.location.href = url.toString();
-        } catch (_) {
-          window.location.href = target;
-        }
-      }
-
-      async function loadUser() {
-        try {
-          const res = await fetch('/sso/me', { credentials: 'include' });
-          const data = await res.json();
-
-          if (data.user) {
-            // If redirect param exists and user is logged in, redirect immediately with sso_token
-            const target = getRedirectUrl();
-            if (target) {
-              redirectWithToken(target, data.token);
-              return;
-            }
-
-            loginSection.style.display = 'none';
-            userCard.style.display = 'block';
-            document.getElementById('userName').textContent = data.user.displayName || data.user.email;
-            document.getElementById('userEmail').textContent = data.user.email;
-
-            const adminBtn = document.getElementById('adminBtn');
-            if (data.user.role === 'admin') {
-              adminBtn.style.display = 'flex';
-            } else {
-              adminBtn.style.display = 'none';
-            }
-
-            const avatarEl = document.getElementById('userAvatar');
-            if (data.user.avatarUrl) {
-              avatarEl.innerHTML = `<img src="${data.user.avatarUrl}" alt="avatar" />`;
-            } else {
-              const initials = (data.user.displayName || data.user.email || '?')[0].toUpperCase();
-              avatarEl.textContent = initials;
-            }
-
-            notifyOtherTabs({ type: 'login', user: data.user });
-          } else {
-            loginSection.style.display = 'block';
-            userCard.style.display = 'none';
+    async function loadUser() {
+      try {
+        const res = await fetch('/sso/me', { credentials: 'include' });
+        const data = await res.json();
+        if (data.user) {
+          document.getElementById('loginSection').style.display = 'none';
+          document.getElementById('userCard').style.display = 'block';
+          document.getElementById('userName').textContent = data.user.displayName || data.user.email;
+          document.getElementById('userEmail').textContent = data.user.email;
+          document.getElementById('userAvatar').textContent = (data.user.displayName || data.user.email || 'A')[0].toUpperCase();
+          if (data.user.role === 'admin') {
+            document.getElementById('adminBtn').style.display = 'block';
           }
-        } catch (e) {
-          console.error(e);
         }
-      }
+      } catch (e) {}
+    }
 
-      document.getElementById('loginForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        hideAlert();
-        const btn = document.getElementById('loginBtn');
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner"></span>Đang xử lý...';
-
-        const email = document.getElementById('email').value;
-        const password = document.getElementById('password').value;
-
-        try {
-          const res = await fetch('/sso/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ email, password }),
-          });
-
-          const data = await res.json();
-
-          if (res.ok && data.success) {
-            const target = getRedirectUrl();
-            if (target) {
-              redirectWithToken(target, data.token);
-              return;
-            }
-            await loadUser();
-          } else {
-            showAlert(data.message || 'Đăng nhập thất bại');
-            btn.disabled = false;
-            btn.textContent = 'Đăng nhập';
-          }
-        } catch (err) {
-          showAlert('Lỗi kết nối. Vui lòng thử lại.');
-          btn.disabled = false;
-          btn.textContent = 'Đăng nhập';
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      try {
+        const res = await fetch('/sso/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          loadUser();
+        } else {
+          alert(data.message || 'Đăng nhập thất bại');
         }
-      });
+      } catch (err) { alert('Lỗi kết nối'); }
+    });
 
-      async function logout() {
-        await fetch('/sso/logout', { method: 'POST', credentials: 'include' });
-        notifyOtherTabs({ type: 'logout' });
-        await loadUser();
-      }
+    async function logout() {
+      await fetch('/sso/logout', { method: 'POST', credentials: 'include' });
+      location.reload();
+    }
 
-      function notifyOtherTabs(state) {
-        try { localStorage.setItem('vInfiSSO-state', JSON.stringify(state)); } catch (_) {}
-      }
-
-      window.addEventListener('storage', (e) => {
-        if (e.key === 'vInfiSSO-state') loadUser();
-      });
-
-      window.addEventListener('focus', () => loadUser());
-      loadUser();
-    </script>
-  </body>
+    loadUser();
+  </script>
+</body>
 </html>
