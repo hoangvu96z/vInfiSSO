@@ -25,14 +25,16 @@ jobs:
 
       # ── 3. Install & Build ───────────────────────────────────────────────────
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          cd admin-ui && npm install && cd ..
 
-      - name: Build NestJS
+      - name: Build NestJS & Admin UI
         run: npm run build
         env:
           NODE_ENV: production
 
-      # ── 4. Upload dist lên server qua SSH/SCP ───────────────────────────────
+      # ── 4. Upload dist & admin-ui/dist lên server qua SSH/SCP ───────────────
       - name: Copy build artifacts to VPS server
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -41,7 +43,7 @@ jobs:
           password: ${{ secrets.SSH_PASSWORD }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
-          source: "dist/*,package.json,package-lock.json"
+          source: "dist/**,admin-ui/dist/**,package.json,package-lock.json"
           target: "/var/www/sso.vunph.click"
 
       # ── 5. Restart PM2 Service ──────────────────────────────────────────────
