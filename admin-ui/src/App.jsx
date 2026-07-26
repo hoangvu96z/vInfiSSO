@@ -15,6 +15,27 @@ export default function App() {
 
   useEffect(() => {
     const checkSession = async () => {
+      // If user just logged out, skip session check entirely — prevents auto-login on reload
+      const queryParams = new URLSearchParams(window.location.search);
+      const isLoggedOut =
+        queryParams.get('logged_out') === 'true' ||
+        sessionStorage.getItem('just_logged_out') === '1';
+
+      if (isLoggedOut) {
+        sessionStorage.removeItem('just_logged_out');
+        localStorage.removeItem('sso_token');
+        // Clean up URL params without page reload
+        if (queryParams.get('logged_out')) {
+          queryParams.delete('logged_out');
+          const newSearch = queryParams.toString();
+          const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash;
+          window.history.replaceState({}, '', newUrl);
+        }
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
       try {
         const token = localStorage.getItem('sso_token');
         const res = await fetch('/sso/me', {
@@ -25,6 +46,7 @@ export default function App() {
           const data = await res.json();
           setUser(data.user);
         } else {
+          localStorage.removeItem('sso_token');
           setUser(null);
         }
       } catch (e) {
@@ -37,19 +59,21 @@ export default function App() {
   }, []);
 
   const handleLogout = async () => {
+    // Mark logout intent BEFORE any async call
+    sessionStorage.setItem('just_logged_out', '1');
+    localStorage.removeItem('sso_token');
+
     try {
-      const token = localStorage.getItem('sso_token');
+      const token = localStorage.getItem('sso_token'); // already null, but keep for header
       await fetch('/sso/logout', {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
         credentials: 'include',
       });
     } catch (e) {}
-    localStorage.removeItem('sso_token');
-    // Mark that user just logged out — prevents SsoPage from auto-redirecting back to app
-    sessionStorage.setItem('just_logged_out', '1');
+
+    // DO NOT do window.location.href — just update React state directly
+    // This avoids re-triggering checkSession with a potentially still-valid cookie
     setUser(null);
-    window.location.href = '/ui/sso?logged_out=true';
   };
 
   const handleLoginSuccess = (data) => {
