@@ -1,4 +1,4 @@
-import { Controller, Get, Res } from '@nestjs/common';
+import { Controller, Get, Req, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -15,6 +15,18 @@ export class AppController {
   @Get()
   getHello(@Res() res: Response) {
     return res.redirect('/ui/sso');
+  }
+
+  @Get(['login', 'sso/login', 'ui/login'])
+  redirectToLogin(@Req() req: Request, @Res() res: Response) {
+    const query = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+    return res.redirect(`/ui/sso${query}`);
+  }
+
+  @Get(['register', 'sso/register_page'])
+  redirectToRegister(@Req() req: Request, @Res() res: Response) {
+    const query = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+    return res.redirect(`/ui/register${query}`);
   }
 
   @Get('ui/sso')
@@ -53,7 +65,7 @@ export class AppController {
     }
   }
 
-  @Get('ui/admin')
+  @Get(['admin', 'sso/admin', 'ui/admin'])
   getAdminPage(@Res() res: Response) {
     try {
       const html = readFileSync(join(HTML_DIR, 'admin-page.html'), 'utf8');

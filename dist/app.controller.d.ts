@@ -4,6 +4,8 @@ export declare class AppController {
     private readonly appService;
     constructor(appService: AppService);
     getHello(res: Response): void;
+    redirectToLogin(req: Request, res: Response): void;
+    redirectToRegister(req: Request, res: Response): void;
     getSsoPage(res: Response): void;
     getRegisterPage(res: Response): void;
     getAppAPage(res: Response): void;

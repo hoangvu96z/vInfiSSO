@@ -26,6 +26,14 @@ let AppController = class AppController {
     getHello(res) {
         return res.redirect('/ui/sso');
     }
+    redirectToLogin(req, res) {
+        const query = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+        return res.redirect(`/ui/sso${query}`);
+    }
+    redirectToRegister(req, res) {
+        const query = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+        return res.redirect(`/ui/register${query}`);
+    }
     getSsoPage(res) {
         const html = (0, node_fs_1.readFileSync)((0, node_path_1.join)(HTML_DIR, 'sso-page.html'), 'utf8');
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -87,6 +95,22 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], AppController.prototype, "getHello", null);
 __decorate([
+    (0, common_1.Get)(['login', 'sso/login', 'ui/login']),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Request, Object]),
+    __metadata("design:returntype", void 0)
+], AppController.prototype, "redirectToLogin", null);
+__decorate([
+    (0, common_1.Get)(['register', 'sso/register_page']),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Request, Object]),
+    __metadata("design:returntype", void 0)
+], AppController.prototype, "redirectToRegister", null);
+__decorate([
     (0, common_1.Get)('ui/sso'),
     __param(0, (0, common_1.Res)()),
     __metadata("design:type", Function),
@@ -115,7 +139,7 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], AppController.prototype, "getAppBPage", null);
 __decorate([
-    (0, common_1.Get)('ui/admin'),
+    (0, common_1.Get)(['admin', 'sso/admin', 'ui/admin']),
     __param(0, (0, common_1.Res)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
