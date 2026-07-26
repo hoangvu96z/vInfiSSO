@@ -63,4 +63,16 @@ export class AppController {
       res.status(404).send('Not found');
     }
   }
+
+  @Get(['vlnfi_sso_favicon_option_1.svg', 'vinfi_sso_favicon_option_1.svg', 'favicon.ico'])
+  getFavicon(@Res() res: Response) {
+    try {
+      const svg = readFileSync(join(HTML_DIR, 'vlnfi_sso_favicon_option_1.svg'), 'utf8');
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.send(svg);
+    } catch {
+      res.status(404).send('Not found');
+    }
+  }
 }

@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Left Wing Gradient -->
+    <linearGradient id="vLeftGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00E5FF"/>
+      <stop offset="60%" stop-color="#0088FF"/>
+      <stop offset="100%" stop-color="#0066E0"/>
+    </linearGradient>
+
+    <!-- Right Wing Gradient -->
+    <linearGradient id="vRightGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0088FF"/>
+      <stop offset="100%" stop-color="#0044C8"/>
+    </linearGradient>
+
+    <!-- Center Diamond Blade Gradient -->
+    <linearGradient id="vCenterGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#9EFAFF"/>
+      <stop offset="40%" stop-color="#55EAFF"/>
+      <stop offset="100%" stop-color="#00C4FF"/>
+    </linearGradient>
+
+    <!-- Outer Soft Neon Glow Filter -->
+    <filter id="vGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feComponentTransfer in="blur" result="glow">
+        <feFuncA type="linear" slope="0.5"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode in="glow" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <g filter="url(#vGlow)">
+    <!-- Left Wing -->
+    <polygon points="90,128 184,128 256,384 192,384" fill="url(#vLeftGrad)" />
+
+    <!-- Right Wing -->
+    <polygon points="328,128 422,128 320,384 256,384" fill="url(#vRightGrad)" />
+
+    <!-- Center Light Diamond Blade -->
+    <polygon points="256,96 282,144 256,348 230,144" fill="url(#vCenterGrad)" />
+  </g>
+</svg>

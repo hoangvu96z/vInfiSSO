@@ -22,6 +22,13 @@ export class ReadingsService {
     });
   }
 
+  async getReadingById(userId: string, readingId: string): Promise<Reading> {
+    const reading = await this.readingsRepo.findOne({ where: { id: readingId } });
+    if (!reading) throw new NotFoundException('Không tìm thấy lịch sử');
+    if (reading.userId !== userId) throw new ForbiddenException('Không có quyền truy cập');
+    return reading;
+  }
+
   async createReading(
     userId: string,
     dto: {

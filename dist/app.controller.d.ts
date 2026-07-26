@@ -9,4 +9,5 @@ export declare class AppController {
     getAppAPage(res: Response): void;
     getAppBPage(res: Response): void;
     getAdminPage(res: Response): void;
+    getFavicon(res: Response): void;
 }

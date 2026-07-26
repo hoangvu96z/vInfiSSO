@@ -54,6 +54,14 @@ export class ReadingsController {
     return { readings };
   }
 
+  // GET /readings/:id
+  @Get(':id')
+  async getOne(@Req() req: Request, @Param('id') id: string) {
+    const user = await this.requireUser(req);
+    const reading = await this.readingsService.getReadingById(user.id, id);
+    return { reading };
+  }
+
   // POST /readings
   @Post()
   async create(

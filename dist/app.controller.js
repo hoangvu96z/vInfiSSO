@@ -66,6 +66,17 @@ let AppController = class AppController {
             res.status(404).send('Not found');
         }
     }
+    getFavicon(res) {
+        try {
+            const svg = (0, node_fs_1.readFileSync)((0, node_path_1.join)(HTML_DIR, 'vlnfi_sso_favicon_option_1.svg'), 'utf8');
+            res.setHeader('Content-Type', 'image/svg+xml');
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            res.send(svg);
+        }
+        catch {
+            res.status(404).send('Not found');
+        }
+    }
 };
 exports.AppController = AppController;
 __decorate([
@@ -110,6 +121,13 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], AppController.prototype, "getAdminPage", null);
+__decorate([
+    (0, common_1.Get)(['vlnfi_sso_favicon_option_1.svg', 'vinfi_sso_favicon_option_1.svg', 'favicon.ico']),
+    __param(0, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], AppController.prototype, "getFavicon", null);
 exports.AppController = AppController = __decorate([
     (0, common_1.Controller)(),
     __metadata("design:paramtypes", [app_service_1.AppService])
