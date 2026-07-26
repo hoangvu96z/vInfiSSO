@@ -618,7 +618,15 @@ export default function AdminPage({ user, onLogout }) {
                     { title: 'Email', dataIndex: 'email' },
                     { title: 'Họ Tên', dataIndex: 'displayName' },
                     { title: 'Lượt Kinh Dịch', dataIndex: 'ichingReadings' },
-                    { title: 'Lượt Tarot', dataIndex: '            {currentRoute === 'plans' && (
+                    { title: 'Lượt Tarot', dataIndex: 'tarotReadings' },
+                    { title: 'Tổng Hỏi AI', dataIndex: 'totalAiQuestions', render: n => <Tag color="purple">{n}</Tag> },
+                  ]}
+                />
+              </Card>
+            )}
+
+            {/* ROUTE 5: GÓI DỊCH VỤ */}
+            {currentRoute === 'plans' && (
               <div>
                 <Row gutter={[20, 20]} style={{ marginBottom: 24 }}>
                   {safeArr(plans).map(plan => (
@@ -653,14 +661,6 @@ export default function AdminPage({ user, onLogout }) {
                             </div>
                           </div>
                         )}
-                      </Card>
-                    </Col>
-                  ))}
-                </Row>
-              </div>
-            )}�ng giới hạn lượt/ngày' : `${plan.dailyLimit} lượt/ngày`}</div>
-                        <div>📆 {plan.monthlyLimit === -1 ? 'Không giới hạn lượt/tháng' : `${plan.monthlyLimit} lượt/tháng`}</div>
-                        <div>{plan.canBonus ? `✨ Hỏi thêm ${plan.bonusAmount} câu/lần` : '❌ Không có hỏi thêm'}</div>
                       </Card>
                     </Col>
                   ))}

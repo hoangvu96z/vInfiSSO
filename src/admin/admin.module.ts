@@ -4,6 +4,7 @@ import { User } from '../users/user.entity';
 import { Session } from '../users/session.entity';
 import { AuditLog } from '../users/audit-log.entity';
 import { Reading } from '../readings/reading.entity';
+import { AiUsage } from '../plans/ai-usage.entity';
 import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
 import { AdminGuard } from '../auth/admin.guard';
@@ -12,7 +13,7 @@ import { PlansModule } from '../plans/plans.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, Session, AuditLog, Reading]),
+    TypeOrmModule.forFeature([User, Session, AuditLog, Reading, AiUsage]),
     SsoModule,
     PlansModule,
   ],
@@ -21,4 +22,5 @@ import { PlansModule } from '../plans/plans.module';
   exports: [AdminService],
 })
 export class AdminModule {}
+
 

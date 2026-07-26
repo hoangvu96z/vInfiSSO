@@ -5,6 +5,7 @@ import { User } from '../users/user.entity';
 import { Session } from '../users/session.entity';
 import { AuditLog } from '../users/audit-log.entity';
 import { Reading } from '../readings/reading.entity';
+import { AiUsage } from '../plans/ai-usage.entity';
 
 @Injectable()
 export class AdminService {
@@ -17,6 +18,8 @@ export class AdminService {
     private readonly auditLogRepo: Repository<AuditLog>,
     @InjectRepository(Reading)
     private readonly readingRepo: Repository<Reading>,
+    @InjectRepository(AiUsage)
+    private readonly aiUsageRepo: Repository<AiUsage>,
   ) {}
 
   async logActivity(
@@ -47,28 +50,18 @@ export class AdminService {
 
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
+    const todayStr = startOfToday.toISOString().split('T')[0];
 
     const todayLogins = await this.auditLogRepo.count({
       where: { action: 'login', createdAt: MoreThan(startOfToday) },
     });
 
-    const readings = await this.readingRepo.find({ select: { data: true, createdAt: true } });
-    let totalAiQuestions = 0;
-    let todayAiQuestions = 0;
-
-    readings.forEach((r) => {
-      const conv = r.data?.aiConversation;
-      if (conv) {
-        let count = 0;
-        if (conv.initialInterpretation) count += 1;
-        if (Array.isArray(conv.followUps)) count += conv.followUps.length;
-        totalAiQuestions += count;
-
-        if (r.createdAt >= startOfToday) {
-          todayAiQuestions += count;
-        }
-      }
-    });
+    // Query AI usage from ai_usage table (accurate, not parsed from readings.data)
+    const allUsage = await this.aiUsageRepo.find({ select: { dailyCount: true, monthlyCount: true, date: true } });
+    const totalAiQuestions = allUsage.reduce((sum, r) => sum + (r.monthlyCount || 0), 0);
+    const todayAiQuestions = allUsage
+      .filter(r => r.date === todayStr)
+      .reduce((sum, r) => sum + (r.dailyCount || 0), 0);
 
     return {
       totalUsers,
@@ -289,6 +282,7 @@ export class AdminService {
   async getAnalyticsData() {
     const fourteenDaysAgo = new Date();
     fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+    const fourteenDaysAgoStr = fourteenDaysAgo.toISOString().split('T')[0];
 
     const recentLogs = await this.auditLogRepo.find({
       where: { createdAt: MoreThan(fourteenDaysAgo) },
@@ -317,23 +311,26 @@ export class AdminService {
       geoMap.set(loc, (geoMap.get(loc) || 0) + 1);
     });
 
-    const readings = await this.readingRepo.find({ select: { app: true, data: true, createdAt: true } });
+    // Query AI usage from ai_usage table grouped by date (accurate)
+    const recentAiUsage = await this.aiUsageRepo
+      .createQueryBuilder('au')
+      .select('au.date', 'date')
+      .addSelect('SUM(au.dailyCount)', 'total')
+      .where('au.date >= :from', { from: fourteenDaysAgoStr })
+      .groupBy('au.date')
+      .getRawMany<{ date: string; total: string }>();
+
+    recentAiUsage.forEach(({ date, total }) => {
+      const entry = daysMap.get(date);
+      if (entry) entry.ai = parseInt(total, 10) || 0;
+    });
+
+    const readings = await this.readingRepo.find({ select: { app: true } });
     let ichingCount = 0;
     let tarotCount = 0;
-
     readings.forEach((r) => {
       if (r.app === 'iching') ichingCount += 1;
       if (r.app === 'tarot') tarotCount += 1;
-
-      const dateStr = new Date(r.createdAt).toISOString().split('T')[0];
-      const entry = daysMap.get(dateStr);
-      if (entry) {
-        let count = 0;
-        if (r.data?.aiConversation?.initialInterpretation || r.data?.aiInterpretation || r.data?.interpretation) count += 1;
-        if (Array.isArray(r.data?.aiConversation?.followUps)) count += r.data.aiConversation.followUps.length;
-        if (Array.isArray(r.data?.followUps)) count += r.data.followUps.length;
-        entry.ai += count;
-      }
     });
 
     const timeSeriesData = Array.from(daysMap.entries()).map(([date, val]) => ({
