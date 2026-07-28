@@ -29,12 +29,8 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
     done: (err: Error | null, user?: any) => void,
   ): Promise<any> {
     const { id, emails, displayName, photos } = profile;
-    const email = emails?.[0]?.value;
+    const email = emails?.[0]?.value || `${id}@facebook.user`;
     const avatarUrl = photos?.[0]?.value;
-
-    if (!email) {
-      return done(new Error('Facebook account does not have an email'), undefined);
-    }
 
     try {
       const user = await this.usersService.findOrCreateOAuthUser({
