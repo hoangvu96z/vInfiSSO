@@ -252,7 +252,10 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                   type="default"
                   block
                   style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
-                  onClick={() => { window.location.href = 'http://vunph.id.vn/kinhdich'; }}
+                  onClick={() => {
+                    const token = localStorage.getItem('sso_token');
+                    window.location.href = token ? `http://vunph.id.vn/kinhdich?sso_token=${token}` : 'http://vunph.id.vn/kinhdich';
+                  }}
                 >
                   ☯️ Đến IChingNow
                 </Button>
@@ -260,7 +263,10 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                   type="default"
                   block
                   style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
-                  onClick={() => { window.location.href = 'http://vunph.id.vn/tarot'; }}
+                  onClick={() => {
+                    const token = localStorage.getItem('sso_token');
+                    window.location.href = token ? `http://vunph.id.vn/tarot?sso_token=${token}` : 'http://vunph.id.vn/tarot';
+                  }}
                 >
                   🔮 Đến TarotNow
                 </Button>
