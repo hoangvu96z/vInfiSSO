@@ -41,11 +41,19 @@ export class PlansController {
     return user;
   }
 
+  private extractAppName(req: Request, body?: any): string {
+    const qApp = req.query.app as string;
+    const bApp = body?.app as string;
+    const hApp = (req.headers['x-app-name'] || req.headers['app']) as string;
+    return (bApp || qApp || hApp || 'default').trim().toLowerCase();
+  }
+
   // GET /plans/my-quota — Kiểm tra quota còn lại
   @Get('my-quota')
   async getMyQuota(@Req() req: Request) {
     const user = await this.requireUser(req);
-    return this.plansService.checkQuota(user.id);
+    const app = this.extractAppName(req);
+    return this.plansService.checkQuota(user.id, app);
   }
 
   // GET /plans/my-subscription — Thông tin gói hiện tại
@@ -57,19 +65,21 @@ export class PlansController {
 
   // POST /plans/consume — Trừ 1 lượt AI (gọi trước khi hỏi AI)
   @Post('consume')
-  async consume(@Req() req: Request) {
+  async consume(@Req() req: Request, @Body() body?: { app?: string }) {
     const user = await this.requireUser(req);
-    await this.plansService.consumeQuota(user.id);
-    const quota = await this.plansService.checkQuota(user.id);
+    const app = this.extractAppName(req, body);
+    await this.plansService.consumeQuota(user.id, app);
+    const quota = await this.plansService.checkQuota(user.id, app);
     return { success: true, quota };
   }
 
   // POST /plans/bonus — Xin thêm 5 câu (Premium only)
   @Post('bonus')
-  async requestBonus(@Req() req: Request) {
+  async requestBonus(@Req() req: Request, @Body() body?: { app?: string }) {
     const user = await this.requireUser(req);
-    const result = await this.plansService.requestBonus(user.id);
-    const quota = await this.plansService.checkQuota(user.id);
+    const app = this.extractAppName(req, body);
+    const result = await this.plansService.requestBonus(user.id, app);
+    const quota = await this.plansService.checkQuota(user.id, app);
     return { ...result, quota };
   }
 

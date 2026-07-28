@@ -114,14 +114,16 @@ export class PlansService {
   }
 
   /** Lấy hoặc tạo AI usage record cho user hôm nay */
-  private async getOrCreateUsage(userId: string): Promise<AiUsage> {
+  private async getOrCreateUsage(userId: string, appName: string = 'default'): Promise<AiUsage> {
     const today = this.today();
     const month = this.currentMonth();
+    const normalizedApp = appName ? appName.trim().toLowerCase() : 'default';
 
-    let usage = await this.usageRepo.findOne({ where: { userId, date: today } });
+    let usage = await this.usageRepo.findOne({ where: { userId, date: today, app: normalizedApp } });
     if (!usage) {
       usage = this.usageRepo.create({
         userId,
+        app: normalizedApp,
         date: today,
         month,
         dailyCount: 0,
@@ -134,8 +136,8 @@ export class PlansService {
     return usage;
   }
 
-  /** Kiểm tra quota còn lại của user */
-  async checkQuota(userId: string): Promise<{
+  /** Kiểm tra quota còn lại của user theo từng App */
+  async checkQuota(userId: string, appName: string = 'default'): Promise<{
     plan: string;
     planLabel: string;
     dailyLimit: number;
@@ -156,7 +158,8 @@ export class PlansService {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    const usage = await this.getOrCreateUsage(userId);
+    const normalizedApp = appName ? appName.trim().toLowerCase() : 'default';
+    const usage = await this.getOrCreateUsage(userId, normalizedApp);
     const month = this.currentMonth();
 
     // TÍNH NĂNG ĐẶC QUYỀN ADMIN: Luôn luôn có quyền hỏi không giới hạn
@@ -207,11 +210,11 @@ export class PlansService {
       }
     }
 
-    // Tính monthly count tháng này
+    // Tính monthly count tháng này cho app này
     const monthlyUsage = await this.usageRepo
       .createQueryBuilder('u')
       .select('SUM(u.dailyCount)', 'total')
-      .where('u.userId = :userId AND u.month = :month', { userId, month })
+      .where('u.userId = :userId AND u.month = :month AND u.app = :app', { userId, month, app: normalizedApp })
       .getRawOne();
     const monthlyCount = parseInt(monthlyUsage?.total ?? '0', 10);
 
@@ -250,9 +253,10 @@ export class PlansService {
     };
   }
 
-  /** Trừ 1 lượt AI. Throw ForbiddenException nếu hết quota */
-  async consumeQuota(userId: string): Promise<void> {
-    const quota = await this.checkQuota(userId);
+  /** Trừ 1 lượt AI của App. Throw ForbiddenException nếu hết quota */
+  async consumeQuota(userId: string, appName: string = 'default'): Promise<void> {
+    const normalizedApp = appName ? appName.trim().toLowerCase() : 'default';
+    const quota = await this.checkQuota(userId, normalizedApp);
 
     if (!quota.canAsk) {
       const msg =
@@ -268,7 +272,7 @@ export class PlansService {
       });
     }
 
-    const usage = await this.getOrCreateUsage(userId);
+    const usage = await this.getOrCreateUsage(userId, normalizedApp);
 
     // Nếu còn bonus thì tiêu bonus trước
     if (usage.bonusRemaining > 0 && usage.dailyCount >= (await this.getEffectivePlan(userId)).dailyLimit) {
@@ -281,14 +285,15 @@ export class PlansService {
   }
 
   /** Xin thêm bonus câu hỏi (Premium only) */
-  async requestBonus(userId: string): Promise<{ bonusAdded: number; bonusRemaining: number }> {
+  async requestBonus(userId: string, appName: string = 'default'): Promise<{ bonusAdded: number; bonusRemaining: number }> {
     const plan = await this.getEffectivePlan(userId);
 
     if (!plan.canBonus) {
       throw new ForbiddenException('Chức năng "Hỏi thêm" chỉ dành cho gói Premium');
     }
 
-    const usage = await this.getOrCreateUsage(userId);
+    const normalizedApp = appName ? appName.trim().toLowerCase() : 'default';
+    const usage = await this.getOrCreateUsage(userId, normalizedApp);
 
     if (plan.bonusMaxPerDay !== -1 && usage.bonusUsedToday >= plan.bonusMaxPerDay) {
       throw new ForbiddenException(

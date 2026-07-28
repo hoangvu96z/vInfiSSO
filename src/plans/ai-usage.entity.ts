@@ -7,14 +7,17 @@ import {
 } from 'typeorm';
 
 @Entity('ai_usage')
-@Index(['userId', 'date'], { unique: true })
-@Index(['userId', 'month'])
+@Index(['userId', 'date', 'app'], { unique: true })
+@Index(['userId', 'month', 'app'])
 export class AiUsage {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column({ type: 'uuid' })
   userId: string;
+
+  @Column({ type: 'varchar', length: 50, default: 'default' })
+  app: string;
 
   /** Format: YYYY-MM-DD */
   @Column({ type: 'varchar', length: 10 })
