@@ -29,6 +29,12 @@ export class User {
   @Column({ type: 'varchar', length: 512, nullable: true })
   avatarUrl: string | null;
 
+  @Column({ type: 'bytea', nullable: true })
+  avatar: Buffer | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  avatarContentType: string | null;
+
   @Column({ default: false })
   isVerified: boolean;
 

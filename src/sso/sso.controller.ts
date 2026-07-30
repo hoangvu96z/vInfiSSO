@@ -12,17 +12,15 @@ import {
   UploadedFile,
   BadRequestException,
   UnauthorizedException,
+  Param,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname, join } from 'node:path';
-import { existsSync, mkdirSync } from 'node:fs';
 import { SsoService } from './sso.service';
 import { ConfigService } from '@nestjs/config';
-
-const AVATAR_DIR = join(process.cwd(), 'uploads', 'avatars');
 
 const COOKIE_NAME = 'sso_token';
 const isProd = process.env.NODE_ENV === 'production';
@@ -142,22 +140,12 @@ export class SsoController {
     return { success: true, user: updated };
   }
 
-  // ─── POST /sso/avatar (upload ảnh đại diện) ───────────────────────────────
+  // ─── POST /sso/avatar (upload ảnh đại diện → lưu DB) ──────────
 
   @Post('avatar')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: (_req, _file, cb) => {
-          if (!existsSync(AVATAR_DIR)) mkdirSync(AVATAR_DIR, { recursive: true });
-          cb(null, AVATAR_DIR);
-        },
-        filename: (req, file, cb) => {
-          const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-          cb(null, `${(req as any).avatarUserId ?? 'anon'}-${unique}${extname(file.originalname).toLowerCase()}`);
-        },
-      }),
-      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+      limits: { fileSize: 5 * 1024 * 1024 },
       fileFilter: (_req, file, cb) => {
         if (!/^image\/(jpeg|png|gif|webp)$/.test(file.mimetype)) {
           return cb(new BadRequestException('Chỉ chấp nhận ảnh JPEG, PNG, GIF hoặc WebP'), false);
@@ -176,9 +164,28 @@ export class SsoController {
       throw new BadRequestException('Không có file nào được tải lên');
     }
 
-    const avatarUrl = `/uploads/avatars/${file.filename}`;
-    const updated = await this.ssoService.updateProfile(user.id, { avatarUrl });
-    return { success: true, avatarUrl, user: updated };
+    const updated = await this.ssoService.updateAvatar(
+      user.id,
+      file.buffer,
+      file.mimetype,
+    );
+    return { success: true, user: updated };
+  }
+
+  // ─── GET /sso/avatar/:userId ──────────────────────────────────
+
+  @Get('avatar/:userId')
+  async getAvatar(
+    @Param('userId') userId: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.ssoService.findAvatar(userId);
+    if (!result || !result.buffer) {
+      throw new HttpException('Avatar not found', HttpStatus.NOT_FOUND);
+    }
+    res.setHeader('Content-Type', result.contentType || 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.send(result.buffer);
   }
 
   // ─── POST /sso/register ───────────────────────────────────────────────────

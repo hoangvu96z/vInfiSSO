@@ -42,7 +42,6 @@ export default function ProfilePage({ user: initialUser, onLogout, onUserUpdated
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [alertInfo, setAlertInfo] = useState(null);
-  const [avatarPreview, setAvatarPreview] = useState(initialUser?.avatarUrl || null);
   const [form] = Form.useForm();
 
   const authHeaders = () => {
@@ -53,9 +52,10 @@ export default function ProfilePage({ user: initialUser, onLogout, onUserUpdated
   const applyUpdatedUser = (updated) => {
     if (!updated) return;
     setUser(updated);
-    if (updated.avatarUrl !== undefined) setAvatarPreview(updated.avatarUrl);
     if (onUserUpdated) onUserUpdated(updated);
   };
+
+  const avatarSrc = user?.id ? `/sso/avatar/${user.id}` : null;
 
   const handleSaveProfile = async (values) => {
     setSaving(true);
@@ -177,11 +177,11 @@ export default function ProfilePage({ user: initialUser, onLogout, onUserUpdated
               <div style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}>
                 <Avatar
                   size={104}
-                  src={avatarPreview}
+                  src={avatarSrc}
                   style={{ backgroundColor: '#6366f1', fontSize: 40 }}
-                  icon={!avatarPreview ? <UserOutlined /> : undefined}
+                  icon={!avatarSrc ? <UserOutlined /> : undefined}
                 >
-                  {!avatarPreview && initials}
+                  {!avatarSrc && initials}
                 </Avatar>
                 <div
                   style={{

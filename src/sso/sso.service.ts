@@ -159,7 +159,14 @@ export class SsoService {
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
   sanitizeUser(user: User): Partial<User> {
-    const { passwordHash: _, emailVerificationToken: __, passwordResetToken: ___, ...safe } = user as any;
+    const {
+      passwordHash: _,
+      emailVerificationToken: __,
+      passwordResetToken: ___,
+      avatar: ____,
+      avatarContentType: _____,
+      ...safe
+    } = user as any;
     return safe;
   }
 
@@ -207,5 +214,25 @@ export class SsoService {
     });
 
     return this.sanitizeUser(user);
+  }
+
+  async updateAvatar(
+    userId: string,
+    buffer: Buffer,
+    contentType: string,
+  ) {
+    const user = await this.usersService.updateAvatar(userId, buffer, contentType);
+
+    await this.auditLogRepo.save({
+      userId: user.id,
+      action: 'update_avatar',
+      app: 'sso',
+    });
+
+    return this.sanitizeUser(user);
+  }
+
+  async findAvatar(userId: string) {
+    return this.usersService.findAvatar(userId);
   }
 }

@@ -113,6 +113,27 @@ export class UsersService {
     return this.usersRepo.save(user);
   }
 
+  async updateAvatar(
+    userId: string,
+    buffer: Buffer,
+    contentType: string,
+  ): Promise<User> {
+    const user = await this.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    user.avatar = buffer;
+    user.avatarContentType = contentType;
+    user.avatarUrl = null;
+
+    return this.usersRepo.save(user);
+  }
+
+  async findAvatar(userId: string): Promise<{ buffer: Buffer | null; contentType: string | null } | null> {
+    const user = await this.findById(userId);
+    if (!user || !user.avatar) return null;
+    return { buffer: user.avatar, contentType: user.avatarContentType };
+  }
+
   // ─── OAuth ────────────────────────────────────────────────────────────────
 
   async findOrCreateOAuthUser(dto: {

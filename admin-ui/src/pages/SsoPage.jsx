@@ -221,7 +221,11 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
         {/* IF USER IS ALREADY LOGGED IN */}
         {user ? (
           <div style={{ textAlign: 'center', padding: '12px 0' }}>
-            <Avatar size={64} src={user.avatarUrl} style={{ backgroundColor: '#6366f1', marginBottom: 12 }}>
+            <Avatar
+              size={64}
+              src={user.id ? `/sso/avatar/${user.id}` : undefined}
+              style={{ backgroundColor: '#6366f1', marginBottom: 12 }}
+            >
               {(user.displayName || user.fullName || user.email)[0].toUpperCase()}
             </Avatar>
             <Title level={4} style={{ margin: 0 }}>{user.displayName || user.fullName || 'Thành viên'}</Title>
