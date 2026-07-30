@@ -91,6 +91,28 @@ export class UsersService {
     await this.usersRepo.update(userId, { isVerified: true });
   }
 
+  // ─── Profile ──────────────────────────────────────────────────────────────
+
+  async updateProfile(
+    userId: string,
+    dto: { displayName?: string; avatarUrl?: string | null },
+  ): Promise<User> {
+    const user = await this.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    if (dto.displayName !== undefined) {
+      const name = dto.displayName?.trim();
+      if (!name) throw new ConflictException('Tên hiển thị không được để trống');
+      user.displayName = name.substring(0, 100);
+    }
+
+    if (dto.avatarUrl !== undefined) {
+      user.avatarUrl = dto.avatarUrl ?? null;
+    }
+
+    return this.usersRepo.save(user);
+  }
+
   // ─── OAuth ────────────────────────────────────────────────────────────────
 
   async findOrCreateOAuthUser(dto: {

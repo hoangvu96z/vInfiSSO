@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import SsoPage from './pages/SsoPage';
 import AdminPage from './pages/AdminPage';
+import ProfilePage from './pages/ProfilePage';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -93,6 +94,21 @@ export default function App() {
   }
 
   const isAdminRoute = pathname.includes('/admin') || window.location.hash.includes('analytics') || window.location.hash.includes('users') || window.location.hash.includes('plans');
+  const isProfileRoute = pathname.includes('/profile');
+
+  if (isProfileRoute) {
+    if (!user) {
+      window.location.href = '/ui/sso';
+      return null;
+    }
+    return (
+      <ProfilePage
+        user={user}
+        onLogout={handleLogout}
+        onUserUpdated={setUser}
+      />
+    );
+  }
 
   if ((isAdminRoute || pathname === '/ui/admin') && user?.role === 'admin') {
     return <AdminPage user={user} onLogout={handleLogout} />;

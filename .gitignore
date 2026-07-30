@@ -4,3 +4,7 @@ dist
 # .env.example được commit (template không có credentials)
 coverage
 *.log
+
+# Uploaded user files (avatars)
+uploads/
+

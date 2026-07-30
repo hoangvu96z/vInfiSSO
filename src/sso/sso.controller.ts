@@ -3,16 +3,26 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Req,
   Res,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   BadRequestException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AuthGuard } from '@nestjs/passport';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'node:path';
+import { existsSync, mkdirSync } from 'node:fs';
 import { SsoService } from './sso.service';
 import { ConfigService } from '@nestjs/config';
+
+const AVATAR_DIR = join(process.cwd(), 'uploads', 'avatars');
 
 const COOKIE_NAME = 'sso_token';
 const isProd = process.env.NODE_ENV === 'production';
@@ -110,6 +120,65 @@ export class SsoController {
       user: user ? this.ssoService.sanitizeUser(user) : null,
       token: user ? token : null,
     };
+  }
+
+  // ─── PATCH /sso/profile ───────────────────────────────────────────────────
+
+  @Patch('profile')
+  async updateProfile(
+    @Req() req: Request,
+    @Body() body: { displayName?: string; avatarUrl?: string | null },
+  ) {
+    const token = this.getToken(req);
+    const user = await this.ssoService.resolveSession(token);
+    if (!user) {
+      throw new UnauthorizedException('Bạn cần đăng nhập');
+    }
+
+    const updated = await this.ssoService.updateProfile(user.id, {
+      displayName: body.displayName,
+      avatarUrl: body.avatarUrl,
+    });
+    return { success: true, user: updated };
+  }
+
+  // ─── POST /sso/avatar (upload ảnh đại diện) ───────────────────────────────
+
+  @Post('avatar')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: (_req, _file, cb) => {
+          if (!existsSync(AVATAR_DIR)) mkdirSync(AVATAR_DIR, { recursive: true });
+          cb(null, AVATAR_DIR);
+        },
+        filename: (req, file, cb) => {
+          const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+          cb(null, `${(req as any).avatarUserId ?? 'anon'}-${unique}${extname(file.originalname).toLowerCase()}`);
+        },
+      }),
+      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+      fileFilter: (_req, file, cb) => {
+        if (!/^image\/(jpeg|png|gif|webp)$/.test(file.mimetype)) {
+          return cb(new BadRequestException('Chỉ chấp nhận ảnh JPEG, PNG, GIF hoặc WebP'), false);
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async uploadAvatar(@Req() req: Request, @UploadedFile() file?: Express.Multer.File) {
+    const token = this.getToken(req);
+    const user = await this.ssoService.resolveSession(token);
+    if (!user) {
+      throw new UnauthorizedException('Bạn cần đăng nhập');
+    }
+    if (!file) {
+      throw new BadRequestException('Không có file nào được tải lên');
+    }
+
+    const avatarUrl = `/uploads/avatars/${file.filename}`;
+    const updated = await this.ssoService.updateProfile(user.id, { avatarUrl });
+    return { success: true, avatarUrl, user: updated };
   }
 
   // ─── POST /sso/register ───────────────────────────────────────────────────

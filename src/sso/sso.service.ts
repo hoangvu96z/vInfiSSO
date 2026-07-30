@@ -186,4 +186,26 @@ export class SsoService {
   async createSessionForUser(userId: string): Promise<string> {
     return this.usersService.createSession(userId);
   }
+
+  // ─── Profile ───────────────────────────────────────────────────────────
+
+  async updateProfile(
+    userId: string,
+    dto: { displayName?: string; avatarUrl?: string | null },
+  ) {
+    const user = await this.usersService.updateProfile(userId, dto);
+
+    await this.auditLogRepo.save({
+      userId: user.id,
+      action: 'update_profile',
+      app: 'sso',
+      metadata: {
+        updatedFields: Object.keys(dto).filter(
+          (k) => (dto as Record<string, unknown>)[k] !== undefined,
+        ),
+      },
+    });
+
+    return this.sanitizeUser(user);
+  }
 }

@@ -221,10 +221,10 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
         {/* IF USER IS ALREADY LOGGED IN */}
         {user ? (
           <div style={{ textAlign: 'center', padding: '12px 0' }}>
-            <Avatar size={64} style={{ backgroundColor: '#6366f1', marginBottom: 12 }}>
-              {(user.fullName || user.email)[0].toUpperCase()}
+            <Avatar size={64} src={user.avatarUrl} style={{ backgroundColor: '#6366f1', marginBottom: 12 }}>
+              {(user.displayName || user.fullName || user.email)[0].toUpperCase()}
             </Avatar>
-            <Title level={4} style={{ margin: 0 }}>{user.fullName || 'Thành viên'}</Title>
+            <Title level={4} style={{ margin: 0 }}>{user.displayName || user.fullName || 'Thành viên'}</Title>
             <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>{user.email}</Text>
 
             <Space direction="vertical" style={{ width: '100%', marginBottom: 20 }}>
@@ -240,8 +240,12 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
               </div>
             </Space>
 
+            <Button type="primary" block style={{ height: 42, fontWeight: 700, marginBottom: 10, background: '#6366f1' }} onClick={() => { window.location.href = '/ui/profile'; }}>
+              <UserOutlined /> Hồ Sơ Của Tôi
+            </Button>
+
             {user.role === 'admin' && (
-              <Button type="primary" block style={{ height: 42, fontWeight: 700, marginBottom: 10, background: '#6366f1' }} onClick={() => { window.location.href = '/ui/admin#analytics'; }}>
+              <Button type="primary" block style={{ height: 42, fontWeight: 700, marginBottom: 10, background: '#7c3aed', borderColor: '#7c3aed' }} onClick={() => { window.location.href = '/ui/admin#analytics'; }}>
                 <CrownOutlined /> Đến Admin Dashboard
               </Button>
             )}
