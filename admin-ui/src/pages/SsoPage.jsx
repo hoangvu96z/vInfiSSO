@@ -254,32 +254,30 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
               </Button>
             )}
 
-            {!redirectTarget && (
-              <Space direction="vertical" style={{ width: '100%', marginBottom: 10 }}>
-                <Button
-                  type="default"
-                  block
-                  style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
-                  onClick={() => {
-                    const token = localStorage.getItem('sso_token');
-                    window.location.href = token ? `http://vunph.id.vn/kinhdich?sso_token=${token}` : 'http://vunph.id.vn/kinhdich';
-                  }}
-                >
-                  ☯️ Đến IChingNow
-                </Button>
-                <Button
-                  type="default"
-                  block
-                  style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
-                  onClick={() => {
-                    const token = localStorage.getItem('sso_token');
-                    window.location.href = token ? `http://vunph.id.vn/tarot?sso_token=${token}` : 'http://vunph.id.vn/tarot';
-                  }}
-                >
-                  🔮 Đến TarotNow
-                </Button>
-              </Space>
-            )}
+            <Space direction="vertical" style={{ width: '100%', marginBottom: 10 }}>
+              <Button
+                type="default"
+                block
+                style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
+                onClick={() => {
+                  const token = localStorage.getItem('sso_token');
+                  window.location.href = token ? `https://vunph.id.vn/kinhdich/?sso_token=${token}` : 'https://vunph.id.vn/kinhdich/';
+                }}
+              >
+                ☯️ Đến IChingNow
+              </Button>
+              <Button
+                type="default"
+                block
+                style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
+                onClick={() => {
+                  const token = localStorage.getItem('sso_token');
+                  window.location.href = token ? `https://vunph.id.vn/tarot/?sso_token=${token}` : 'https://vunph.id.vn/tarot/';
+                }}
+              >
+                🔮 Đến TarotNow
+              </Button>
+            </Space>
 
             <Button type="default" danger block icon={<LogoutOutlined />} onClick={onLogout} style={{ height: 42 }}>
               Đăng Xuất

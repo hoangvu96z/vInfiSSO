@@ -45,6 +45,11 @@ export default function App() {
         });
         if (res.ok) {
           const data = await res.json();
+          // Đồng bộ token từ server (cookie session) về localStorage
+          // để các flow redirect kèm ?sso_token= luôn có token sẵn
+          if (data.user && data.token) {
+            localStorage.setItem('sso_token', data.token);
+          }
           setUser(data.user);
         } else {
           localStorage.removeItem('sso_token');
