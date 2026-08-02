@@ -27,7 +27,7 @@ export class AppController {
     return res.redirect(`/ui/register${query}`);
   }
 
-  @Get(['ui/sso', 'ui/admin', 'ui/register', 'ui/profile'])
+  @Get(['ui/sso', 'ui/admin', 'ui/register', 'ui/profile', 'ui/payment'])
   getReactApp(@Res() res: Response) {
     try {
       const reactIndex = join(__dirname, '..', 'admin-ui', 'dist', 'index.html');

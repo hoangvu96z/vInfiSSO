@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import SsoPage from './pages/SsoPage';
 import AdminPage from './pages/AdminPage';
 import ProfilePage from './pages/ProfilePage';
+import PaymentPage from './pages/PaymentPage';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -100,6 +101,11 @@ export default function App() {
 
   const isAdminRoute = pathname.includes('/admin') || window.location.hash.includes('analytics') || window.location.hash.includes('users') || window.location.hash.includes('plans');
   const isProfileRoute = pathname.includes('/profile');
+  const isPaymentRoute = pathname.includes('/payment');
+
+  if (isPaymentRoute) {
+    return <PaymentPage user={user} />;
+  }
 
   if (isProfileRoute) {
     if (!user) {
