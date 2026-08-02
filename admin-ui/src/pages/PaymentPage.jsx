@@ -49,8 +49,11 @@ const FALLBACK_PLANS = [
     description: 'Không giới hạn hàng ngày · 180 lượt/tháng · Hỏi thêm 5 câu/quẻ' },
 ];
 
-const formatPrice = (price) =>
-  !price ? 'Miễn phí' : `${price.toLocaleString('vi-VN')}đ`;
+// Format thủ công để chắc chắn luôn ra "20.000đ" (toLocaleString không nhất quán giữa môi trường)
+const formatPrice = (price) => {
+  if (!price) return 'Miễn phí';
+  return `${String(price).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
+};
 
 // Tạo nội dung chuyển khoản theo format định sẵn
 const buildTransferNote = (user, planName) => {

@@ -8,3 +8,4 @@ coverage
 # Uploaded user files (avatars)
 uploads/
 
+.aider*
