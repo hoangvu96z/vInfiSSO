@@ -31,7 +31,7 @@ const COOKIE_OPTIONS = {
   sameSite: (isProd ? 'none' : 'lax') as 'none' | 'lax',
   secure: isProd,
   path: '/',
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 ngày
+  maxAge: 30 * 24 * 60 * 60 * 1000, // 30 ngày
 };
 
 @Controller('sso')
