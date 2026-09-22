@@ -83,7 +83,8 @@ export class PlansController {
       .split(',')
       .map((model) => model.trim())
       .filter(Boolean);
-    return { models, configured: !!process.env.TUVI_AI_API_KEY };
+    const apiKey = process.env.TUVI_AI_API_KEY;
+    return { models, configured: !!apiKey };
   }
 
   @Post('tuvi-ai')
@@ -121,7 +122,7 @@ export class PlansController {
     }
     const apiKey = process.env.TUVI_AI_API_KEY;
     if (!apiKey) {
-      throw new ServiceUnavailableException('Máy chủ chưa cấu hình AI Tử Vi');
+      throw new ServiceUnavailableException('Máy chủ chưa cấu hình AI Tử Vi (vui lòng cấu hình TUVI_AI_API_KEY trong .env)');
     }
     const endpoint = (
       process.env.TUVI_AI_BASE_URL || 'http://43.128.116.69:20128/v1'
