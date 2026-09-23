@@ -90,6 +90,7 @@ describe('TuVi AI SSO integration', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const sent = JSON.parse(fetchMock.mock.calls[1][1].body);
     expect(sent.messages[1]).toEqual(body.messages[0]);
+    expect(sent.messages[0].content).toContain('chỉ trả JSON hợp lệ');
   });
   it('does not leak upstream errors or retry authentication failures', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 401 });
