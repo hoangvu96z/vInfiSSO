@@ -3,6 +3,7 @@ module.exports = {
     {
       name: 'vinfisso',
       script: './dist/main.js',
+      cwd: __dirname,
       instances: 'max',
       exec_mode: 'cluster',
       watch: false,

@@ -83,7 +83,7 @@ export class PlansController {
       .split(',')
       .map((model) => model.trim())
       .filter(Boolean);
-    const apiKey = process.env.TUVI_AI_API_KEY;
+    const apiKey = process.env.TUVI_AI_API_KEY?.trim();
     return { models, configured: !!apiKey };
   }
 
@@ -120,9 +120,9 @@ export class PlansController {
     ) {
       throw new BadRequestException('Nội dung hoặc model AI không hợp lệ');
     }
-    const apiKey = process.env.TUVI_AI_API_KEY;
+    const apiKey = process.env.TUVI_AI_API_KEY?.trim();
     if (!apiKey) {
-      throw new ServiceUnavailableException('Máy chủ chưa cấu hình AI Tử Vi (vui lòng cấu hình TUVI_AI_API_KEY trong .env)');
+      throw new ServiceUnavailableException({ code: 'AI_NOT_CONFIGURED', message: 'Dịch vụ luận giải Tử Vi chưa sẵn sàng. Bạn vẫn có thể sao chép prompt để sử dụng với AI khác.' });
     }
     const endpoint = (
       process.env.TUVI_AI_BASE_URL || 'http://43.128.116.69:20128/v1'

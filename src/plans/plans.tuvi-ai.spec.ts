@@ -66,6 +66,22 @@ describe('TuVi AI SSO integration', () => {
     );
     expect(consumeQuota).not.toHaveBeenCalled();
   });
+  it('reports unavailable for blank keys without exposing credentials or charging', async () => {
+    process.env.TUVI_AI_API_KEY = '   ';
+    expect(controller.getTuviAiConfig()).toEqual({ models: ['combo1'], configured: false });
+    try {
+      await controller.interpretTuvi(req, body);
+      throw new Error('Expected unavailable service');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ServiceUnavailableException);
+      expect(error.getResponse().code).toBe('AI_NOT_CONFIGURED');
+    }
+    expect(consumeQuota).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it('public config reveals readiness but never the key', () => {
+    expect(controller.getTuviAiConfig()).toEqual({ models: ['combo1'], configured: true });
+  });
   it('does not call upstream when quota is exhausted', async () => {
     consumeQuota.mockRejectedValue(new Error('Hết lượt'));
     await expect(controller.interpretTuvi(req, body)).rejects.toThrow(

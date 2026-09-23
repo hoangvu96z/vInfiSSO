@@ -1,3 +1,4 @@
+import { getEnvFiles } from './config/env-files';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -25,7 +26,8 @@ import { Coupon } from './plans/coupon.entity';
     // Load .env file
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      // Preserve existing .env settings; fill missing production settings from the deployment file.
+      envFilePath: getEnvFiles(),
     }),
 
     // PostgreSQL via TypeORM (local on VPS)
