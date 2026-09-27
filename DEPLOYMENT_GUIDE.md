@@ -151,6 +151,11 @@ MAIL_FROM=noreply@vunph.click
 SSO_BASE_URL=https://sso.vunph.click
 ICHINGNOW_URL=https://vunph.click/kinhdich
 TAROTNOW_URL=https://vunph.click/tarot
+TUVINOW_URL=https://vunph.click/tuvi
+TALKWITHME_URL=https://vunph.click/talkwithme
+
+# ─── TalkWithMe Notifications ──────────
+CONTACT_NOTIFY_EMAIL=admin@vunph.id.vn
 
 # ─── CORS ──────────────────────────────
 ALLOWED_ORIGINS=https://vunph.click,https://www.vunph.click

@@ -2,14 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Layout, Menu, Typography, Button, Card, Row, Col, Table, Tag,
   Switch, Modal, Form, Input, InputNumber, Select, message, Space,
-  Statistic, Avatar, ConfigProvider, theme
+  Statistic, Avatar, ConfigProvider, theme, Badge, Image, Popconfirm
 } from 'antd';
 import {
   BarChartOutlined, UserOutlined, AuditOutlined, RobotOutlined,
   CrownOutlined, TagOutlined, LogoutOutlined, SunOutlined, MoonOutlined,
   CopyOutlined, DeleteOutlined, EditOutlined, GiftOutlined, ReloadOutlined,
   CheckCircleOutlined, CloseCircleOutlined, PoweroffOutlined,
-  MenuFoldOutlined, MenuUnfoldOutlined
+  MenuFoldOutlined, MenuUnfoldOutlined, MessageOutlined, EyeOutlined,
+  PictureOutlined, CheckOutlined
 } from '@ant-design/icons';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
@@ -90,11 +91,20 @@ export default function AdminPage({ user, onLogout }) {
   const [grantModalUser, setGrantModalUser] = useState(null);
   const [formGrant] = Form.useForm();
 
+  // Contact Messages State
+  const [messages, setMessages] = useState([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [selectedMessage, setSelectedMessage] = useState(null);
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+
   // Load Dashboard Stats & Charts
   const loadAnalytics = useCallback(async () => {
-    const [resStats, resCharts] = await Promise.all([
+    const [resStats, resCharts, resUnread] = await Promise.all([
       authFetch('/admin/stats'),
       authFetch('/admin/analytics'),
+      authFetch('/contact/admin/unread-count'),
     ]);
     if (resStats) {
       const dataStats = await resStats.json();
@@ -103,6 +113,10 @@ export default function AdminPage({ user, onLogout }) {
     if (resCharts) {
       const dataCharts = await resCharts.json();
       setAnalyticsData(dataCharts);
+    }
+    if (resUnread) {
+      const countData = await resUnread.json();
+      setUnreadCount(countData.count || 0);
     }
   }, []);
 
@@ -166,6 +180,24 @@ export default function AdminPage({ user, onLogout }) {
     setCouponsLoading(false);
   }, []);
 
+  // Load Contact Messages
+  const loadContactMessages = useCallback(async () => {
+    setMessagesLoading(true);
+    const [resList, resCount] = await Promise.all([
+      authFetch('/contact/admin/messages?limit=100'),
+      authFetch('/contact/admin/unread-count'),
+    ]);
+    if (resList) {
+      const data = await resList.json();
+      setMessages(data.messages || []);
+    }
+    if (resCount) {
+      const countData = await resCount.json();
+      setUnreadCount(countData.count || 0);
+    }
+    setMessagesLoading(false);
+  }, []);
+
   // Route Initializer
   useEffect(() => {
     if (currentRoute === 'analytics') loadAnalytics();
@@ -174,7 +206,47 @@ export default function AdminPage({ user, onLogout }) {
     if (currentRoute === 'ai') loadAiUsage();
     if (currentRoute === 'plans') loadPlans();
     if (currentRoute === 'coupons') loadCoupons();
-  }, [currentRoute, loadAnalytics, loadUsers, loadAudit, loadAiUsage, loadPlans, loadCoupons]);
+    if (currentRoute === 'contact') loadContactMessages();
+  }, [currentRoute, loadAnalytics, loadUsers, loadAudit, loadAiUsage, loadPlans, loadCoupons, loadContactMessages]);
+
+  // Actions for Contact Messages
+  const handleViewMessage = async (msgSummary) => {
+    setDetailModalOpen(true);
+    setDetailLoading(true);
+    const res = await authFetch(`/contact/admin/messages/${msgSummary.id}`);
+    if (res) {
+      const data = await res.json();
+      setSelectedMessage(data.message);
+      if (!msgSummary.isRead) {
+        await authFetch(`/contact/admin/messages/${msgSummary.id}/read`, { method: 'PATCH' });
+        setMessages((prev) => prev.map((m) => m.id === msgSummary.id ? { ...m, isRead: true } : m));
+        setUnreadCount((c) => Math.max(0, c - 1));
+      }
+    }
+    setDetailLoading(false);
+  };
+
+  const handleMarkAllRead = async () => {
+    const res = await authFetch('/contact/admin/read-all', { method: 'PATCH' });
+    if (res) {
+      message.success('Đã đánh dấu tất cả là đã đọc! ✅');
+      setMessages((prev) => prev.map((m) => ({ ...m, isRead: true })));
+      setUnreadCount(0);
+    }
+  };
+
+  const handleDeleteMessage = async (id) => {
+    const res = await authFetch(`/contact/admin/messages/${id}`, { method: 'DELETE' });
+    if (res) {
+      message.success('Đã xóa tin nhắn! 🗑️');
+      setMessages((prev) => prev.filter((m) => m.id !== id));
+      setUnreadCount((c) => Math.max(0, c - 1));
+      if (selectedMessage?.id === id) {
+        setDetailModalOpen(false);
+        setSelectedMessage(null);
+      }
+    }
+  };
 
   // Actions
   const handleUpdateRole = async (userId, newRole) => {
@@ -432,6 +504,18 @@ export default function AdminPage({ user, onLogout }) {
               { key: 'users', icon: <UserOutlined />, label: 'Quản Lý User & Role' },
               { key: 'audit', icon: <AuditOutlined />, label: 'Nhật Ký Traffic & IP' },
               { key: 'ai', icon: <RobotOutlined />, label: 'Leaderboard AI' },
+              {
+                key: 'contact',
+                icon: <MessageOutlined />,
+                label: (
+                  <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <span>Tin Nhắn Khách</span>
+                    {unreadCount > 0 && (
+                      <Badge count={unreadCount} style={{ backgroundColor: '#06b6d4', boxShadow: 'none' }} />
+                    )}
+                  </span>
+                ),
+              },
               { type: 'divider' },
               { key: 'plans', icon: <CrownOutlined />, label: 'Gói Dịch Vụ' },
               { key: 'coupons', icon: <TagOutlined />, label: 'Mã Khuyến Mãi' },
@@ -696,6 +780,97 @@ export default function AdminPage({ user, onLogout }) {
                 />
               </Card>
             )}
+
+            {/* ROUTE 7: TIN NHẮN TALKWITHME */}
+            {currentRoute === 'contact' && (
+              <Card
+                title={
+                  <Space align="center">
+                    <span>💬 Hộp Thư TalkWithMe</span>
+                    {unreadCount > 0 && <Tag color="cyan">{unreadCount} chưa đọc</Tag>}
+                  </Space>
+                }
+                extra={
+                  <Space>
+                    <Button icon={<ReloadOutlined />} onClick={loadContactMessages} loading={messagesLoading}>
+                      Làm mới
+                    </Button>
+                    {unreadCount > 0 && (
+                      <Button icon={<CheckOutlined />} onClick={handleMarkAllRead}>
+                        Đánh dấu tất cả đã đọc
+                      </Button>
+                    )}
+                  </Space>
+                }
+              >
+                <Table
+                  dataSource={messages}
+                  loading={messagesLoading}
+                  rowKey="id"
+                  scroll={{ x: 800 }}
+                  columns={[
+                    {
+                      title: 'Trạng thái',
+                      dataIndex: 'isRead',
+                      width: 110,
+                      render: (read) =>
+                        read ? (
+                          <Tag color="default">Đã đọc</Tag>
+                        ) : (
+                          <Tag color="cyan" style={{ fontWeight: 600 }}>MỚI</Tag>
+                        ),
+                    },
+                    {
+                      title: 'Người gửi',
+                      render: (_, r) => (
+                        <div>
+                          <div style={{ fontWeight: 600, color: r.isRead ? undefined : '#06b6d4' }}>{r.name}</div>
+                          {r.email && <div style={{ fontSize: '0.78rem', opacity: 0.65 }}>{r.email}</div>}
+                        </div>
+                      ),
+                    },
+                    {
+                      title: 'Tiêu đề / Tin nhắn',
+                      render: (_, r) => (
+                        <div style={{ maxWidth: 360 }}>
+                          {r.title && <div style={{ fontWeight: 600, marginBottom: 2 }}>{r.title}</div>}
+                          <div style={{ fontSize: '0.85rem', opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {r.message}
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      title: 'Ảnh',
+                      dataIndex: 'hasImage',
+                      width: 80,
+                      align: 'center',
+                      render: (has) => has ? <Tag icon={<PictureOutlined />} color="purple">Ảnh</Tag> : '-',
+                    },
+                    {
+                      title: 'Thời gian',
+                      dataIndex: 'createdAt',
+                      width: 160,
+                      render: (t) => new Date(t).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' }),
+                    },
+                    {
+                      title: 'Thao tác',
+                      width: 140,
+                      render: (_, r) => (
+                        <Space>
+                          <Button size="small" type="primary" icon={<EyeOutlined />} onClick={() => handleViewMessage(r)}>
+                            Xem
+                          </Button>
+                          <Popconfirm title="Xóa tin nhắn này?" onConfirm={() => handleDeleteMessage(r.id)} okText="Xóa" cancelText="Hủy">
+                            <Button size="small" danger icon={<DeleteOutlined />} />
+                          </Popconfirm>
+                        </Space>
+                      ),
+                    },
+                  ]}
+                />
+              </Card>
+            )}
           </Content>
         </Layout>
 
@@ -793,6 +968,95 @@ export default function AdminPage({ user, onLogout }) {
             </Form.Item>
             <Form.Item name="durationDays" label="Số Ngày (0 = vĩnh viễn)"><InputNumber style={{ width: '100%' }} /></Form.Item>
           </Form>
+        </Modal>
+
+        {/* MODAL: VIEW CONTACT MESSAGE */}
+        <Modal
+          title={
+            <Space align="center">
+              <span>💬 Chi Tiết Tin Nhắn</span>
+              {selectedMessage && !selectedMessage.isRead && <Tag color="cyan">Mới</Tag>}
+            </Space>
+          }
+          open={detailModalOpen}
+          onCancel={() => { setDetailModalOpen(false); setSelectedMessage(null); }}
+          footer={[
+            <Button
+              key="delete"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => {
+                if (selectedMessage) handleDeleteMessage(selectedMessage.id);
+              }}
+            >
+              Xóa tin nhắn
+            </Button>,
+            <Button key="close" type="primary" onClick={() => { setDetailModalOpen(false); setSelectedMessage(null); }}>
+              Đóng
+            </Button>,
+          ]}
+          width={640}
+        >
+          {detailLoading ? (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}>Đang tải...</div>
+          ) : selectedMessage ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 12 }}>
+              <div style={{ background: isDarkMode ? '#1e293b' : '#f8fafc', padding: 16, borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)' }}>
+                <Row gutter={[12, 10]}>
+                  <Col span={12}>
+                    <Text type="secondary" style={{ fontSize: '0.8rem' }}>Người gửi:</Text>
+                    <div style={{ fontWeight: 600, fontSize: '1rem' }}>{selectedMessage.name}</div>
+                  </Col>
+                  <Col span={12}>
+                    <Text type="secondary" style={{ fontSize: '0.8rem' }}>Email:</Text>
+                    <div>{selectedMessage.email ? <a href={`mailto:${selectedMessage.email}`}>{selectedMessage.email}</a> : <Text italic type="secondary">Không có</Text>}</div>
+                  </Col>
+                  <Col span={12}>
+                    <Text type="secondary" style={{ fontSize: '0.8rem' }}>Thời gian:</Text>
+                    <div>{new Date(selectedMessage.createdAt).toLocaleString('vi-VN')}</div>
+                  </Col>
+                  <Col span={12}>
+                    <Text type="secondary" style={{ fontSize: '0.8rem' }}>IP / Session:</Text>
+                    <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>{selectedMessage.senderIp || 'N/A'} · {selectedMessage.sessionId?.slice(0, 10)}...</div>
+                  </Col>
+                </Row>
+              </div>
+
+              {selectedMessage.title && (
+                <div>
+                  <Text type="secondary" style={{ fontSize: '0.8rem' }}>Tiêu đề:</Text>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 600, marginTop: 4 }}>{selectedMessage.title}</div>
+                </div>
+              )}
+
+              <div>
+                <Text type="secondary" style={{ fontSize: '0.8rem' }}>Nội dung:</Text>
+                <div style={{
+                  background: isDarkMode ? '#0f172a' : '#f1f5f9',
+                  padding: 16,
+                  borderRadius: 10,
+                  whiteSpace: 'pre-wrap',
+                  lineHeight: 1.6,
+                  fontSize: '0.95rem',
+                  marginTop: 6,
+                  borderLeft: '4px solid #06b6d4',
+                }}>
+                  {selectedMessage.message}
+                </div>
+              </div>
+
+              {selectedMessage.imageData && (
+                <div>
+                  <Text type="secondary" style={{ fontSize: '0.8rem', display: 'block', marginBottom: 8 }}>Hình ảnh đính kèm:</Text>
+                  <Image
+                    src={`data:${selectedMessage.imageMime || 'image/png'};base64,${selectedMessage.imageData}`}
+                    alt="Đính kèm"
+                    style={{ maxHeight: 300, borderRadius: 8, objectFit: 'contain' }}
+                  />
+                </div>
+              )}
+            </div>
+          ) : null}
         </Modal>
       </Layout>
     </ConfigProvider>

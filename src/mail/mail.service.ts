@@ -36,6 +36,10 @@ export class MailService {
     }
   }
 
+  async sendMail(options: nodemailer.SendMailOptions): Promise<void> {
+    await this.transporter.sendMail(options);
+  }
+
   async sendVerificationEmail(email: string, displayNameOrToken: string, token?: string): Promise<void> {
     let displayName = displayNameOrToken;
     let verifyToken = token;

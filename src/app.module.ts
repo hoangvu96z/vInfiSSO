@@ -19,6 +19,8 @@ import { PlansModule } from './plans/plans.module';
 import { Plan } from './plans/plan.entity';
 import { UserSubscription } from './plans/user-subscription.entity';
 import { AiUsage } from './plans/ai-usage.entity';
+import { ContactModule } from './contact/contact.module';
+import { ContactMessage } from './contact/contact-message.entity';
 import { Coupon } from './plans/coupon.entity';
 
 @Module({
@@ -40,7 +42,7 @@ import { Coupon } from './plans/coupon.entity';
         username: config.get<string>('DATABASE_USER', 'postgres'),
         password: config.get<string>('DATABASE_PASSWORD', ''),
         database: config.get<string>('DATABASE_NAME', 'vinfi_sso'),
-        entities: [User, OAuthAccount, Session, AuditLog, Reading, Plan, UserSubscription, AiUsage, Coupon],
+        entities: [User, OAuthAccount, Session, AuditLog, Reading, Plan, UserSubscription, AiUsage, Coupon, ContactMessage],
         synchronize: true,
         logging: config.get<string>('NODE_ENV') !== 'production',
       }),
@@ -53,6 +55,7 @@ import { Coupon } from './plans/coupon.entity';
     ReadingsModule,
     AdminModule,
     PlansModule,
+    ContactModule,
   ],
   controllers: [AppController],
   providers: [AppService],
