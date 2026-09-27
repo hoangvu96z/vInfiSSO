@@ -112,16 +112,40 @@ export class ContactService {
    * Send email notification to admin about a new message.
    */
   private async sendNotificationEmail(msg: ContactMessage): Promise<void> {
-    const adminEmail = this.configService.get<string>('CONTACT_NOTIFY_EMAIL',
-      this.configService.get<string>('SMTP_USER', 'admin@vunph.id.vn'));
-    const fromAddress = this.configService.get<string>('SMTP_FROM', '"TalkWithMe" <admin@vunph.id.vn>');
+    const adminEmail = this.configService.get<string>('CONTACT_NOTIFY_EMAIL', 'hoangvu96z@gmail.com');
+    const fromAddress =
+      this.configService.get<string>('SMTP_FROM') ||
+      this.configService.get<string>('MAIL_FROM', '"TalkWithMe" <noreply@vunph.click>');
 
     const ssoBase = this.configService.get<string>('SSO_BASE_URL', 'https://sso.vunph.click');
     const dashLink = `${ssoBase}/ui/admin#contact`;
 
-    const imageSection = msg.imageData
-      ? `<p style="margin-top:16px;"><strong>📷 Có hình ảnh đính kèm</strong> — xem trên dashboard.</p>`
-      : '';
+    const attachments: any[] = [];
+    let imageSection = '';
+
+    if (msg.imageData) {
+      const ext = (msg.imageMime?.split('/')[1] || 'png').replace('jpeg', 'jpg');
+      attachments.push({
+        filename: `image_${msg.sessionId?.substring(0, 8) || 'attachment'}.${ext}`,
+        content: Buffer.from(msg.imageData, 'base64'),
+        contentType: msg.imageMime || 'image/png',
+        cid: 'attached_image',
+      });
+      imageSection = `
+        <div style="margin-top: 24px; padding: 16px; background: rgba(6, 182, 212, 0.06); border: 1px solid rgba(6, 182, 212, 0.25); border-radius: 12px;">
+          <p style="margin: 0 0 12px; font-weight: 600; color: #06b6d4; font-size: 14px;">📷 Hình ảnh đính kèm:</p>
+          <img src="cid:attached_image" alt="Ảnh đính kèm" style="max-width: 100%; max-height: 480px; border-radius: 8px; display: block; box-shadow: 0 4px 12px rgba(0,0,0,0.3);" />
+        </div>
+      `;
+    }
+
+    const formattedTime = new Date(msg.createdAt).toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      dateStyle: 'full',
+      timeStyle: 'medium',
+    });
+
+    const subjectPreview = msg.title || (msg.message.length > 50 ? msg.message.substring(0, 50) + '…' : msg.message);
 
     const htmlContent = `
     <!DOCTYPE html>
@@ -129,39 +153,74 @@ export class ContactService {
     <head>
       <meta charset="utf-8">
       <style>
-        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #0f0f14; color: #e8e8f0; margin: 0; padding: 40px 20px; }
-        .container { max-width: 560px; margin: 0 auto; background: #1a1a24; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 36px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
-        .logo { text-align: center; margin-bottom: 24px; font-size: 24px; font-weight: bold; color: #06b6d4; }
-        h2 { color: #fff; font-size: 18px; margin-bottom: 16px; }
-        .info { background: rgba(6,182,212,0.08); border: 1px solid rgba(6,182,212,0.2); border-radius: 10px; padding: 16px; margin-bottom: 20px; }
-        .info p { margin: 6px 0; color: #a0a0b0; font-size: 14px; line-height: 1.5; }
-        .info strong { color: #e8e8f0; }
-        .message-box { background: rgba(255,255,255,0.04); border-left: 3px solid #06b6d4; padding: 16px; border-radius: 0 8px 8px 0; margin: 20px 0; }
-        .message-box p { color: #d0d0e0; line-height: 1.7; font-size: 15px; white-space: pre-wrap; margin: 0; }
-        .btn-container { text-align: center; margin: 28px 0 12px; }
-        .btn { display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #0891b2, #06b6d4); color: #fff !important; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 15px; }
-        .footer { text-align: center; font-size: 12px; color: #666677; margin-top: 24px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 16px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0b0f19; color: #e2e8f0; margin: 0; padding: 32px 16px; }
+        .container { max-width: 600px; margin: 0 auto; background: #131b2e; border: 1px solid rgba(255,255,255,0.12); border-radius: 16px; padding: 32px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+        .logo { font-size: 22px; font-weight: 700; color: #06b6d4; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
+        .badge { display: inline-block; background: rgba(6,182,212,0.15); color: #38bdf8; border: 1px solid rgba(6,182,212,0.3); padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-bottom: 12px; }
+        h2 { color: #ffffff; font-size: 20px; margin: 0 0 20px; line-height: 1.4; }
+        .info-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; overflow: hidden; }
+        .info-table td { padding: 12px 16px; font-size: 14px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+        .info-table tr:last-child td { border-bottom: none; }
+        .label { color: #94a3b8; font-weight: 500; width: 130px; }
+        .value { color: #f1f5f9; font-weight: 600; }
+        .msg-heading { font-size: 14px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin: 20px 0 8px; }
+        .message-box { background: rgba(15, 23, 42, 0.85); border-left: 4px solid #06b6d4; padding: 18px 20px; border-radius: 0 12px 12px 0; margin: 8px 0 24px; border-top: 1px solid rgba(255,255,255,0.06); border-right: 1px solid rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.06); }
+        .message-box p { color: #e2e8f0; line-height: 1.7; font-size: 15px; white-space: pre-wrap; margin: 0; word-break: break-word; }
+        .btn-container { text-align: center; margin: 28px 0 16px; }
+        .btn { display: inline-block; padding: 13px 32px; background: linear-gradient(135deg, #0891b2, #06b6d4); color: #ffffff !important; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 14px rgba(6,182,212,0.35); }
+        .footer { text-align: center; font-size: 12px; color: #64748b; margin-top: 24px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 18px; line-height: 1.5; }
+        .code { font-family: monospace; background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #cbd5e1; }
       </style>
     </head>
     <body>
       <div class="container">
-        <div class="logo">💬 TalkWithMe — Tin nhắn mới</div>
+        <div class="logo">💬 TalkWithMe · Tin Nhắn Mới</div>
+        <div class="badge">Khách Liên Hệ</div>
         <h2>${msg.title ? `"${msg.title}"` : 'Tin nhắn mới từ khách'}</h2>
-        <div class="info">
-          <p><strong>Người gửi:</strong> ${msg.name}</p>
-          ${msg.email ? `<p><strong>Email:</strong> ${msg.email}</p>` : ''}
-          <p><strong>Thời gian:</strong> ${new Date(msg.createdAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</p>
-          <p><strong>Session:</strong> ${msg.sessionId.substring(0, 8)}…</p>
-        </div>
+
+        <table class="info-table">
+          <tr>
+            <td class="label">👤 Người gửi:</td>
+            <td class="value">${msg.name}</td>
+          </tr>
+          <tr>
+            <td class="label">✉️ Email:</td>
+            <td class="value">
+              ${msg.email ? `<a href="mailto:${msg.email}" style="color: #38bdf8; text-decoration: none;">${msg.email}</a> <span style="font-size: 12px; color: #94a3b8; font-weight: normal;">(Bấm Reply để trả lời)</span>` : '<span style="color: #64748b; font-weight: normal; font-style: italic;">Khách không để lại email</span>'}
+            </td>
+          </tr>
+          <tr>
+            <td class="label">📌 Tiêu đề:</td>
+            <td class="value">${msg.title || '<span style="color: #64748b; font-weight: normal; font-style: italic;">(Không có tiêu đề)</span>'}</td>
+          </tr>
+          <tr>
+            <td class="label">🕒 Thời gian:</td>
+            <td class="value">${formattedTime}</td>
+          </tr>
+          <tr>
+            <td class="label">🌐 Địa chỉ IP:</td>
+            <td class="value"><span class="code">${msg.senderIp || 'N/A'}</span></td>
+          </tr>
+          <tr>
+            <td class="label">🔑 Session ID:</td>
+            <td class="value"><span class="code">${msg.sessionId}</span></td>
+          </tr>
+        </table>
+
+        <div class="msg-heading">Nội dung tin nhắn:</div>
         <div class="message-box">
           <p>${msg.message.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
         </div>
+
         ${imageSection}
+
         <div class="btn-container">
-          <a href="${dashLink}" class="btn" target="_blank">Xem trên Dashboard</a>
+          <a href="${dashLink}" class="btn" target="_blank">Xem trên Dashboard SSO</a>
         </div>
+
         <div class="footer">
-          <p>© 2026 vInfi · TalkWithMe</p>
+          <p>Tin nhắn được gửi qua TalkWithMe · Người nhận thông báo: <strong>hoangvu96z@gmail.com</strong></p>
+          <p>© 2026 vInfi · sso.vunph.click</p>
         </div>
       </div>
     </body>
@@ -171,10 +230,12 @@ export class ContactService {
     await this.mailService.sendMail({
       from: fromAddress,
       to: adminEmail,
-      subject: `💬 [TalkWithMe] ${msg.name}: ${msg.title || 'Tin nhắn mới'}`,
+      replyTo: msg.email || undefined,
+      subject: `💬 [TalkWithMe] ${msg.name}: ${subjectPreview}`,
       html: htmlContent,
+      attachments,
     });
 
-    this.logger.log(`Notification email sent to ${adminEmail}`);
+    this.logger.log(`Notification email sent to ${adminEmail} (replyTo: ${msg.email || 'none'})`);
   }
 }

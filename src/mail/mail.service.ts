@@ -8,11 +8,19 @@ export class MailService {
   private transporter: nodemailer.Transporter;
 
   constructor(private readonly configService: ConfigService) {
-    const host = this.configService.get<string>('SMTP_HOST', 'localhost');
-    const rawPort = this.configService.get<string | number>('SMTP_PORT', 465);
+    const host =
+      this.configService.get<string>('SMTP_HOST') ||
+      this.configService.get<string>('MAIL_HOST', 'localhost');
+    const rawPort =
+      this.configService.get<string | number>('SMTP_PORT') ||
+      this.configService.get<string | number>('MAIL_PORT', 25);
     const port = typeof rawPort === 'string' ? parseInt(rawPort, 10) : rawPort;
-    const user = this.configService.get<string>('SMTP_USER');
-    const pass = this.configService.get<string>('SMTP_PASS');
+    const user =
+      this.configService.get<string>('SMTP_USER') ||
+      this.configService.get<string>('MAIL_USER');
+    const pass =
+      this.configService.get<string>('SMTP_PASS') ||
+      this.configService.get<string>('MAIL_PASSWORD');
 
     if (user && pass) {
       const isSecure = port === 465;
@@ -29,10 +37,10 @@ export class MailService {
     } else {
       this.transporter = nodemailer.createTransport({
         host,
-        port: 25,
+        port: port || 25,
         ignoreTLS: true,
       });
-      this.logger.log(`Configured local Mail Server on VPS (${host}:25)`);
+      this.logger.log(`Configured local Mail Server on VPS (${host}:${port || 25})`);
     }
   }
 
