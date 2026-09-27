@@ -197,6 +197,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
     <div style={{
       minHeight: '100vh',
       display: 'flex',
+      flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
       padding: '24px',
@@ -429,7 +430,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
         )}
       </Card>
 
-      <div style={{ textAlign: 'center', marginTop: 18, fontSize: '0.82rem', color: isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+      <div style={{ textAlign: 'center', marginTop: 18, fontSize: '0.82rem', color: 'rgba(255,255,255,0.7)' }}>
         <span>© 2026 vunph.id.vn · </span>
         <a
           href="https://vunph.id.vn/talkwithme/"
