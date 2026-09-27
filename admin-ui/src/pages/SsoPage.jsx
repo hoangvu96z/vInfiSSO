@@ -275,7 +275,28 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                   window.location.href = token ? `https://vunph.id.vn/tarot/?sso_token=${token}` : 'https://vunph.id.vn/tarot/';
                 }}
               >
-                🔮 Đến TarotNow
+                🃏 Đến TarotNow
+              </Button>
+              <Button
+                type="default"
+                block
+                style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
+                onClick={() => {
+                  const token = localStorage.getItem('sso_token');
+                  window.location.href = token ? `https://vunph.id.vn/tuvi/?sso_token=${token}` : 'https://vunph.id.vn/tuvi/';
+                }}
+              >
+                🔮 Đến TuViNow
+              </Button>
+              <Button
+                type="default"
+                block
+                style={{ height: 38, borderColor: 'rgba(56,189,248,0.4)', color: '#38bdf8' }}
+                onClick={() => {
+                  window.location.href = 'https://vunph.id.vn/talkwithme/';
+                }}
+              >
+                💬 Đến TalkWithMe (Liên hệ)
               </Button>
             </Space>
 
@@ -407,6 +428,18 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
           </>
         )}
       </Card>
+
+      <div style={{ textAlign: 'center', marginTop: 18, fontSize: '0.82rem', color: isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+        <span>© 2026 vunph.id.vn · </span>
+        <a
+          href="https://vunph.id.vn/talkwithme/"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: '#38bdf8', textDecoration: 'none', fontWeight: 600 }}
+        >
+          💬 Góp ý & Liên hệ qua TalkWithMe
+        </a>
+      </div>
     </div>
   );
 }
