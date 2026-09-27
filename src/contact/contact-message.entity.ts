@@ -54,6 +54,30 @@ export class ContactMessage {
   @Column({ type: 'varchar', length: 45, nullable: true, name: 'sender_ip' })
   senderIp: string | null;
 
+  /** Parsed device, e.g. "iPhone 15", "Windows PC", "MacBook" */
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  device: string | null;
+
+  /** Parsed browser, e.g. "Safari 17", "Chrome 124", "Zalo In-App Browser" */
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  browser: string | null;
+
+  /** Operating System, e.g. "iOS 17.5", "Windows 11", "macOS" */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  os: string | null;
+
+  /** Approximate geo location from IP, e.g. "Ho Chi Minh City, Vietnam" */
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  location: string | null;
+
+  /** Internet Service Provider, e.g. "Viettel", "VNPT", "FPT Telecom" */
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  isp: string | null;
+
+  /** Additional technical metadata (screen resolution, timezone, language, viewport) */
+  @Column({ type: 'jsonb', nullable: true })
+  metadata: Record<string, any> | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

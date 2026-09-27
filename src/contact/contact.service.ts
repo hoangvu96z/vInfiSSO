@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { ContactMessage } from './contact-message.entity';
 import { MailService } from '../mail/mail.service';
 import { ConfigService } from '@nestjs/config';
+import { parseUserAgent, lookupIpLocation } from './device-detector.util';
 
 @Injectable()
 export class ContactService {
@@ -28,7 +29,18 @@ export class ContactService {
     imageData?: string;
     imageMime?: string;
     senderIp?: string | null;
+    userAgent?: string | null;
+    clientMeta?: Record<string, any> | null;
   }): Promise<ContactMessage> {
+    const { device, browser, os } = parseUserAgent(dto.userAgent || '', dto.clientMeta || undefined);
+    const geo = await lookupIpLocation(dto.senderIp);
+
+    const metadata = {
+      ...(dto.clientMeta || {}),
+      userAgent: dto.userAgent || null,
+      os,
+    };
+
     const msg = this.messageRepo.create({
       sessionId: dto.sessionId,
       name: dto.name,
@@ -38,10 +50,16 @@ export class ContactService {
       imageData: dto.imageData || null,
       imageMime: dto.imageMime || null,
       senderIp: dto.senderIp || null,
+      device: device || null,
+      browser: browser || null,
+      os: os || null,
+      location: geo?.location || null,
+      isp: geo?.isp || null,
+      metadata,
     });
 
     const saved = await this.messageRepo.save(msg);
-    this.logger.log(`New contact message from ${dto.name} (session: ${dto.sessionId})`);
+    this.logger.log(`New contact message from ${dto.name} (${device}, ${geo?.location || 'IP: ' + dto.senderIp})`);
 
     // Send email notification (fire-and-forget)
     this.sendNotificationEmail(saved).catch((err) => {
@@ -197,6 +215,26 @@ export class ContactService {
             <td class="label">🕒 Thời gian:</td>
             <td class="value">${formattedTime}</td>
           </tr>
+          <tr>
+            <td class="label">📱 Thiết bị:</td>
+            <td class="value">${msg.device || '<span style="color: #64748b; font-weight: normal;">Không xác định</span>'}</td>
+          </tr>
+          <tr>
+            <td class="label">🌐 Trình duyệt:</td>
+            <td class="value">${msg.browser || '<span style="color: #64748b; font-weight: normal;">Không xác định</span>'}</td>
+          </tr>
+          <tr>
+            <td class="label">📍 Vị trí (IP):</td>
+            <td class="value">
+              <strong style="color: #38bdf8;">${msg.location || 'Không xác định'}</strong>
+              ${msg.isp ? `<span style="font-size: 12px; color: #94a3b8; font-weight: normal; margin-left: 6px;">(Mạng: ${msg.isp})</span>` : ''}
+            </td>
+          </tr>
+          ${msg.metadata?.timezone || msg.metadata?.language ? `
+          <tr>
+            <td class="label">⏰ Múi giờ / Lang:</td>
+            <td class="value"><span class="code">${msg.metadata?.timezone || 'N/A'}</span> · <span class="code">${msg.metadata?.language || 'N/A'}</span></td>
+          </tr>` : ''}
           <tr>
             <td class="label">🌐 Địa chỉ IP:</td>
             <td class="value"><span class="code">${msg.senderIp || 'N/A'}</span></td>

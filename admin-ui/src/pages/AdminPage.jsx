@@ -843,14 +843,31 @@ export default function AdminPage({ user, onLogout }) {
                     {
                       title: 'Ảnh',
                       dataIndex: 'hasImage',
-                      width: 80,
+                      width: 70,
                       align: 'center',
                       render: (has) => has ? <Tag icon={<PictureOutlined />} color="purple">Ảnh</Tag> : '-',
                     },
                     {
+                      title: 'Thiết bị & Vị trí',
+                      render: (_, r) => (
+                        <div style={{ fontSize: '0.82rem' }}>
+                          <div style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span>📱</span>
+                            <span>{r.device || r.browser || 'Không rõ'}</span>
+                          </div>
+                          {r.location && (
+                            <div style={{ opacity: 0.75, display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                              <span>📍</span>
+                              <span>{r.location}</span>
+                            </div>
+                          )}
+                        </div>
+                      ),
+                    },
+                    {
                       title: 'Thời gian',
                       dataIndex: 'createdAt',
-                      width: 160,
+                      width: 150,
                       render: (t) => new Date(t).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' }),
                     },
                     {
@@ -1019,6 +1036,34 @@ export default function AdminPage({ user, onLogout }) {
                     <Text type="secondary" style={{ fontSize: '0.8rem' }}>IP / Session:</Text>
                     <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>{selectedMessage.senderIp || 'N/A'} · {selectedMessage.sessionId?.slice(0, 10)}...</div>
                   </Col>
+                  <Col span={12}>
+                    <Text type="secondary" style={{ fontSize: '0.8rem' }}>📱 Thiết bị:</Text>
+                    <div style={{ fontWeight: 500 }}>{selectedMessage.device || selectedMessage.os || 'N/A'}</div>
+                  </Col>
+                  <Col span={12}>
+                    <Text type="secondary" style={{ fontSize: '0.8rem' }}>🌐 Trình duyệt:</Text>
+                    <div>{selectedMessage.browser || 'N/A'}</div>
+                  </Col>
+                  <Col span={12}>
+                    <Text type="secondary" style={{ fontSize: '0.8rem' }}>📍 Vị trí (IP):</Text>
+                    <div style={{ color: '#06b6d4', fontWeight: 600 }}>{selectedMessage.location || 'Chưa xác định'}</div>
+                  </Col>
+                  <Col span={12}>
+                    <Text type="secondary" style={{ fontSize: '0.8rem' }}>📡 Nhà mạng (ISP):</Text>
+                    <div>{selectedMessage.isp || 'N/A'}</div>
+                  </Col>
+                  {selectedMessage.metadata?.timezone && (
+                    <Col span={12}>
+                      <Text type="secondary" style={{ fontSize: '0.8rem' }}>⏰ Múi giờ / Ngôn ngữ:</Text>
+                      <div style={{ fontSize: '0.8rem' }}>{selectedMessage.metadata.timezone} · {selectedMessage.metadata.language || 'N/A'}</div>
+                    </Col>
+                  )}
+                  {selectedMessage.metadata?.screen && (
+                    <Col span={12}>
+                      <Text type="secondary" style={{ fontSize: '0.8rem' }}>🖥️ Màn hình:</Text>
+                      <div style={{ fontSize: '0.8rem' }}>{selectedMessage.metadata.screen}</div>
+                    </Col>
+                  )}
                 </Row>
               </div>
 
