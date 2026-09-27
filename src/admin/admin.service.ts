@@ -48,6 +48,17 @@ export class AdminService {
     });
     const totalReadings = await this.readingRepo.count();
 
+    const readings = await this.readingRepo.find({ select: { app: true } });
+    let totalIchingReadings = 0;
+    let totalTarotReadings = 0;
+    let totalTuviReadings = 0;
+    readings.forEach((r) => {
+      const a = (r.app || '').toLowerCase();
+      if (a === 'iching') totalIchingReadings += 1;
+      else if (a === 'tarot') totalTarotReadings += 1;
+      else if (a.includes('tuvi') || a === 'tuvinow') totalTuviReadings += 1;
+    });
+
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
     const todayStr = startOfToday.toISOString().split('T')[0];
@@ -67,6 +78,9 @@ export class AdminService {
       totalUsers,
       activeSessions,
       totalReadings,
+      totalIchingReadings,
+      totalTarotReadings,
+      totalTuviReadings,
       totalAiQuestions,
       todayLogins,
       todayAiQuestions,
@@ -222,6 +236,7 @@ export class AdminService {
       role: string;
       ichingReadings: number;
       tarotReadings: number;
+      tuviReadings: number;
       initialInterpretations: number;
       followUpQuestions: number;
       totalAiQuestions: number;
@@ -238,14 +253,17 @@ export class AdminService {
         role: u.role || 'user',
         ichingReadings: 0,
         tarotReadings: 0,
+        tuviReadings: 0,
         initialInterpretations: 0,
         followUpQuestions: 0,
         totalAiQuestions: 0,
         lastActive: null,
       };
 
-      if (r.app === 'iching') existing.ichingReadings += 1;
-      if (r.app === 'tarot') existing.tarotReadings += 1;
+      const a = (r.app || '').toLowerCase();
+      if (a === 'iching') existing.ichingReadings += 1;
+      else if (a === 'tarot') existing.tarotReadings += 1;
+      else if (a.includes('tuvi') || a === 'tuvinow') existing.tuviReadings += 1;
 
       const conv = r.data?.aiConversation;
       if (conv) {
@@ -266,6 +284,7 @@ export class AdminService {
 
     const totalIchingReadings = list.reduce((acc, curr) => acc + curr.ichingReadings, 0);
     const totalTarotReadings = list.reduce((acc, curr) => acc + curr.tarotReadings, 0);
+    const totalTuviReadings = list.reduce((acc, curr) => acc + curr.tuviReadings, 0);
     const totalAiQuestions = list.reduce((acc, curr) => acc + curr.totalAiQuestions, 0);
 
     return {
@@ -273,6 +292,7 @@ export class AdminService {
         totalUsersWithReadings: list.length,
         totalIchingReadings,
         totalTarotReadings,
+        totalTuviReadings,
         totalAiQuestions,
       },
       userAiStats: list,
@@ -328,9 +348,12 @@ export class AdminService {
     const readings = await this.readingRepo.find({ select: { app: true } });
     let ichingCount = 0;
     let tarotCount = 0;
+    let tuviCount = 0;
     readings.forEach((r) => {
-      if (r.app === 'iching') ichingCount += 1;
-      if (r.app === 'tarot') tarotCount += 1;
+      const a = (r.app || '').toLowerCase();
+      if (a === 'iching') ichingCount += 1;
+      else if (a === 'tarot') tarotCount += 1;
+      else if (a.includes('tuvi') || a === 'tuvinow') tuviCount += 1;
     });
 
     const timeSeriesData = Array.from(daysMap.entries()).map(([date, val]) => ({
@@ -348,6 +371,7 @@ export class AdminService {
       appDistribution: {
         iching: ichingCount,
         tarot: tarotCount,
+        tuvi: tuviCount,
       },
       topLocations,
     };

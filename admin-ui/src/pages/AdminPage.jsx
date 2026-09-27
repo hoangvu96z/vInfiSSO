@@ -403,14 +403,15 @@ export default function AdminPage({ user, onLogout }) {
   };
 
   const appShareData = {
-    labels: ['IChingNow', 'TarotNow'],
+    labels: ['IChingNow (Kinh Dịch)', 'TarotNow (Tarot)', 'TuViNow (Tử Vi)'],
     datasets: [
       {
         data: [
           analyticsData?.appDistribution?.iching || 0,
           analyticsData?.appDistribution?.tarot || 0,
+          analyticsData?.appDistribution?.tuvi || 0,
         ],
-        backgroundColor: ['#6366f1', '#f59e0b'],
+        backgroundColor: ['#6366f1', '#f59e0b', '#ec4899'],
       },
     ],
   };
@@ -575,7 +576,7 @@ export default function AdminPage({ user, onLogout }) {
             {/* ROUTE 1: DASHBOARD & CHARTS */}
             {currentRoute === 'analytics' && (
               <div>
-                <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+                <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                   <Col xs={24} sm={12} lg={6}>
                     <Card><Statistic title="Tổng Người Dùng" value={stats?.totalUsers || 0} prefix={<UserOutlined />} /></Card>
                   </Col>
@@ -583,10 +584,41 @@ export default function AdminPage({ user, onLogout }) {
                     <Card><Statistic title="Session Hoạt Động" value={stats?.activeSessions || 0} prefix={<PoweroffOutlined />} /></Card>
                   </Col>
                   <Col xs={24} sm={12} lg={6}>
-                    <Card><Statistic title="Tổng Quẻ / Trải Bài" value={stats?.totalReadings || 0} prefix={<AuditOutlined />} /></Card>
+                    <Card><Statistic title="Tổng Quẻ / Trải Bài / Lá Số" value={stats?.totalReadings || 0} prefix={<AuditOutlined />} /></Card>
                   </Col>
                   <Col xs={24} sm={12} lg={6}>
                     <Card><Statistic title="Số Lượt Hỏi AI" value={stats?.totalAiQuestions || 0} prefix={<RobotOutlined />} /></Card>
+                  </Col>
+                </Row>
+
+                {/* 3 APP BREAKDOWN CARDS */}
+                <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+                  <Col xs={24} sm={8}>
+                    <Card size="small" style={{ borderLeft: '4px solid #6366f1', background: isDarkMode ? '#131b2e' : '#f8faff' }}>
+                      <Statistic
+                        title="🔮 Lượt Kinh Dịch (IChingNow)"
+                        value={stats?.totalIchingReadings ?? analyticsData?.appDistribution?.iching ?? 0}
+                        valueStyle={{ color: '#6366f1' }}
+                      />
+                    </Card>
+                  </Col>
+                  <Col xs={24} sm={8}>
+                    <Card size="small" style={{ borderLeft: '4px solid #f59e0b', background: isDarkMode ? '#1f1a14' : '#fffcf5' }}>
+                      <Statistic
+                        title="🃏 Lượt Bốc Tarot (TarotNow)"
+                        value={stats?.totalTarotReadings ?? analyticsData?.appDistribution?.tarot ?? 0}
+                        valueStyle={{ color: '#f59e0b' }}
+                      />
+                    </Card>
+                  </Col>
+                  <Col xs={24} sm={8}>
+                    <Card size="small" style={{ borderLeft: '4px solid #ec4899', background: isDarkMode ? '#22141f' : '#fdf5f9' }}>
+                      <Statistic
+                        title="🌟 Lượt Tử Vi (TuViNow)"
+                        value={stats?.totalTuviReadings ?? analyticsData?.appDistribution?.tuvi ?? 0}
+                        valueStyle={{ color: '#ec4899' }}
+                      />
+                    </Card>
                   </Col>
                 </Row>
 
@@ -701,9 +733,10 @@ export default function AdminPage({ user, onLogout }) {
                   columns={[
                     { title: 'Email', dataIndex: 'email' },
                     { title: 'Họ Tên', dataIndex: 'displayName' },
-                    { title: 'Lượt Kinh Dịch', dataIndex: 'ichingReadings' },
-                    { title: 'Lượt Tarot', dataIndex: 'tarotReadings' },
-                    { title: 'Tổng Hỏi AI', dataIndex: 'totalAiQuestions', render: n => <Tag color="purple">{n}</Tag> },
+                    { title: 'Lượt Kinh Dịch', dataIndex: 'ichingReadings', render: n => <span>{n || 0}</span> },
+                    { title: 'Lượt Tarot', dataIndex: 'tarotReadings', render: n => <span>{n || 0}</span> },
+                    { title: 'Lượt Tử Vi', dataIndex: 'tuviReadings', render: n => <Tag color="magenta">{n || 0}</Tag> },
+                    { title: 'Tổng Hỏi AI', dataIndex: 'totalAiQuestions', render: n => <Tag color="purple">{n || 0}</Tag> },
                   ]}
                 />
               </Card>
