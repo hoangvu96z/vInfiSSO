@@ -294,7 +294,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                 block
                 style={{ height: 38, borderColor: 'rgba(56,189,248,0.4)', color: '#38bdf8' }}
                 onClick={() => {
-                  window.location.href = 'https://vunph.id.vn/talkwithme/';
+                  window.location.href = 'https://vunph.id.vn/talk/';
                 }}
               >
                 💬 Đến TalkWithMe (Liên hệ)
@@ -433,7 +433,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
       <div style={{ textAlign: 'center', marginTop: 18, fontSize: '0.82rem', color: 'rgba(255,255,255,0.7)' }}>
         <span>© 2026 vunph.id.vn · </span>
         <a
-          href="https://vunph.id.vn/talkwithme/"
+          href="https://vunph.id.vn/talk/"
           target="_blank"
           rel="noopener noreferrer"
           style={{ color: '#38bdf8', textDecoration: 'none', fontWeight: 600 }}
