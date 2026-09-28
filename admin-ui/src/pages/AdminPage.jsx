@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Layout, Menu, Typography, Button, Card, Row, Col, Table, Tag,
   Switch, Modal, Form, Input, InputNumber, Select, message, Space,
-  Statistic, Avatar, ConfigProvider, theme, Badge, Image, Popconfirm
+  Statistic, Avatar, ConfigProvider, theme, Badge, Image, Popconfirm, Progress
 } from 'antd';
 import {
   BarChartOutlined, UserOutlined, AuditOutlined, RobotOutlined,
@@ -10,7 +10,7 @@ import {
   CopyOutlined, DeleteOutlined, EditOutlined, GiftOutlined, ReloadOutlined,
   CheckCircleOutlined, CloseCircleOutlined, PoweroffOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined, MessageOutlined, EyeOutlined,
-  PictureOutlined, CheckOutlined
+  PictureOutlined, CheckOutlined, GlobalOutlined, MobileOutlined, CompassOutlined
 } from '@ant-design/icons';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
@@ -98,6 +98,16 @@ export default function AdminPage({ user, onLogout }) {
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  // Traffic Analytics State
+  const [trafficStats, setTrafficStats] = useState(null);
+  const [trafficLogs, setTrafficLogs] = useState([]);
+  const [trafficTotal, setTrafficTotal] = useState(0);
+  const [trafficLoading, setTrafficLoading] = useState(false);
+  const [trafficDays, setTrafficDays] = useState(30);
+  const [trafficApp, setTrafficApp] = useState('all');
+  const [trafficSearch, setTrafficSearch] = useState('');
+  const [trafficPage, setTrafficPage] = useState(1);
 
   // Load Dashboard Stats & Charts
   const loadAnalytics = useCallback(async () => {
@@ -198,16 +208,36 @@ export default function AdminPage({ user, onLogout }) {
     setMessagesLoading(false);
   }, []);
 
+  // Load Traffic Analytics
+  const loadTraffic = useCallback(async () => {
+    setTrafficLoading(true);
+    const [resStats, resLogs] = await Promise.all([
+      authFetch(`/analytics/admin/stats?days=${trafficDays}&app=${trafficApp}`),
+      authFetch(`/analytics/admin/logs?page=${trafficPage}&limit=20&app=${trafficApp}&search=${encodeURIComponent(trafficSearch || '')}`),
+    ]);
+    if (resStats) {
+      const data = await resStats.json();
+      setTrafficStats(data);
+    }
+    if (resLogs) {
+      const data = await resLogs.json();
+      setTrafficLogs(data.logs || []);
+      setTrafficTotal(data.total || 0);
+    }
+    setTrafficLoading(false);
+  }, [trafficDays, trafficApp, trafficPage, trafficSearch]);
+
   // Route Initializer
   useEffect(() => {
     if (currentRoute === 'analytics') loadAnalytics();
+    if (currentRoute === 'traffic') loadTraffic();
     if (currentRoute === 'users') loadUsers();
     if (currentRoute === 'audit') loadAudit();
     if (currentRoute === 'ai') loadAiUsage();
     if (currentRoute === 'plans') loadPlans();
     if (currentRoute === 'coupons') loadCoupons();
     if (currentRoute === 'contact') loadContactMessages();
-  }, [currentRoute, loadAnalytics, loadUsers, loadAudit, loadAiUsage, loadPlans, loadCoupons, loadContactMessages]);
+  }, [currentRoute, loadAnalytics, loadTraffic, loadUsers, loadAudit, loadAiUsage, loadPlans, loadCoupons, loadContactMessages]);
 
   // Actions for Contact Messages
   const handleViewMessage = async (msgSummary) => {
@@ -440,6 +470,36 @@ export default function AdminPage({ user, onLogout }) {
     ],
   };
 
+  const trafficDailyData = {
+    labels: safeArr(trafficStats?.daily).map(d => d.date?.slice(5) || ''),
+    datasets: [
+      {
+        label: 'Tổng lượt truy cập',
+        data: safeArr(trafficStats?.daily).map(d => d.visits || 0),
+        backgroundColor: '#38bdf8',
+        borderColor: '#0284c7',
+        borderRadius: 4,
+      },
+      {
+        label: 'Khách duy nhất (IP)',
+        data: safeArr(trafficStats?.daily).map(d => d.uniqueVisitors || 0),
+        backgroundColor: '#10b981',
+        borderColor: '#059669',
+        borderRadius: 4,
+      },
+    ],
+  };
+
+  const trafficDeviceData = {
+    labels: safeArr(trafficStats?.devices).map(d => d.name),
+    datasets: [
+      {
+        data: safeArr(trafficStats?.devices).map(d => d.count),
+        backgroundColor: ['#38bdf8', '#818cf8', '#c084fc', '#f472b6', '#fb923c', '#fbbf24', '#34d399', '#94a3b8'],
+      },
+    ],
+  };
+
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
@@ -456,9 +516,11 @@ export default function AdminPage({ user, onLogout }) {
 
   const routeTitles = {
     analytics: '📊 Dashboard & Analytics',
+    traffic: '🌐 Thống Kê Truy Cập (Traffic Analytics)',
     users: '👥 Quản Lý User & Role',
     audit: '📋 Nhật Ký Traffic & IP',
     ai: '🤖 Leaderboard AI Usage',
+    contact: '💬 Hộp Thư TalkWithMe',
     plans: '💎 Gói Dịch Vụ & Hạn Mức',
     coupons: '🎟️ Quản Lý Mã Khuyến Mãi',
   };
@@ -502,6 +564,7 @@ export default function AdminPage({ user, onLogout }) {
             style={{ padding: '16px 8px', borderRight: 0 }}
             items={[
               { key: 'analytics', icon: <BarChartOutlined />, label: 'Dashboard & Charts' },
+              { key: 'traffic', icon: <GlobalOutlined />, label: 'Thống Kê Truy Cập' },
               { key: 'users', icon: <UserOutlined />, label: 'Quản Lý User & Role' },
               { key: 'audit', icon: <AuditOutlined />, label: 'Nhật Ký Traffic & IP' },
               { key: 'ai', icon: <RobotOutlined />, label: 'Leaderboard AI' },
@@ -920,6 +983,315 @@ export default function AdminPage({ user, onLogout }) {
                   ]}
                 />
               </Card>
+            )}
+
+            {/* ROUTE 8: THỐNG KÊ TRUY CẬP (TRAFFIC ANALYTICS) */}
+            {currentRoute === 'traffic' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                {/* FILTER CONTROLS BAR */}
+                <Card styles={{ body: { padding: '16px 20px' } }}>
+                  <Row justify="space-between" align="middle" gutter={[16, 16]}>
+                    <Col xs={24} lg={14}>
+                      <Space wrap align="center">
+                        <Text strong style={{ marginRight: 4 }}>Ứng dụng:</Text>
+                        <Select
+                          value={trafficApp}
+                          onChange={(v) => { setTrafficApp(v); setTrafficPage(1); }}
+                          style={{ width: 180 }}
+                        >
+                          <Option value="all">🌐 Tất cả ứng dụng</Option>
+                          <Option value="talkwithme">💬 TalkWithMe</Option>
+                          <Option value="tuvi">🔮 TuViNow</Option>
+                          <Option value="iching">☯️ IChingNow</Option>
+                          <Option value="tarot">🃏 TarotNow</Option>
+                        </Select>
+
+                        <Text strong style={{ marginLeft: 12, marginRight: 4 }}>Thời gian:</Text>
+                        <Select
+                          value={trafficDays}
+                          onChange={(v) => { setTrafficDays(v); setTrafficPage(1); }}
+                          style={{ width: 130 }}
+                        >
+                          <Option value={7}>7 ngày qua</Option>
+                          <Option value={14}>14 ngày qua</Option>
+                          <Option value={30}>30 ngày qua</Option>
+                        </Select>
+                      </Space>
+                    </Col>
+                    <Col xs={24} lg={10} style={{ textAlign: 'right' }}>
+                      <Button
+                        icon={<ReloadOutlined />}
+                        onClick={loadTraffic}
+                        loading={trafficLoading}
+                      >
+                        Làm mới dữ liệu
+                      </Button>
+                    </Col>
+                  </Row>
+                </Card>
+
+                {/* 4 SUMMARY STAT CARDS */}
+                <Row gutter={[16, 16]}>
+                  <Col xs={24} sm={12} lg={6}>
+                    <Card style={{ height: '100%' }}>
+                      <Statistic
+                        title="👥 Lượt truy cập hôm nay"
+                        value={trafficStats?.summary?.todayVisits || 0}
+                        valueStyle={{ color: '#38bdf8', fontWeight: 700 }}
+                        suffix={
+                          <span style={{ fontSize: '0.85rem', fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>
+                            ({trafficStats?.summary?.todayUniqueVisitors || 0} khách IP)
+                          </span>
+                        }
+                      />
+                      <div style={{ marginTop: 8, fontSize: '0.8125rem', opacity: 0.7 }}>
+                        Hôm qua: {trafficStats?.summary?.yesterdayVisits || 0} lượt ({trafficStats?.summary?.yesterdayUniqueVisitors || 0} khách)
+                      </div>
+                    </Card>
+                  </Col>
+                  <Col xs={24} sm={12} lg={6}>
+                    <Card style={{ height: '100%' }}>
+                      <Statistic
+                        title={`📈 Tổng ${trafficDays} ngày qua`}
+                        value={trafficStats?.summary?.totalVisits || 0}
+                        valueStyle={{ color: '#10b981', fontWeight: 700 }}
+                        suffix={
+                          <span style={{ fontSize: '0.85rem', fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>
+                            ({trafficStats?.summary?.totalUniqueVisitors || 0} khách IP)
+                          </span>
+                        }
+                      />
+                      <div style={{ marginTop: 8, fontSize: '0.8125rem', opacity: 0.7 }}>
+                        Trung bình: {trafficDays > 0 ? Math.round((trafficStats?.summary?.totalVisits || 0) / trafficDays) : 0} lượt/ngày
+                      </div>
+                    </Card>
+                  </Col>
+                  <Col xs={24} sm={12} lg={6}>
+                    <Card style={{ height: '100%' }}>
+                      <Statistic
+                        title="📱 Thiết bị phổ biến nhất"
+                        value={trafficStats?.devices?.[0]?.name || 'Chưa có'}
+                        valueStyle={{ fontSize: '1.25rem', fontWeight: 600, color: '#f59e0b' }}
+                      />
+                      <div style={{ marginTop: 8, fontSize: '0.8125rem', opacity: 0.7 }}>
+                        {trafficStats?.devices?.[0] ? `${trafficStats.devices[0].count} lượt (${trafficStats.devices[0].percentage}%)` : 'Đang cập nhật'}
+                      </div>
+                    </Card>
+                  </Col>
+                  <Col xs={24} sm={12} lg={6}>
+                    <Card style={{ height: '100%' }}>
+                      <Statistic
+                        title="📍 Khu vực nhiều nhất"
+                        value={trafficStats?.locations?.[0]?.name || 'Chưa có'}
+                        valueStyle={{ fontSize: '1.25rem', fontWeight: 600, color: '#ec4899' }}
+                      />
+                      <div style={{ marginTop: 8, fontSize: '0.8125rem', opacity: 0.7 }}>
+                        {trafficStats?.locations?.[0] ? `${trafficStats.locations[0].count} lượt (${trafficStats.locations[0].percentage}%)` : 'Đang cập nhật'}
+                      </div>
+                    </Card>
+                  </Col>
+                </Row>
+
+                {/* CHARTS ROW */}
+                <Row gutter={[16, 16]}>
+                  <Col xs={24} lg={16}>
+                    <Card title="📊 Lượt truy cập theo từng ngày" style={{ height: '100%' }}>
+                      <div style={{ height: 290 }}>
+                        {trafficStats?.daily?.length > 0 ? (
+                          <Bar
+                            data={trafficDailyData}
+                            options={{
+                              ...chartOptions,
+                              plugins: {
+                                legend: { position: 'top', labels: { color: isDarkMode ? '#94a3b8' : '#475569' } },
+                              },
+                            }}
+                          />
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', opacity: 0.5 }}>
+                            Chưa có dữ liệu truy cập trong khoảng thời gian này
+                          </div>
+                        )}
+                      </div>
+                    </Card>
+                  </Col>
+                  <Col xs={24} lg={8}>
+                    <Card title="📱 Cơ cấu Thiết bị" style={{ height: '100%' }}>
+                      <div style={{ height: 290, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {trafficStats?.devices?.length > 0 ? (
+                          <Doughnut
+                            data={trafficDeviceData}
+                            options={{
+                              responsive: true,
+                              maintainAspectRatio: false,
+                              plugins: { legend: { position: 'bottom', labels: { color: isDarkMode ? '#94a3b8' : '#475569', boxWidth: 12 } } },
+                            }}
+                          />
+                        ) : (
+                          <span style={{ opacity: 0.5 }}>Chưa có dữ liệu</span>
+                        )}
+                      </div>
+                    </Card>
+                  </Col>
+                </Row>
+
+                {/* BREAKDOWN LISTS: BROWSERS, LOCATIONS, REFERRERS */}
+                <Row gutter={[16, 16]}>
+                  <Col xs={24} md={8}>
+                    <Card title="🌐 Top Trình Duyệt">
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        {safeArr(trafficStats?.browsers).length > 0 ? (
+                          trafficStats.browsers.map((b) => (
+                            <div key={b.name}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: 4 }}>
+                                <Text strong>{b.name}</Text>
+                                <Text type="secondary">{b.count} ({b.percentage}%)</Text>
+                              </div>
+                              <Progress percent={b.percentage} showInfo={false} strokeColor="#38bdf8" size="small" />
+                            </div>
+                          ))
+                        ) : (
+                          <Text type="secondary">Chưa có dữ liệu</Text>
+                        )}
+                      </div>
+                    </Card>
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Card title="📍 Top Địa Điểm (Tỉnh / Thành)">
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        {safeArr(trafficStats?.locations).length > 0 ? (
+                          trafficStats.locations.map((loc) => (
+                            <div key={loc.name}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: 4 }}>
+                                <Text strong>{loc.name}</Text>
+                                <Text type="secondary">{loc.count} ({loc.percentage}%)</Text>
+                              </div>
+                              <Progress percent={loc.percentage} showInfo={false} strokeColor="#ec4899" size="small" />
+                            </div>
+                          ))
+                        ) : (
+                          <Text type="secondary">Chưa có dữ liệu</Text>
+                        )}
+                      </div>
+                    </Card>
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Card title="🔗 Nguồn Đến (Referrer)">
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        {safeArr(trafficStats?.referrers).length > 0 ? (
+                          trafficStats.referrers.map((r) => (
+                            <div key={r.name}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: 4 }}>
+                                <Text strong>{r.name}</Text>
+                                <Text type="secondary">{r.count} ({r.percentage}%)</Text>
+                              </div>
+                              <Progress percent={r.percentage} showInfo={false} strokeColor="#10b981" size="small" />
+                            </div>
+                          ))
+                        ) : (
+                          <Text type="secondary">Chưa có dữ liệu</Text>
+                        )}
+                      </div>
+                    </Card>
+                  </Col>
+                </Row>
+
+                {/* DETAILED LOGS TABLE */}
+                <Card
+                  title="📋 Chi Tiết Lượt Truy Cập (IP, Thiết Bị & Vị Trí)"
+                  extra={
+                    <Input.Search
+                      placeholder="Tìm IP, vị trí, thiết bị, browser..."
+                      allowClear
+                      onSearch={(val) => { setTrafficSearch(val); setTrafficPage(1); }}
+                      style={{ width: 280 }}
+                    />
+                  }
+                >
+                  <Table
+                    dataSource={trafficLogs}
+                    loading={trafficLoading}
+                    rowKey="id"
+                    scroll={{ x: 950 }}
+                    pagination={{
+                      current: trafficPage,
+                      pageSize: 20,
+                      total: trafficTotal,
+                      showTotal: (total) => `Tổng ${total} lượt`,
+                      onChange: (p) => setTrafficPage(p),
+                    }}
+                    columns={[
+                      {
+                        title: 'Thời gian',
+                        dataIndex: 'createdAt',
+                        width: 140,
+                        render: (d) => new Date(d).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'medium' }),
+                      },
+                      {
+                        title: 'App',
+                        dataIndex: 'app',
+                        width: 110,
+                        render: (a) => {
+                          const appStr = (a || '').toLowerCase();
+                          if (appStr === 'talkwithme') return <Tag color="cyan">💬 TalkWithMe</Tag>;
+                          if (appStr === 'tuvi') return <Tag color="purple">🔮 TuViNow</Tag>;
+                          if (appStr === 'iching') return <Tag color="gold">☯️ IChing</Tag>;
+                          if (appStr === 'tarot') return <Tag color="magenta">🃏 Tarot</Tag>;
+                          return <Tag>{a}</Tag>;
+                        },
+                      },
+                      {
+                        title: 'Địa chỉ IP',
+                        dataIndex: 'ipAddress',
+                        width: 130,
+                        render: (ip) => <Tag style={{ fontFamily: 'monospace' }}>{ip || '127.0.0.1'}</Tag>,
+                      },
+                      {
+                        title: 'Vị trí & Nhà mạng',
+                        render: (_, r) => (
+                          <div>
+                            <div style={{ fontWeight: 500 }}>
+                              {r.location ? `📍 ${r.location}` : <span style={{ opacity: 0.6 }}>Chưa xác định</span>}
+                            </div>
+                            {r.isp && <div style={{ fontSize: '0.78rem', opacity: 0.65 }}>🏢 {r.isp}</div>}
+                          </div>
+                        ),
+                      },
+                      {
+                        title: 'Thiết bị & Màn hình',
+                        render: (_, r) => (
+                          <div>
+                            <div style={{ fontWeight: 500 }}>📱 {r.device || 'Desktop'}</div>
+                            {r.screen && <div style={{ fontSize: '0.78rem', opacity: 0.65 }}>🖥️ {r.screen}</div>}
+                          </div>
+                        ),
+                      },
+                      {
+                        title: 'Trình duyệt & OS',
+                        render: (_, r) => (
+                          <div>
+                            <Tag color="geekblue">{r.browser || 'Browser'}</Tag>
+                            <span style={{ fontSize: '0.8rem', opacity: 0.75, marginLeft: 4 }}>{r.os || ''}</span>
+                          </div>
+                        ),
+                      },
+                      {
+                        title: 'Đường dẫn & Nguồn',
+                        render: (_, r) => (
+                          <div style={{ fontSize: '0.82rem' }}>
+                            <div><code>{r.path || '/'}</code></div>
+                            {r.referrer && (
+                              <div style={{ opacity: 0.65, fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>
+                                Từ: {r.referrer}
+                              </div>
+                            )}
+                          </div>
+                        ),
+                      },
+                    ]}
+                  />
+                </Card>
+              </div>
             )}
           </Content>
         </Layout>
