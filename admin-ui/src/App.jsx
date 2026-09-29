@@ -10,6 +10,7 @@ export default function App() {
   const [pathname, setPathname] = useState(window.location.pathname);
 
   useEffect(() => {
+    document.title = 'vInfi SSO';
     const handlePopState = () => setPathname(window.location.pathname);
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
