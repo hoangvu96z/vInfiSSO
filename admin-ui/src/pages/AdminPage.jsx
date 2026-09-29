@@ -19,6 +19,7 @@ import {
 } from 'chart.js';
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
 import ModernDataTable from '../components/ModernDataTable';
+import { DEFAULT_TIMEZONE, TIMEZONE_OPTIONS, formatTimeWithZone, getTimezoneLabel } from '../utils/dateUtils';
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement,
@@ -49,6 +50,15 @@ export default function AdminPage({ user, onLogout }) {
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false));
   const [collapsed, setCollapsed] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 992 : false));
+  const [timezone, setTimezone] = useState(() => {
+    return localStorage.getItem('admin_timezone') || DEFAULT_TIMEZONE;
+  });
+
+  const handleTimezoneChange = (tz) => {
+    setTimezone(tz);
+    localStorage.setItem('admin_timezone', tz);
+    message.success(`Đã đổi múi giờ sang ${getTimezoneLabel(tz)}`);
+  };
 
   // Sync hash routing & window resize
   useEffect(() => {
@@ -784,7 +794,7 @@ export default function AdminPage({ user, onLogout }) {
       selector: (r) => new Date(r.createdAt).getTime(),
       sortable: true,
       minWidth: '160px',
-      cell: (r) => new Date(r.createdAt).toLocaleString('vi-VN'),
+      cell: (r) => formatTimeWithZone(r.createdAt, timezone),
     },
     {
       name: 'Hành Động',
@@ -821,7 +831,7 @@ export default function AdminPage({ user, onLogout }) {
       width: '120px',
       cell: (r) => r.app || '-',
     },
-  ], []);
+  ], [timezone]);
 
   // AI Leaderboard Columns
   const aiColumns = useMemo(() => [
@@ -1026,7 +1036,7 @@ export default function AdminPage({ user, onLogout }) {
       selector: (r) => new Date(r.createdAt).getTime(),
       sortable: true,
       width: '150px',
-      cell: (r) => new Date(r.createdAt).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' }),
+      cell: (r) => formatTimeWithZone(r.createdAt, timezone, 'short'),
     },
     {
       name: 'Thao tác',
@@ -1042,7 +1052,7 @@ export default function AdminPage({ user, onLogout }) {
         </Space>
       ),
     },
-  ], []);
+  ], [timezone]);
 
   const contactContextActions = useMemo(() => {
     const ids = selectedContactRows.map((r) => r.id);
@@ -1077,7 +1087,7 @@ export default function AdminPage({ user, onLogout }) {
       selector: (r) => new Date(r.createdAt).getTime(),
       sortable: true,
       width: '150px',
-      cell: (r) => new Date(r.createdAt).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'medium' }),
+      cell: (r) => formatTimeWithZone(r.createdAt, timezone, 'full'),
     },
     {
       name: 'App',
@@ -1168,7 +1178,7 @@ export default function AdminPage({ user, onLogout }) {
         </Popconfirm>
       ),
     },
-  ], []);
+  ], [timezone]);
 
   const trafficContextActions = useMemo(() => {
     const ids = selectedTrafficRows.map((r) => r.id);
@@ -1195,10 +1205,7 @@ export default function AdminPage({ user, onLogout }) {
     else if (appStr === 'iching') appBadge = <Tag color="gold">☯️ IChing</Tag>;
     else if (appStr === 'tarot') appBadge = <Tag color="magenta">🃏 Tarot</Tag>;
 
-    const formattedDate = new Date(r.createdAt).toLocaleString('vi-VN', {
-      dateStyle: 'short',
-      timeStyle: 'medium',
-    });
+    const formattedDate = formatTimeWithZone(r.createdAt, timezone, 'full');
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1276,7 +1283,7 @@ export default function AdminPage({ user, onLogout }) {
         </div>
       </div>
     );
-  }, [isDarkMode]);
+  }, [isDarkMode, timezone]);
 
   const routeTitles = {
     analytics: '📊 Dashboard & Analytics',
@@ -1379,7 +1386,25 @@ export default function AdminPage({ user, onLogout }) {
               </Title>
             </Space>
 
-            <Space size={isMobile ? 'small' : 'large'} align="center">
+            <Space size={isMobile ? 'small' : 'middle'} align="center">
+              {/* TIMEZONE SELECTOR */}
+              <Select
+                value={timezone}
+                onChange={handleTimezoneChange}
+                style={{ width: isMobile ? 120 : 190 }}
+                size={isMobile ? 'small' : 'middle'}
+                popupMatchSelectWidth={false}
+                title="Múi giờ hiển thị dữ liệu (mặc định GMT+7)"
+                options={TIMEZONE_OPTIONS.map((tz) => ({
+                  value: tz.value,
+                  label: (
+                    <span style={{ fontSize: isMobile ? '0.78rem' : '0.84rem' }}>
+                      {isMobile ? tz.shortLabel : tz.label}
+                    </span>
+                  ),
+                }))}
+              />
+
               <Button
                 shape={isMobile ? 'circle' : 'round'}
                 icon={isDarkMode ? <SunOutlined /> : <MoonOutlined />}
@@ -1954,6 +1979,9 @@ export default function AdminPage({ user, onLogout }) {
                     <Space align="center" wrap>
                       <span>📋 Chi Tiết Lượt Truy Cập</span>
                       <Tag color="cyan">Tổng {trafficTotal} lượt</Tag>
+                      <Tag color="geekblue" style={{ fontSize: '0.75rem' }}>
+                        🌐 {getTimezoneLabel(timezone)}
+                      </Tag>
                     </Space>
                   }
                   extra={
@@ -2132,7 +2160,7 @@ export default function AdminPage({ user, onLogout }) {
                   </Col>
                   <Col span={12}>
                     <Text type="secondary" style={{ fontSize: '0.8rem' }}>Thời gian:</Text>
-                    <div>{new Date(selectedMessage.createdAt).toLocaleString('vi-VN')}</div>
+                    <div>{formatTimeWithZone(selectedMessage.createdAt, timezone)}</div>
                   </Col>
                   <Col span={12}>
                     <Text type="secondary" style={{ fontSize: '0.8rem' }}>IP / Session:</Text>
