@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { ContactMessage, AttachedImage } from './contact-message.entity';
 import { MailService } from '../mail/mail.service';
 import { ConfigService } from '@nestjs/config';
@@ -42,19 +42,22 @@ export class ContactService {
       os,
     };
 
-    // Normalize images (up to 3 images max)
+    // Normalize images (up to 3 images max) and strip data URI prefixes
     let images: AttachedImage[] | null = null;
     let primaryImageData: string | null = null;
     let primaryImageMime: string | null = null;
 
     if (dto.images && Array.isArray(dto.images) && dto.images.length > 0) {
-      images = dto.images.slice(0, 3);
+      images = dto.images.slice(0, 3).map((img) => ({
+        ...img,
+        data: (img.data || '').replace(/^data:image\/[a-zA-Z+]+;base64,/, ''),
+      }));
       primaryImageData = images[0]?.data || null;
       primaryImageMime = images[0]?.mime || null;
     } else if (dto.imageData) {
-      primaryImageData = dto.imageData;
+      primaryImageData = dto.imageData.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
       primaryImageMime = dto.imageMime || 'image/jpeg';
-      images = [{ data: dto.imageData, mime: primaryImageMime }];
+      images = [{ data: primaryImageData, mime: primaryImageMime }];
     }
 
     const msg = this.messageRepo.create({
@@ -123,6 +126,14 @@ export class ContactService {
   }
 
   /**
+   * Mark multiple messages as read.
+   */
+  async markMessagesAsRead(ids: string[]): Promise<void> {
+    if (!ids || ids.length === 0) return;
+    await this.messageRepo.update({ id: In(ids) }, { isRead: true });
+  }
+
+  /**
    * Mark all messages as read.
    */
   async markAllAsRead(): Promise<void> {
@@ -134,6 +145,14 @@ export class ContactService {
    */
   async deleteMessage(id: string): Promise<void> {
     await this.messageRepo.delete(id);
+  }
+
+  /**
+   * Delete multiple messages.
+   */
+  async deleteMessages(ids: string[]): Promise<void> {
+    if (!ids || ids.length === 0) return;
+    await this.messageRepo.delete({ id: In(ids) });
   }
 
   /**

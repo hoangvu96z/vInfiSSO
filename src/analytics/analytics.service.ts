@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, MoreThanOrEqual } from 'typeorm';
+import { Repository, Between, MoreThanOrEqual, In } from 'typeorm';
 import type { Request } from 'express';
 import { PageVisit } from './page-visit.entity';
 import { RecordVisitDto } from './dto/record-visit.dto';
@@ -299,5 +299,13 @@ export class AnalyticsService {
       limit: safeLimit,
       totalPages: Math.ceil(total / safeLimit),
     };
+  }
+
+  /**
+   * Delete multiple traffic visit logs
+   */
+  async deleteTrafficLogs(ids: string[]): Promise<void> {
+    if (!ids || ids.length === 0) return;
+    await this.visitRepo.delete({ id: In(ids) });
   }
 }

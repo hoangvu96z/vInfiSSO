@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Layout, Menu, Typography, Button, Card, Row, Col, Table, Tag,
   Switch, Modal, Form, Input, InputNumber, Select, message, Space,
@@ -10,13 +10,15 @@ import {
   CopyOutlined, DeleteOutlined, EditOutlined, GiftOutlined, ReloadOutlined,
   CheckCircleOutlined, CloseCircleOutlined, PoweroffOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined, MessageOutlined, EyeOutlined,
-  PictureOutlined, CheckOutlined, GlobalOutlined, MobileOutlined, CompassOutlined
+  PictureOutlined, CheckOutlined, GlobalOutlined, MobileOutlined, CompassOutlined,
+  FilterOutlined
 } from '@ant-design/icons';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
   BarElement, ArcElement, Title as ChartTitle, Tooltip as ChartTooltip, Legend, Filler
 } from 'chart.js';
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
+import ModernDataTable from '../components/ModernDataTable';
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement,
@@ -108,6 +110,24 @@ export default function AdminPage({ user, onLogout }) {
   const [trafficApp, setTrafficApp] = useState('all');
   const [trafficSearch, setTrafficSearch] = useState('');
   const [trafficPage, setTrafficPage] = useState(1);
+
+  // Modern DataTable Selection & Search States
+  const [selectedUserRows, setSelectedUserRows] = useState([]);
+  const [clearUserSelected, setClearUserSelected] = useState(false);
+
+  const [selectedCouponRows, setSelectedCouponRows] = useState([]);
+  const [clearCouponSelected, setClearCouponSelected] = useState(false);
+  const [couponSearch, setCouponSearch] = useState('');
+
+  const [selectedContactRows, setSelectedContactRows] = useState([]);
+  const [clearContactSelected, setClearContactSelected] = useState(false);
+  const [contactFilterStatus, setContactFilterStatus] = useState('all');
+  const [contactSearchText, setContactSearchText] = useState('');
+
+  const [selectedTrafficRows, setSelectedTrafficRows] = useState([]);
+  const [clearTrafficSelected, setClearTrafficSelected] = useState(false);
+
+  const [aiSearch, setAiSearch] = useState('');
 
   // Load Dashboard Stats & Charts
   const loadAnalytics = useCallback(async () => {
@@ -275,6 +295,104 @@ export default function AdminPage({ user, onLogout }) {
         setDetailModalOpen(false);
         setSelectedMessage(null);
       }
+    }
+  };
+
+  // Batch delete / mark read for Contact Messages
+  const handleBatchDeleteMessages = async (ids) => {
+    if (!ids || ids.length === 0) return;
+    const res = await authFetch('/contact/admin/messages/batch-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    if (res && res.ok) {
+      const data = await res.json();
+      message.success(`Đã xóa ${data.count || ids.length} tin nhắn đã chọn! 🗑️`);
+      setMessages(prev => prev.filter(m => !ids.includes(m.id)));
+      setClearContactSelected(prev => !prev);
+      setSelectedContactRows([]);
+      if (selectedMessage && ids.includes(selectedMessage.id)) {
+        setDetailModalOpen(false);
+        setSelectedMessage(null);
+      }
+      loadAnalytics();
+    } else {
+      message.error('Lỗi khi xóa tin nhắn hàng loạt');
+    }
+  };
+
+  const handleBatchMarkReadMessages = async (ids) => {
+    if (!ids || ids.length === 0) return;
+    const res = await authFetch('/contact/admin/messages/batch-read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    if (res && res.ok) {
+      const data = await res.json();
+      message.success(`Đã đánh dấu ${data.count || ids.length} tin nhắn đã đọc! ✅`);
+      setMessages(prev => prev.map(m => ids.includes(m.id) ? { ...m, isRead: true } : m));
+      setClearContactSelected(prev => !prev);
+      setSelectedContactRows([]);
+      loadAnalytics();
+    } else {
+      message.error('Lỗi khi đánh dấu đã đọc');
+    }
+  };
+
+  // Batch revoke sessions for Users
+  const handleBatchRevokeSessions = async (userIds) => {
+    if (!userIds || userIds.length === 0) return;
+    const res = await authFetch('/admin/users/batch-revoke-sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userIds }),
+    });
+    if (res && res.ok) {
+      const data = await res.json();
+      message.info(data.message || `Đã hủy phiên của ${userIds.length} người dùng! ⚡`);
+      setClearUserSelected(prev => !prev);
+      setSelectedUserRows([]);
+      loadUsers();
+    } else {
+      message.error('Lỗi khi hủy phiên hàng loạt');
+    }
+  };
+
+  // Batch delete coupons
+  const handleBatchDeleteCoupons = async (ids) => {
+    if (!ids || ids.length === 0) return;
+    const res = await authFetch('/admin/coupons/batch-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    if (res && res.ok) {
+      message.info(`Đã xóa ${ids.length} mã khuyến mãi đã chọn! 🗑️`);
+      setClearCouponSelected(prev => !prev);
+      setSelectedCouponRows([]);
+      loadCoupons();
+    } else {
+      message.error('Lỗi khi xóa mã khuyến mãi hàng loạt');
+    }
+  };
+
+  // Batch delete traffic logs
+  const handleBatchDeleteTrafficLogs = async (ids) => {
+    if (!ids || ids.length === 0) return;
+    const res = await authFetch('/analytics/admin/logs/batch-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    if (res && res.ok) {
+      message.info(`Đã xóa ${ids.length} bản ghi truy cập! 🗑️`);
+      setClearTrafficSelected(prev => !prev);
+      setSelectedTrafficRows([]);
+      loadTraffic();
+    } else {
+      message.error('Lỗi khi xóa bản ghi truy cập');
     }
   };
 
@@ -514,6 +632,550 @@ export default function AdminPage({ user, onLogout }) {
     },
   };
 
+  // ────────────────────────────────────────────────────────────────
+  // Modern DataTable Filter Memos & Column Configurations
+  // ────────────────────────────────────────────────────────────────
+
+  const filteredMessages = useMemo(() => {
+    return safeArr(messages).filter((m) => {
+      if (contactFilterStatus === 'unread' && m.isRead) return false;
+      if (contactFilterStatus === 'read' && !m.isRead) return false;
+      if (contactSearchText) {
+        const q = contactSearchText.toLowerCase();
+        const match =
+          (m.name && m.name.toLowerCase().includes(q)) ||
+          (m.email && m.email.toLowerCase().includes(q)) ||
+          (m.title && m.title.toLowerCase().includes(q)) ||
+          (m.message && m.message.toLowerCase().includes(q)) ||
+          (m.device && m.device.toLowerCase().includes(q)) ||
+          (m.location && m.location.toLowerCase().includes(q));
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [messages, contactFilterStatus, contactSearchText]);
+
+  const filteredCoupons = useMemo(() => {
+    if (!couponSearch) return safeArr(coupons);
+    const q = couponSearch.toLowerCase();
+    return safeArr(coupons).filter((c) =>
+      (c.code && c.code.toLowerCase().includes(q)) ||
+      (c.description && c.description.toLowerCase().includes(q)) ||
+      (c.planName && c.planName.toLowerCase().includes(q))
+    );
+  }, [coupons, couponSearch]);
+
+  const filteredAiUsage = useMemo(() => {
+    if (!aiSearch) return safeArr(aiUsage);
+    const q = aiSearch.toLowerCase();
+    return safeArr(aiUsage).filter((u) =>
+      (u.email && u.email.toLowerCase().includes(q)) ||
+      (u.displayName && u.displayName.toLowerCase().includes(q))
+    );
+  }, [aiUsage, aiSearch]);
+
+  // Users Columns & Context Actions
+  const userColumns = useMemo(() => [
+    {
+      name: 'User Info',
+      selector: (r) => (r.fullName || r.displayName || r.email || '').toLowerCase(),
+      sortable: true,
+      minWidth: '220px',
+      grow: 2,
+      cell: (r) => (
+        <div style={{ padding: '6px 0' }}>
+          <strong>{r.fullName || r.displayName || 'User'}</strong>
+          <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>{r.email}</div>
+        </div>
+      ),
+    },
+    {
+      name: 'Role',
+      selector: (r) => r.role || '',
+      sortable: true,
+      width: '100px',
+      cell: (r) => <Tag color={r.role === 'admin' ? 'purple' : 'default'}>{r.role}</Tag>,
+    },
+    {
+      name: 'Gói Dịch Vụ',
+      selector: (r) => r.planName || 'free',
+      sortable: true,
+      width: '130px',
+      cell: (r) => (
+        <Tag color={r.planName === 'premium' ? 'gold' : r.planName === 'lite' ? 'blue' : 'default'}>
+          {r.planName || 'free'}
+        </Tag>
+      ),
+    },
+    {
+      name: 'Email Verified',
+      selector: (r) => ((r.isVerified ?? r.isEmailVerified) ? 1 : 0),
+      sortable: true,
+      width: '160px',
+      cell: (r) => (r.isVerified ?? r.isEmailVerified) ? (
+        <Tag icon={<CheckCircleOutlined />} color="success">Đã xác thực</Tag>
+      ) : (
+        <Tag icon={<CloseCircleOutlined />} color="error">Chưa xác thực</Tag>
+      ),
+    },
+    {
+      name: 'Lượt AI',
+      selector: (r) => Number(r.aiQuestionsCount) || 0,
+      sortable: true,
+      width: '110px',
+      cell: (r) => <strong>{r.aiQuestionsCount || 0}</strong>,
+    },
+    {
+      name: 'Thao Tác',
+      minWidth: '280px',
+      cell: (r) => (
+        <Space wrap>
+          <Button size="small" onClick={() => handleUpdateRole(r.id, r.role === 'admin' ? 'user' : 'admin')}>
+            Role: {r.role === 'admin' ? 'User' : 'Admin'}
+          </Button>
+          <Button size="small" type="primary" icon={<GiftOutlined />} onClick={() => setGrantModalUser(r)}>
+            Tặng Gói
+          </Button>
+          <Popconfirm
+            title="Hủy tất cả phiên của người dùng này?"
+            onConfirm={() => handleRevokeSessions(r.id)}
+            okText="Hủy phiên"
+            cancelText="Đóng"
+          >
+            <Button size="small" danger>Hủy Session</Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ], []);
+
+  const userContextActions = useMemo(() => {
+    const userIds = selectedUserRows.map((r) => r.id);
+    const count = userIds.length;
+    return (
+      <Popconfirm
+        title={`Hủy tất cả phiên đăng nhập của ${count} người dùng đã chọn?`}
+        onConfirm={() => handleBatchRevokeSessions(userIds)}
+        okText="Hủy phiên"
+        cancelText="Đóng"
+      >
+        <Button danger icon={<PoweroffOutlined />} size="small">
+          Hủy phiên ({count} đã chọn)
+        </Button>
+      </Popconfirm>
+    );
+  }, [selectedUserRows]);
+
+  // Audit Logs Columns
+  const auditColumns = useMemo(() => [
+    {
+      name: 'Thời Gian',
+      selector: (r) => new Date(r.createdAt).getTime(),
+      sortable: true,
+      minWidth: '160px',
+      cell: (r) => new Date(r.createdAt).toLocaleString('vi-VN'),
+    },
+    {
+      name: 'Hành Động',
+      selector: (r) => r.action || '',
+      sortable: true,
+      minWidth: '140px',
+      cell: (r) => <Tag color="indigo">{r.action}</Tag>,
+    },
+    {
+      name: 'Email',
+      selector: (r) => (r.user?.email || r.userEmail || 'Khách').toLowerCase(),
+      sortable: true,
+      minWidth: '180px',
+      cell: (r) => r.user?.email || r.userEmail || 'Khách',
+    },
+    {
+      name: 'Địa Chỉ IP',
+      selector: (r) => r.ipAddress || '',
+      sortable: true,
+      width: '140px',
+      cell: (r) => <Tag style={{ fontFamily: 'monospace' }}>{r.ipAddress || '127.0.0.1'}</Tag>,
+    },
+    {
+      name: 'Vị Trí Geo',
+      selector: (r) => (r.metadata?.city || r.location || 'Hồ Chí Minh, VN').toLowerCase(),
+      sortable: true,
+      minWidth: '160px',
+      cell: (r) => r.metadata?.city || r.location || 'Hồ Chí Minh, VN',
+    },
+    {
+      name: 'Ứng Dụng',
+      selector: (r) => r.app || '',
+      sortable: true,
+      width: '120px',
+      cell: (r) => r.app || '-',
+    },
+  ], []);
+
+  // AI Leaderboard Columns
+  const aiColumns = useMemo(() => [
+    {
+      name: 'Email',
+      selector: (r) => (r.email || '').toLowerCase(),
+      sortable: true,
+      minWidth: '180px',
+      cell: (r) => <strong>{r.email}</strong>,
+    },
+    {
+      name: 'Họ Tên',
+      selector: (r) => (r.displayName || '').toLowerCase(),
+      sortable: true,
+      minWidth: '150px',
+      cell: (r) => r.displayName || '-',
+    },
+    {
+      name: 'Lượt Kinh Dịch',
+      selector: (r) => Number(r.ichingReadings) || 0,
+      sortable: true,
+      width: '150px',
+      cell: (r) => <span>{r.ichingReadings || 0}</span>,
+    },
+    {
+      name: 'Lượt Tarot',
+      selector: (r) => Number(r.tarotReadings) || 0,
+      sortable: true,
+      width: '130px',
+      cell: (r) => <span>{r.tarotReadings || 0}</span>,
+    },
+    {
+      name: 'Lượt Tử Vi',
+      selector: (r) => Number(r.tuviReadings) || 0,
+      sortable: true,
+      width: '130px',
+      cell: (r) => <Tag color="magenta">{r.tuviReadings || 0}</Tag>,
+    },
+    {
+      name: 'Tổng Hỏi AI',
+      selector: (r) => Number(r.totalAiQuestions) || 0,
+      sortable: true,
+      width: '140px',
+      cell: (r) => <Tag color="purple" style={{ fontWeight: 700 }}>{r.totalAiQuestions || 0}</Tag>,
+    },
+  ], []);
+
+  // Coupon Columns & Context Actions
+  const couponColumns = useMemo(() => [
+    {
+      name: 'Mã Code',
+      selector: (r) => r.code,
+      sortable: true,
+      minWidth: '150px',
+      cell: (r) => <Tag color="blue" style={{ fontSize: '0.9rem', fontWeight: 700 }}>{r.code}</Tag>,
+    },
+    {
+      name: 'Mô Tả',
+      selector: (r) => r.description || '',
+      sortable: true,
+      minWidth: '180px',
+      cell: (r) => r.description || '-',
+    },
+    {
+      name: 'Loại',
+      selector: (r) => r.type || '',
+      sortable: true,
+      width: '130px',
+      cell: (r) => r.type === 'grant_plan' ? '🎁 Tặng Gói' : '📅 Tặng Ngày',
+    },
+    {
+      name: 'Gói/Ngày',
+      selector: (r) => r.planName || `${r.durationDays || 0}`,
+      sortable: true,
+      width: '120px',
+      cell: (r) => r.planName ? <Tag color="gold">{r.planName}</Tag> : `${r.durationDays}d`,
+    },
+    {
+      name: 'Đã Dùng',
+      selector: (r) => Number(r.usedCount) || 0,
+      sortable: true,
+      width: '120px',
+      cell: (r) => `${r.usedCount} / ${r.maxUses === -1 ? '∞' : r.maxUses}`,
+    },
+    {
+      name: 'Trạng Thái',
+      selector: (r) => (r.isActive ? 1 : 0),
+      sortable: true,
+      width: '120px',
+      cell: (r) => <Switch checked={r.isActive} onChange={(c) => handleToggleCoupon(r.id, c)} />,
+    },
+    {
+      name: 'Thao Tác',
+      width: '160px',
+      cell: (r) => (
+        <Space>
+          <Button size="small" icon={<CopyOutlined />} onClick={() => { navigator.clipboard.writeText(r.code); message.info(`Đã copy mã ${r.code}! 📋`); }}>Copy</Button>
+          <Popconfirm
+            title="Xóa mã khuyến mãi này?"
+            onConfirm={() => handleDeleteCoupon(r.id)}
+            okText="Xóa"
+            cancelText="Hủy"
+          >
+            <Button size="small" danger icon={<DeleteOutlined />}>Xóa</Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ], []);
+
+  const couponContextActions = useMemo(() => {
+    const ids = selectedCouponRows.map((r) => r.id);
+    const count = ids.length;
+    return (
+      <Popconfirm
+        title={`Xóa vĩnh viễn ${count} mã khuyến mãi đã chọn?`}
+        onConfirm={() => handleBatchDeleteCoupons(ids)}
+        okText="Xóa"
+        cancelText="Hủy"
+      >
+        <Button danger icon={<DeleteOutlined />} size="small">
+          Xóa {count} mã đã chọn
+        </Button>
+      </Popconfirm>
+    );
+  }, [selectedCouponRows]);
+
+  // Contact Messages Columns & Context Actions
+  const contactColumns = useMemo(() => [
+    {
+      name: 'Trạng thái',
+      selector: (r) => (r.isRead ? 1 : 0),
+      sortable: true,
+      width: '120px',
+      cell: (r) => r.isRead ? (
+        <Tag color="default">Đã đọc</Tag>
+      ) : (
+        <Tag color="cyan" style={{ fontWeight: 600 }}>MỚI</Tag>
+      ),
+    },
+    {
+      name: 'Người gửi',
+      selector: (r) => (r.name || '').toLowerCase(),
+      sortable: true,
+      minWidth: '180px',
+      cell: (r) => (
+        <div style={{ padding: '6px 0' }}>
+          <div style={{ fontWeight: 600, color: r.isRead ? undefined : '#06b6d4' }}>{r.name}</div>
+          {r.email && <div style={{ fontSize: '0.78rem', opacity: 0.65 }}>{r.email}</div>}
+        </div>
+      ),
+    },
+    {
+      name: 'Tiêu đề / Tin nhắn',
+      selector: (r) => (r.title || r.message || '').toLowerCase(),
+      sortable: true,
+      minWidth: '240px',
+      grow: 2,
+      cell: (r) => (
+        <div style={{ maxWidth: 360, padding: '6px 0' }}>
+          {r.title && <div style={{ fontWeight: 600, marginBottom: 2 }}>{r.title}</div>}
+          <div style={{ fontSize: '0.85rem', opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {r.message}
+          </div>
+        </div>
+      ),
+    },
+    {
+      name: 'Ảnh',
+      selector: (r) => Number(r.imageCount) || (r.hasImage ? 1 : 0),
+      sortable: true,
+      width: '100px',
+      cell: (r) => {
+        const count = r.imageCount || (r.hasImage ? 1 : 0);
+        if (count > 1) return <Tag icon={<PictureOutlined />} color="cyan">{count} ảnh</Tag>;
+        if (count === 1) return <Tag icon={<PictureOutlined />} color="purple">1 ảnh</Tag>;
+        return <span style={{ opacity: 0.4 }}>-</span>;
+      },
+    },
+    {
+      name: 'Thiết bị & Vị trí',
+      selector: (r) => `${r.device || ''} ${r.location || ''}`.toLowerCase(),
+      sortable: true,
+      minWidth: '170px',
+      cell: (r) => (
+        <div style={{ fontSize: '0.82rem', padding: '6px 0' }}>
+          <div style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span>📱</span>
+            <span>{r.device || r.browser || 'Không rõ'}</span>
+          </div>
+          {r.location && (
+            <div style={{ opacity: 0.75, display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+              <span>📍</span>
+              <span>{r.location}</span>
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      name: 'Thời gian',
+      selector: (r) => new Date(r.createdAt).getTime(),
+      sortable: true,
+      width: '150px',
+      cell: (r) => new Date(r.createdAt).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' }),
+    },
+    {
+      name: 'Thao tác',
+      width: '130px',
+      cell: (r) => (
+        <Space>
+          <Button size="small" type="primary" icon={<EyeOutlined />} onClick={() => handleViewMessage(r)}>
+            Xem
+          </Button>
+          <Popconfirm title="Xóa tin nhắn này?" onConfirm={() => handleDeleteMessage(r.id)} okText="Xóa" cancelText="Hủy">
+            <Button size="small" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ], []);
+
+  const contactContextActions = useMemo(() => {
+    const ids = selectedContactRows.map((r) => r.id);
+    const count = ids.length;
+    return (
+      <Space>
+        <Button
+          size="small"
+          icon={<CheckOutlined />}
+          onClick={() => handleBatchMarkReadMessages(ids)}
+        >
+          Đánh dấu {count} đã đọc
+        </Button>
+        <Popconfirm
+          title={`Xóa vĩnh viễn ${count} tin nhắn đã chọn?`}
+          onConfirm={() => handleBatchDeleteMessages(ids)}
+          okText="Xóa"
+          cancelText="Hủy"
+        >
+          <Button size="small" danger icon={<DeleteOutlined />}>
+            Xóa {count} đã chọn
+          </Button>
+        </Popconfirm>
+      </Space>
+    );
+  }, [selectedContactRows]);
+
+  // Traffic Detailed Logs Columns & Context Actions
+  const trafficColumns = useMemo(() => [
+    {
+      name: 'Thời gian',
+      selector: (r) => new Date(r.createdAt).getTime(),
+      sortable: true,
+      width: '150px',
+      cell: (r) => new Date(r.createdAt).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'medium' }),
+    },
+    {
+      name: 'App',
+      selector: (r) => (r.app || '').toLowerCase(),
+      sortable: true,
+      width: '130px',
+      cell: (r) => {
+        const appStr = (r.app || '').toLowerCase();
+        if (appStr === 'talkwithme') return <Tag color="cyan">💬 TalkWithMe</Tag>;
+        if (appStr === 'tuvi') return <Tag color="purple">🔮 TuViNow</Tag>;
+        if (appStr === 'iching') return <Tag color="gold">☯️ IChing</Tag>;
+        if (appStr === 'tarot') return <Tag color="magenta">🃏 Tarot</Tag>;
+        return <Tag>{r.app}</Tag>;
+      },
+    },
+    {
+      name: 'Địa chỉ IP',
+      selector: (r) => r.ipAddress || '',
+      sortable: true,
+      width: '140px',
+      cell: (r) => <Tag style={{ fontFamily: 'monospace' }}>{r.ipAddress || '127.0.0.1'}</Tag>,
+    },
+    {
+      name: 'Vị trí & Nhà mạng',
+      selector: (r) => `${r.location || ''} ${r.isp || ''}`.toLowerCase(),
+      sortable: true,
+      minWidth: '180px',
+      cell: (r) => (
+        <div style={{ padding: '6px 0' }}>
+          <div style={{ fontWeight: 500 }}>
+            {r.location ? `📍 ${r.location}` : <span style={{ opacity: 0.6 }}>Chưa xác định</span>}
+          </div>
+          {r.isp && <div style={{ fontSize: '0.78rem', opacity: 0.65 }}>🏢 {r.isp}</div>}
+        </div>
+      ),
+    },
+    {
+      name: 'Thiết bị & Màn hình',
+      selector: (r) => `${r.device || ''} ${r.screen || ''}`.toLowerCase(),
+      sortable: true,
+      minWidth: '160px',
+      cell: (r) => (
+        <div style={{ padding: '6px 0' }}>
+          <div style={{ fontWeight: 500 }}>📱 {r.device || 'Desktop'}</div>
+          {r.screen && <div style={{ fontSize: '0.78rem', opacity: 0.65 }}>🖥️ {r.screen}</div>}
+        </div>
+      ),
+    },
+    {
+      name: 'Trình duyệt & OS',
+      selector: (r) => `${r.browser || ''} ${r.os || ''}`.toLowerCase(),
+      sortable: true,
+      minWidth: '160px',
+      cell: (r) => (
+        <div>
+          <Tag color="geekblue">{r.browser || 'Browser'}</Tag>
+          <span style={{ fontSize: '0.8rem', opacity: 0.75, marginLeft: 4 }}>{r.os || ''}</span>
+        </div>
+      ),
+    },
+    {
+      name: 'Đường dẫn & Nguồn',
+      selector: (r) => r.path || '',
+      sortable: true,
+      minWidth: '180px',
+      cell: (r) => (
+        <div style={{ fontSize: '0.82rem', padding: '6px 0' }}>
+          <div><code>{r.path || '/'}</code></div>
+          {r.referrer && (
+            <div style={{ opacity: 0.65, fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>
+              Từ: {r.referrer}
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      name: 'Thao tác',
+      width: '80px',
+      cell: (r) => (
+        <Popconfirm
+          title="Xóa bản ghi này?"
+          onConfirm={() => handleBatchDeleteTrafficLogs([r.id])}
+          okText="Xóa"
+          cancelText="Hủy"
+        >
+          <Button size="small" danger icon={<DeleteOutlined />} />
+        </Popconfirm>
+      ),
+    },
+  ], []);
+
+  const trafficContextActions = useMemo(() => {
+    const ids = selectedTrafficRows.map((r) => r.id);
+    const count = ids.length;
+    return (
+      <Popconfirm
+        title={`Xóa vĩnh viễn ${count} bản ghi truy cập đã chọn?`}
+        onConfirm={() => handleBatchDeleteTrafficLogs(ids)}
+        okText="Xóa"
+        cancelText="Hủy"
+      >
+        <Button danger icon={<DeleteOutlined />} size="small">
+          Xóa {count} đã chọn
+        </Button>
+      </Popconfirm>
+    );
+  }, [selectedTrafficRows]);
+
   const routeTitles = {
     analytics: '📊 Dashboard & Analytics',
     traffic: '🌐 Thống Kê Truy Cập (Traffic Analytics)',
@@ -726,38 +1388,41 @@ export default function AdminPage({ user, onLogout }) {
             {/* ROUTE 2: USERS MANAGEMENT */}
             {currentRoute === 'users' && (
               <Card
-                title="👥 Danh Sách Người Dùng"
+                title={
+                  <Space align="center">
+                    <span>👥 Danh Sách Người Dùng</span>
+                    <Tag color="blue">{users.length} người dùng</Tag>
+                  </Space>
+                }
                 extra={
-                  <Space>
-                    <Input.Search placeholder="Tìm email, tên..." onSearch={setUserSearch} onChange={e => setUserSearch(e.target.value)} style={{ width: 220 }} />
+                  <Space wrap>
+                    <Input.Search
+                      placeholder="Tìm email, tên..."
+                      allowClear
+                      onSearch={setUserSearch}
+                      onChange={e => setUserSearch(e.target.value)}
+                      style={{ width: 220 }}
+                    />
                     <Select placeholder="Role" allowClear onChange={setRoleFilter} style={{ width: 120 }}>
                       <Option value="user">User</Option>
                       <Option value="admin">Admin</Option>
                       <Option value="vip">VIP</Option>
                     </Select>
-                    <Button icon={<ReloadOutlined />} onClick={loadUsers} />
+                    <Button icon={<ReloadOutlined />} onClick={loadUsers}>Làm mới</Button>
                   </Space>
                 }
               >
-                <Table
-                  dataSource={users}
+                <ModernDataTable
+                  columns={userColumns}
+                  data={users}
                   loading={usersLoading}
-                  rowKey="id"
-                  scroll={{ x: 800 }}
-                  columns={[
-                    { title: 'User Info', dataIndex: 'email', render: (_, r) => <div><strong>{r.fullName || r.displayName || 'User'}</strong><div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>{r.email}</div></div> },
-                    { title: 'Role', dataIndex: 'role', render: role => <Tag color={role === 'admin' ? 'purple' : 'default'}>{role}</Tag> },
-                    { title: 'Gói Dịch Vụ', dataIndex: 'planName', render: plan => <Tag color={plan === 'premium' ? 'gold' : plan === 'lite' ? 'blue' : 'default'}>{plan || 'free'}</Tag> },
-                    { title: 'Email Verified', dataIndex: 'isVerified', render: (v, r) => (v ?? r.isEmailVerified) ? <Tag icon={<CheckCircleOutlined />} color="success">Đã xác thực</Tag> : <Tag icon={<CloseCircleOutlined />} color="error">Chưa xác thực</Tag> },
-                    { title: 'Lượt AI', dataIndex: 'aiQuestionsCount' },
-                    { title: 'Thao Tác', render: (_, r) => (
-                      <Space>
-                        <Button size="small" onClick={() => handleUpdateRole(r.id, r.role === 'admin' ? 'user' : 'admin')}>Role: {r.role === 'admin' ? 'User' : 'Admin'}</Button>
-                        <Button size="small" type="primary" icon={<GiftOutlined />} onClick={() => setGrantModalUser(r)}>Tặng Gói</Button>
-                        <Button size="small" danger onClick={() => handleRevokeSessions(r.id)}>Hủy Session</Button>
-                      </Space>
-                    )},
-                  ]}
+                  isDarkMode={isDarkMode}
+                  keyField="id"
+                  selectableRows
+                  onSelectedRowsChange={({ selectedRows }) => setSelectedUserRows(selectedRows)}
+                  clearSelectedRows={clearUserSelected}
+                  contextActions={userContextActions}
+                  paginationPerPage={15}
                 />
               </Card>
             )}
@@ -765,42 +1430,64 @@ export default function AdminPage({ user, onLogout }) {
             {/* ROUTE 3: AUDIT LOGS */}
             {currentRoute === 'audit' && (
               <Card
-                title="📋 Nhật Ký Traffic & IP"
-                extra={<Input.Search placeholder="Tìm IP, Email..." onSearch={setAuditSearch} onChange={e => setAuditSearch(e.target.value)} style={{ width: 240 }} />}
+                title={
+                  <Space align="center">
+                    <span>📋 Nhật Ký Traffic & IP</span>
+                    <Tag color="cyan">{auditLogs.length} sự kiện</Tag>
+                  </Space>
+                }
+                extra={
+                  <Space wrap>
+                    <Input.Search
+                      placeholder="Tìm IP, Email, hành động..."
+                      allowClear
+                      onSearch={setAuditSearch}
+                      onChange={e => setAuditSearch(e.target.value)}
+                      style={{ width: 260 }}
+                    />
+                    <Button icon={<ReloadOutlined />} onClick={loadAudit}>Làm mới</Button>
+                  </Space>
+                }
               >
-                <Table
-                  dataSource={auditLogs}
+                <ModernDataTable
+                  columns={auditColumns}
+                  data={auditLogs}
                   loading={auditLoading}
-                  rowKey="id"
-                  scroll={{ x: 800 }}
-                  columns={[
-                    { title: 'Thời Gian', dataIndex: 'createdAt', render: d => new Date(d).toLocaleString('vi-VN') },
-                    { title: 'Hành Động', dataIndex: 'action', render: a => <Tag color="indigo">{a}</Tag> },
-                    { title: 'Email', render: (_, r) => r.user?.email || r.userEmail || 'Khách' },
-                    { title: 'Địa Chỉ IP', dataIndex: 'ipAddress', render: ip => <Tag>{ip || '127.0.0.1'}</Tag> },
-                    { title: 'Vị Trí Geo', render: (_, r) => r.metadata?.city || r.location || 'Hồ Chí Minh, VN' },
-                    { title: 'Ứng Dụng', dataIndex: 'app' },
-                  ]}
+                  isDarkMode={isDarkMode}
+                  keyField="id"
+                  paginationPerPage={15}
                 />
               </Card>
             )}
 
             {/* ROUTE 4: AI LEADERBOARD */}
             {currentRoute === 'ai' && (
-              <Card title="🤖 Leaderboard AI Usage">
-                <Table
-                  dataSource={aiUsage}
+              <Card
+                title={
+                  <Space align="center">
+                    <span>🤖 Leaderboard AI Usage</span>
+                    <Tag color="purple">{filteredAiUsage.length} thành viên</Tag>
+                  </Space>
+                }
+                extra={
+                  <Space wrap>
+                    <Input.Search
+                      placeholder="Tìm email, họ tên..."
+                      allowClear
+                      onChange={e => setAiSearch(e.target.value)}
+                      style={{ width: 220 }}
+                    />
+                    <Button icon={<ReloadOutlined />} onClick={loadAiUsage}>Làm mới</Button>
+                  </Space>
+                }
+              >
+                <ModernDataTable
+                  columns={aiColumns}
+                  data={filteredAiUsage}
                   loading={aiLoading}
-                  rowKey="userId"
-                  scroll={{ x: 800 }}
-                  columns={[
-                    { title: 'Email', dataIndex: 'email' },
-                    { title: 'Họ Tên', dataIndex: 'displayName' },
-                    { title: 'Lượt Kinh Dịch', dataIndex: 'ichingReadings', render: n => <span>{n || 0}</span> },
-                    { title: 'Lượt Tarot', dataIndex: 'tarotReadings', render: n => <span>{n || 0}</span> },
-                    { title: 'Lượt Tử Vi', dataIndex: 'tuviReadings', render: n => <Tag color="magenta">{n || 0}</Tag> },
-                    { title: 'Tổng Hỏi AI', dataIndex: 'totalAiQuestions', render: n => <Tag color="purple">{n || 0}</Tag> },
-                  ]}
+                  isDarkMode={isDarkMode}
+                  keyField="userId"
+                  paginationPerPage={15}
                 />
               </Card>
             )}
@@ -851,28 +1538,36 @@ export default function AdminPage({ user, onLogout }) {
             {/* ROUTE 6: MÃ KHUYẾN MÃI */}
             {currentRoute === 'coupons' && (
               <Card
-                title="🎟️ Quản Lý Mã Khuyến Mãi"
-                extra={<Button type="primary" icon={<TagOutlined />} onClick={() => setIsCouponModalOpen(true)}>+ Tạo Mã Mới</Button>}
+                title={
+                  <Space align="center">
+                    <span>🎟️ Quản Lý Mã Khuyến Mãi</span>
+                    <Tag color="cyan">{coupons.length} mã</Tag>
+                  </Space>
+                }
+                extra={
+                  <Space wrap>
+                    <Input.Search
+                      placeholder="Tìm mã code, mô tả..."
+                      allowClear
+                      onChange={e => setCouponSearch(e.target.value)}
+                      style={{ width: 220 }}
+                    />
+                    <Button type="primary" icon={<TagOutlined />} onClick={() => setIsCouponModalOpen(true)}>+ Tạo Mã Mới</Button>
+                    <Button icon={<ReloadOutlined />} onClick={loadCoupons}>Làm mới</Button>
+                  </Space>
+                }
               >
-                <Table
-                  dataSource={coupons}
+                <ModernDataTable
+                  columns={couponColumns}
+                  data={filteredCoupons}
                   loading={couponsLoading}
-                  rowKey="id"
-                  scroll={{ x: 800 }}
-                  columns={[
-                    { title: 'Mã Code', dataIndex: 'code', render: code => <Tag color="blue" style={{ fontSize: '0.9rem', fontWeight: 700 }}>{code}</Tag> },
-                    { title: 'Mô Tả', dataIndex: 'description' },
-                    { title: 'Loại', dataIndex: 'type', render: t => t === 'grant_plan' ? '🎁 Tặng Gói' : '📅 Tặng Ngày' },
-                    { title: 'Gói/Ngày', render: (_, r) => r.planName ? <Tag color="gold">{r.planName}</Tag> : `${r.durationDays}d` },
-                    { title: 'Đã Dùng', render: (_, r) => `${r.usedCount} / ${r.maxUses === -1 ? '∞' : r.maxUses}` },
-                    { title: 'Trạng Thái', dataIndex: 'isActive', render: act => <Switch checked={act} onChange={c => handleToggleCoupon(r.id, c)} /> },
-                    { title: 'Thao Tác', render: (_, r) => (
-                      <Space>
-                        <Button size="small" icon={<CopyOutlined />} onClick={() => { navigator.clipboard.writeText(r.code); message.info(`Đã copy mã ${r.code}! 📋`); }}>Copy</Button>
-                        <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDeleteCoupon(r.id)}>Xóa</Button>
-                      </Space>
-                    )},
-                  ]}
+                  isDarkMode={isDarkMode}
+                  keyField="id"
+                  selectableRows
+                  onSelectedRowsChange={({ selectedRows }) => setSelectedCouponRows(selectedRows)}
+                  clearSelectedRows={clearCouponSelected}
+                  contextActions={couponContextActions}
+                  paginationPerPage={15}
                 />
               </Card>
             )}
@@ -884,10 +1579,26 @@ export default function AdminPage({ user, onLogout }) {
                   <Space align="center">
                     <span>💬 Hộp Thư TalkWithMe</span>
                     {unreadCount > 0 && <Tag color="cyan">{unreadCount} chưa đọc</Tag>}
+                    <Tag color="default">Tổng {messages.length}</Tag>
                   </Space>
                 }
                 extra={
-                  <Space>
+                  <Space wrap>
+                    <Input.Search
+                      placeholder="Tìm người gửi, email, tin nhắn..."
+                      allowClear
+                      onChange={e => setContactSearchText(e.target.value)}
+                      style={{ width: 240 }}
+                    />
+                    <Select
+                      value={contactFilterStatus}
+                      onChange={setContactFilterStatus}
+                      style={{ width: 130 }}
+                    >
+                      <Option value="all">Tất cả ({messages.length})</Option>
+                      <Option value="unread">Chưa đọc ({unreadCount})</Option>
+                      <Option value="read">Đã đọc ({Math.max(0, messages.length - unreadCount)})</Option>
+                    </Select>
                     <Button icon={<ReloadOutlined />} onClick={loadContactMessages} loading={messagesLoading}>
                       Làm mới
                     </Button>
@@ -899,93 +1610,17 @@ export default function AdminPage({ user, onLogout }) {
                   </Space>
                 }
               >
-                <Table
-                  dataSource={messages}
+                <ModernDataTable
+                  columns={contactColumns}
+                  data={filteredMessages}
                   loading={messagesLoading}
-                  rowKey="id"
-                  scroll={{ x: 800 }}
-                  columns={[
-                    {
-                      title: 'Trạng thái',
-                      dataIndex: 'isRead',
-                      width: 110,
-                      render: (read) =>
-                        read ? (
-                          <Tag color="default">Đã đọc</Tag>
-                        ) : (
-                          <Tag color="cyan" style={{ fontWeight: 600 }}>MỚI</Tag>
-                        ),
-                    },
-                    {
-                      title: 'Người gửi',
-                      render: (_, r) => (
-                        <div>
-                          <div style={{ fontWeight: 600, color: r.isRead ? undefined : '#06b6d4' }}>{r.name}</div>
-                          {r.email && <div style={{ fontSize: '0.78rem', opacity: 0.65 }}>{r.email}</div>}
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Tiêu đề / Tin nhắn',
-                      render: (_, r) => (
-                        <div style={{ maxWidth: 360 }}>
-                          {r.title && <div style={{ fontWeight: 600, marginBottom: 2 }}>{r.title}</div>}
-                          <div style={{ fontSize: '0.85rem', opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {r.message}
-                          </div>
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Ảnh',
-                      dataIndex: 'hasImage',
-                      width: 90,
-                      align: 'center',
-                      render: (_, r) => {
-                        const count = r.imageCount || (r.hasImage ? 1 : 0);
-                        if (count > 1) return <Tag icon={<PictureOutlined />} color="cyan">{count} ảnh</Tag>;
-                        if (count === 1) return <Tag icon={<PictureOutlined />} color="purple">1 ảnh</Tag>;
-                        return '-';
-                      },
-                    },
-                    {
-                      title: 'Thiết bị & Vị trí',
-                      render: (_, r) => (
-                        <div style={{ fontSize: '0.82rem' }}>
-                          <div style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <span>📱</span>
-                            <span>{r.device || r.browser || 'Không rõ'}</span>
-                          </div>
-                          {r.location && (
-                            <div style={{ opacity: 0.75, display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                              <span>📍</span>
-                              <span>{r.location}</span>
-                            </div>
-                          )}
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Thời gian',
-                      dataIndex: 'createdAt',
-                      width: 150,
-                      render: (t) => new Date(t).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' }),
-                    },
-                    {
-                      title: 'Thao tác',
-                      width: 140,
-                      render: (_, r) => (
-                        <Space>
-                          <Button size="small" type="primary" icon={<EyeOutlined />} onClick={() => handleViewMessage(r)}>
-                            Xem
-                          </Button>
-                          <Popconfirm title="Xóa tin nhắn này?" onConfirm={() => handleDeleteMessage(r.id)} okText="Xóa" cancelText="Hủy">
-                            <Button size="small" danger icon={<DeleteOutlined />} />
-                          </Popconfirm>
-                        </Space>
-                      ),
-                    },
-                  ]}
+                  isDarkMode={isDarkMode}
+                  keyField="id"
+                  selectableRows
+                  onSelectedRowsChange={({ selectedRows }) => setSelectedContactRows(selectedRows)}
+                  clearSelectedRows={clearContactSelected}
+                  contextActions={contactContextActions}
+                  paginationPerPage={15}
                 />
               </Card>
             )}
@@ -1203,97 +1838,39 @@ export default function AdminPage({ user, onLogout }) {
 
                 {/* DETAILED LOGS TABLE */}
                 <Card
-                  title="📋 Chi Tiết Lượt Truy Cập (IP, Thiết Bị & Vị Trí)"
+                  title={
+                    <Space align="center">
+                      <span>📋 Chi Tiết Lượt Truy Cập (IP, Thiết Bị & Vị Trí)</span>
+                      <Tag color="cyan">Tổng {trafficTotal} lượt</Tag>
+                    </Space>
+                  }
                   extra={
-                    <Input.Search
-                      placeholder="Tìm IP, vị trí, thiết bị, browser..."
-                      allowClear
-                      onSearch={(val) => { setTrafficSearch(val); setTrafficPage(1); }}
-                      style={{ width: 280 }}
-                    />
+                    <Space wrap>
+                      <Input.Search
+                        placeholder="Tìm IP, vị trí, thiết bị, browser..."
+                        allowClear
+                        onSearch={(val) => { setTrafficSearch(val); setTrafficPage(1); }}
+                        style={{ width: 280 }}
+                      />
+                      <Button icon={<ReloadOutlined />} onClick={loadTraffic}>Làm mới</Button>
+                    </Space>
                   }
                 >
-                  <Table
-                    dataSource={trafficLogs}
+                  <ModernDataTable
+                    columns={trafficColumns}
+                    data={trafficLogs}
                     loading={trafficLoading}
-                    rowKey="id"
-                    scroll={{ x: 950 }}
-                    pagination={{
-                      current: trafficPage,
-                      pageSize: 20,
-                      total: trafficTotal,
-                      showTotal: (total) => `Tổng ${total} lượt`,
-                      onChange: (p) => setTrafficPage(p),
-                    }}
-                    columns={[
-                      {
-                        title: 'Thời gian',
-                        dataIndex: 'createdAt',
-                        width: 140,
-                        render: (d) => new Date(d).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'medium' }),
-                      },
-                      {
-                        title: 'App',
-                        dataIndex: 'app',
-                        width: 110,
-                        render: (a) => {
-                          const appStr = (a || '').toLowerCase();
-                          if (appStr === 'talkwithme') return <Tag color="cyan">💬 TalkWithMe</Tag>;
-                          if (appStr === 'tuvi') return <Tag color="purple">🔮 TuViNow</Tag>;
-                          if (appStr === 'iching') return <Tag color="gold">☯️ IChing</Tag>;
-                          if (appStr === 'tarot') return <Tag color="magenta">🃏 Tarot</Tag>;
-                          return <Tag>{a}</Tag>;
-                        },
-                      },
-                      {
-                        title: 'Địa chỉ IP',
-                        dataIndex: 'ipAddress',
-                        width: 130,
-                        render: (ip) => <Tag style={{ fontFamily: 'monospace' }}>{ip || '127.0.0.1'}</Tag>,
-                      },
-                      {
-                        title: 'Vị trí & Nhà mạng',
-                        render: (_, r) => (
-                          <div>
-                            <div style={{ fontWeight: 500 }}>
-                              {r.location ? `📍 ${r.location}` : <span style={{ opacity: 0.6 }}>Chưa xác định</span>}
-                            </div>
-                            {r.isp && <div style={{ fontSize: '0.78rem', opacity: 0.65 }}>🏢 {r.isp}</div>}
-                          </div>
-                        ),
-                      },
-                      {
-                        title: 'Thiết bị & Màn hình',
-                        render: (_, r) => (
-                          <div>
-                            <div style={{ fontWeight: 500 }}>📱 {r.device || 'Desktop'}</div>
-                            {r.screen && <div style={{ fontSize: '0.78rem', opacity: 0.65 }}>🖥️ {r.screen}</div>}
-                          </div>
-                        ),
-                      },
-                      {
-                        title: 'Trình duyệt & OS',
-                        render: (_, r) => (
-                          <div>
-                            <Tag color="geekblue">{r.browser || 'Browser'}</Tag>
-                            <span style={{ fontSize: '0.8rem', opacity: 0.75, marginLeft: 4 }}>{r.os || ''}</span>
-                          </div>
-                        ),
-                      },
-                      {
-                        title: 'Đường dẫn & Nguồn',
-                        render: (_, r) => (
-                          <div style={{ fontSize: '0.82rem' }}>
-                            <div><code>{r.path || '/'}</code></div>
-                            {r.referrer && (
-                              <div style={{ opacity: 0.65, fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>
-                                Từ: {r.referrer}
-                              </div>
-                            )}
-                          </div>
-                        ),
-                      },
-                    ]}
+                    isDarkMode={isDarkMode}
+                    keyField="id"
+                    selectableRows
+                    onSelectedRowsChange={({ selectedRows }) => setSelectedTrafficRows(selectedRows)}
+                    clearSelectedRows={clearTrafficSelected}
+                    contextActions={trafficContextActions}
+                    paginationServer
+                    paginationTotalRows={trafficTotal}
+                    paginationPerPage={20}
+                    paginationRowsPerPageOptions={[20]}
+                    onChangePage={(page) => setTrafficPage(page)}
                   />
                 </Card>
               </div>

@@ -15,6 +15,7 @@
     "chart.js": "^4.5.1",
     "react": "^19.2.7",
     "react-chartjs-2": "^5.3.1",
+    "react-data-table-component": "^8.11.0",
     "react-dom": "^19.2.7"
   },
   "devDependencies": {

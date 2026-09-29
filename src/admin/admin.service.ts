@@ -184,6 +184,15 @@ export class AdminService {
     return { success: true, message: `Đã hủy tất cả phiên đăng nhập của ${user.email}` };
   }
 
+  async revokeMultipleUserSessions(userIds: string[]) {
+    if (!userIds || userIds.length === 0) return { success: true, count: 0 };
+    for (const userId of userIds) {
+      await this.sessionRepo.delete({ user: { id: userId } });
+      await this.logActivity(userId, 'revoke_sessions_batch', 'sso', null, null, { revokedByAdmin: true });
+    }
+    return { success: true, count: userIds.length, message: `Đã hủy phiên đăng nhập của ${userIds.length} người dùng` };
+  }
+
   async getAuditLogs(page = 1, limit = 30, action = '', search = '') {
     const query = this.auditLogRepo.createQueryBuilder('log')
       .leftJoinAndSelect('log.user', 'user')

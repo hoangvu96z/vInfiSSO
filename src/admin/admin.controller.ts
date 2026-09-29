@@ -64,6 +64,12 @@ export class AdminController {
     return this.adminService.revokeUserSessions(userId);
   }
 
+  // POST /admin/users/batch-revoke-sessions — Revoke sessions for multiple users
+  @Post('users/batch-revoke-sessions')
+  async batchRevokeSessions(@Body() body: { userIds: string[] }) {
+    return this.adminService.revokeMultipleUserSessions(body.userIds);
+  }
+
   // GET /admin/audit-logs — Traffic & Login Audit Trail Logs
   @Get('audit-logs')
   async getAuditLogs(
@@ -137,6 +143,13 @@ export class AdminController {
   async deleteCoupon(@Param('id') id: string) {
     await this.plansService.deleteCoupon(id);
     return { success: true };
+  }
+
+  // POST /admin/coupons/batch-delete — Xóa nhiều coupon
+  @Post('coupons/batch-delete')
+  async batchDeleteCoupons(@Body() body: { ids: string[] }) {
+    await this.plansService.deleteCoupons(body.ids);
+    return { success: true, count: body.ids?.length || 0 };
   }
 
   // ─── User Plan Management ─────────────────────────────────────────────────

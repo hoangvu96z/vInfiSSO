@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan, IsNull } from 'typeorm';
+import { Repository, MoreThan, IsNull, In } from 'typeorm';
 import { Plan } from './plan.entity';
 import { UserSubscription } from './user-subscription.entity';
 import { AiUsage } from './ai-usage.entity';
@@ -500,6 +500,11 @@ export class PlansService {
     const coupon = await this.couponRepo.findOne({ where: { id } });
     if (!coupon) throw new NotFoundException('Coupon not found');
     await this.couponRepo.remove(coupon);
+  }
+
+  async deleteCoupons(ids: string[]): Promise<void> {
+    if (!ids || ids.length === 0) return;
+    await this.couponRepo.delete({ id: In(ids) });
   }
 
   async adminGrantPlan(

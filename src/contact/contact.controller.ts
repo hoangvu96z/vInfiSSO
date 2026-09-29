@@ -279,6 +279,32 @@ export class ContactController {
   }
 
   /**
+   * POST /contact/admin/messages/batch-delete — Delete multiple messages (admin)
+   */
+  @Post('admin/messages/batch-delete')
+  async adminBatchDeleteMessages(@Req() req: Request, @Body() body: { ids: string[] }) {
+    await this.requireAdmin(req);
+    if (!Array.isArray(body?.ids) || body.ids.length === 0) {
+      throw new BadRequestException('ids must be a non-empty array');
+    }
+    await this.contactService.deleteMessages(body.ids);
+    return { success: true, count: body.ids.length };
+  }
+
+  /**
+   * POST /contact/admin/messages/batch-read — Mark multiple messages as read (admin)
+   */
+  @Post('admin/messages/batch-read')
+  async adminBatchMarkRead(@Req() req: Request, @Body() body: { ids: string[] }) {
+    await this.requireAdmin(req);
+    if (!Array.isArray(body?.ids) || body.ids.length === 0) {
+      throw new BadRequestException('ids must be a non-empty array');
+    }
+    await this.contactService.markMessagesAsRead(body.ids);
+    return { success: true, count: body.ids.length };
+  }
+
+  /**
    * GET /contact/admin/unread-count — Get unread message count (admin)
    */
   @Get('admin/unread-count')

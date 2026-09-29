@@ -8,6 +8,7 @@ import {
   UseGuards,
   ParseIntPipe,
   DefaultValuePipe,
+  BadRequestException,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { AnalyticsService } from './analytics.service';
@@ -53,5 +54,19 @@ export class AnalyticsController {
     @Query('search') search?: string,
   ) {
     return this.analyticsService.getTrafficLogs(page, limit, app, search);
+  }
+
+  /**
+   * Admin: Batch delete traffic logs
+   * POST /analytics/admin/logs/batch-delete
+   */
+  @Post('admin/logs/batch-delete')
+  @UseGuards(AdminGuard)
+  async deleteTrafficLogs(@Body() body: { ids: string[] }) {
+    if (!Array.isArray(body?.ids) || body.ids.length === 0) {
+      throw new BadRequestException('ids must be a non-empty array');
+    }
+    await this.analyticsService.deleteTrafficLogs(body.ids);
+    return { success: true, count: body.ids.length };
   }
 }
