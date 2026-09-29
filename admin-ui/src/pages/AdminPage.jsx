@@ -47,21 +47,32 @@ async function authFetch(url, options = {}) {
 export default function AdminPage({ user, onLogout }) {
   const [currentRoute, setCurrentRoute] = useState(() => (window.location.hash || '#analytics').replace('#', ''));
   const [isDarkMode, setIsDarkMode] = useState(true);
-  const [collapsed, setCollapsed] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false));
+  const [collapsed, setCollapsed] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 992 : false));
 
-  // Sync hash routing
+  // Sync hash routing & window resize
   useEffect(() => {
     const handleHash = () => {
       const hash = (window.location.hash || '#analytics').replace('#', '');
       setCurrentRoute(hash || 'analytics');
     };
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile) setCollapsed(true);
+    };
     window.addEventListener('hashchange', handleHash);
-    return () => window.removeEventListener('hashchange', handleHash);
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('hashchange', handleHash);
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
 
   const changeRoute = (key) => {
     window.location.hash = key;
     setCurrentRoute(key);
+    if (isMobile) setCollapsed(true);
   };
 
   // State data
@@ -1176,6 +1187,97 @@ export default function AdminPage({ user, onLogout }) {
     );
   }, [selectedTrafficRows]);
 
+  const renderTrafficMobileCard = useCallback((r) => {
+    const appStr = (r.app || '').toLowerCase();
+    let appBadge = <Tag>{r.app || 'Web'}</Tag>;
+    if (appStr === 'talkwithme') appBadge = <Tag color="cyan">💬 TalkWithMe</Tag>;
+    else if (appStr === 'tuvi') appBadge = <Tag color="purple">🔮 TuViNow</Tag>;
+    else if (appStr === 'iching') appBadge = <Tag color="gold">☯️ IChing</Tag>;
+    else if (appStr === 'tarot') appBadge = <Tag color="magenta">🃏 Tarot</Tag>;
+
+    const formattedDate = new Date(r.createdAt).toLocaleString('vi-VN', {
+      dateStyle: 'short',
+      timeStyle: 'medium',
+    });
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {/* TOP ROW: App badge, Date/Time, Delete Action */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {appBadge}
+            <span style={{ fontSize: '0.8rem', opacity: 0.75, fontFamily: 'monospace' }}>
+              🕒 {formattedDate}
+            </span>
+          </div>
+          <div onClick={(e) => e.stopPropagation()}>
+            <Popconfirm
+              title="Xóa bản ghi này?"
+              onConfirm={() => handleBatchDeleteTrafficLogs([r.id])}
+              okText="Xóa"
+              cancelText="Hủy"
+            >
+              <Button size="small" danger icon={<DeleteOutlined />} type="text" />
+            </Popconfirm>
+          </div>
+        </div>
+
+        {/* MIDDLE SECTION: IP, ISP & LOCATION */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            padding: '6px 8px',
+            borderRadius: 6,
+            background: isDarkMode ? 'rgba(0, 0, 0, 0.25)' : '#f1f5f9',
+            fontSize: '0.82rem',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ opacity: 0.6, fontSize: '0.75rem' }}>IP:</span>
+              <Tag style={{ fontFamily: 'monospace', margin: 0, fontWeight: 600 }}>{r.ipAddress || '127.0.0.1'}</Tag>
+            </div>
+            {r.isp && (
+              <span style={{ fontSize: '0.75rem', opacity: 0.75, color: '#38bdf8' }}>
+                🏢 {r.isp}
+              </span>
+            )}
+          </div>
+          <div style={{ fontWeight: 500, marginTop: 2 }}>
+            {r.location ? `📍 ${r.location}` : <span style={{ opacity: 0.5 }}>📍 Chưa xác định</span>}
+          </div>
+        </div>
+
+        {/* DEVICE, SCREEN, BROWSER & OS */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, fontSize: '0.8rem' }}>
+          <div>
+            <span style={{ fontWeight: 500 }}>📱 {r.device || 'Desktop'}</span>
+            {r.screen && <span style={{ opacity: 0.65, fontSize: '0.75rem', marginLeft: 4 }}>({r.screen})</span>}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Tag color="geekblue" style={{ margin: 0, fontSize: '0.75rem' }}>{r.browser || 'Browser'}</Tag>
+            {r.os && <span style={{ fontSize: '0.75rem', opacity: 0.75 }}>{r.os}</span>}
+          </div>
+        </div>
+
+        {/* PATH & REFERRER */}
+        <div style={{ fontSize: '0.76rem', opacity: 0.85, wordBreak: 'break-all' }}>
+          <div>
+            <span style={{ opacity: 0.6, marginRight: 4 }}>🔗</span>
+            <code>{r.path || '/'}</code>
+          </div>
+          {r.referrer && (
+            <div style={{ opacity: 0.65, fontSize: '0.72rem', marginTop: 2 }}>
+              ↩️ Từ: {r.referrer}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }, [isDarkMode]);
+
   const routeTitles = {
     analytics: '📊 Dashboard & Analytics',
     traffic: '🌐 Thống Kê Truy Cập (Traffic Analytics)',
@@ -1205,9 +1307,14 @@ export default function AdminPage({ user, onLogout }) {
           onCollapse={setCollapsed}
           trigger={null}
           width={260}
-          collapsedWidth={80}
+          collapsedWidth={isMobile ? 0 : 80}
           theme={isDarkMode ? 'dark' : 'light'}
-          style={{ borderRight: '1px solid rgba(255,255,255,0.08)' }}
+          style={{
+            borderRight: '1px solid rgba(255,255,255,0.08)',
+            position: isMobile && !collapsed ? 'fixed' : 'relative',
+            zIndex: isMobile && !collapsed ? 1000 : 1,
+            height: isMobile && !collapsed ? '100vh' : 'auto',
+          }}
         >
           <div style={{ padding: '18px 16px', display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-start', gap: 12, borderBottom: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden' }}>
             <img src="/vlnfi_sso_favicon_option_1.svg" alt="vInfiSSO" style={{ width: 32, height: 32, flexShrink: 0 }} />
@@ -1253,51 +1360,56 @@ export default function AdminPage({ user, onLogout }) {
           {/* TOPBAR HEADER WITH COLLAPSE BUTTON & CLEAN TOP RIGHT PROFILE */}
           <Header style={{
             background: isDarkMode ? '#0f172a' : '#fff',
-            padding: '0 24px',
+            padding: isMobile ? '0 12px' : '0 24px',
             display: 'flex',
             justify: 'space-between',
             alignItems: 'center',
             borderBottom: '1px solid rgba(255,255,255,0.08)',
             height: 64,
           }}>
-            <Space align="center" size="middle">
+            <Space align="center" size={isMobile ? 'small' : 'middle'}>
               <Button
                 type="text"
                 icon={collapsed ? <MenuUnfoldOutlined style={{ fontSize: 18 }} /> : <MenuFoldOutlined style={{ fontSize: 18 }} />}
                 onClick={() => setCollapsed(!collapsed)}
                 style={{ width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               />
-              <Title level={4} style={{ margin: 0, lineHeight: 1 }}>{routeTitles[currentRoute]}</Title>
+              <Title level={4} style={{ margin: 0, lineHeight: 1, fontSize: isMobile ? '0.95rem' : '1.25rem' }}>
+                {isMobile ? (routeTitles[currentRoute] || '').split('(')[0].trim() : routeTitles[currentRoute]}
+              </Title>
             </Space>
 
-            <Space size="large" align="center">
+            <Space size={isMobile ? 'small' : 'large'} align="center">
               <Button
-                shape="round"
+                shape={isMobile ? 'circle' : 'round'}
                 icon={isDarkMode ? <SunOutlined /> : <MoonOutlined />}
                 onClick={() => setIsDarkMode(!isDarkMode)}
+                title={isDarkMode ? 'Light Mode' : 'Dark Mode'}
               >
-                {isDarkMode ? 'Light Mode' : 'Dark Mode'}
+                {!isMobile && (isDarkMode ? 'Light Mode' : 'Dark Mode')}
               </Button>
 
-              <Space align="center" size="middle">
+              <Space align="center" size={isMobile ? 'small' : 'middle'}>
                 <Avatar style={{ backgroundColor: '#6366f1', flexShrink: 0 }}>{(user?.fullName || user?.email || 'A')[0].toUpperCase()}</Avatar>
-                <div style={{ lineHeight: 1.2, textAlign: 'left' }}>
-                  <div style={{ fontWeight: 700, fontSize: '0.85rem', color: isDarkMode ? '#f8fafc' : '#0f172a', whiteSpace: 'nowrap' }}>
-                    {user?.fullName || 'Admin'}
+                {!isMobile && (
+                  <div style={{ lineHeight: 1.2, textAlign: 'left' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.85rem', color: isDarkMode ? '#f8fafc' : '#0f172a', whiteSpace: 'nowrap' }}>
+                      {user?.fullName || 'Admin'}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: isDarkMode ? '#94a3b8' : '#64748b', whiteSpace: 'nowrap' }}>
+                      {user?.email}
+                    </div>
                   </div>
-                  <div style={{ fontSize: '0.72rem', color: isDarkMode ? '#94a3b8' : '#64748b', whiteSpace: 'nowrap' }}>
-                    {user?.email}
-                  </div>
-                </div>
+                )}
                 <Button type="text" danger icon={<LogoutOutlined />} onClick={onLogout} style={{ fontWeight: 600 }}>
-                  Đăng xuất
+                  {!isMobile && 'Đăng xuất'}
                 </Button>
               </Space>
             </Space>
           </Header>
 
           {/* MAIN CONTENT AREA */}
-          <Content style={{ padding: 28, width: '100%' }}>
+          <Content style={{ padding: isMobile ? '12px 8px' : 28, width: '100%', minWidth: 0, overflowX: 'hidden' }}>
             {/* ROUTE 1: DASHBOARD & CHARTS */}
             {currentRoute === 'analytics' && (
               <div>
@@ -1839,20 +1951,22 @@ export default function AdminPage({ user, onLogout }) {
                 {/* DETAILED LOGS TABLE */}
                 <Card
                   title={
-                    <Space align="center">
-                      <span>📋 Chi Tiết Lượt Truy Cập (IP, Thiết Bị & Vị Trí)</span>
+                    <Space align="center" wrap>
+                      <span>📋 Chi Tiết Lượt Truy Cập</span>
                       <Tag color="cyan">Tổng {trafficTotal} lượt</Tag>
                     </Space>
                   }
                   extra={
-                    <Space wrap>
+                    <Space wrap style={{ marginTop: isMobile ? 8 : 0 }}>
                       <Input.Search
-                        placeholder="Tìm IP, vị trí, thiết bị, browser..."
+                        placeholder="Tìm IP, vị trí..."
                         allowClear
                         onSearch={(val) => { setTrafficSearch(val); setTrafficPage(1); }}
-                        style={{ width: 280 }}
+                        style={{ width: isMobile ? 180 : 280 }}
                       />
-                      <Button icon={<ReloadOutlined />} onClick={loadTraffic}>Làm mới</Button>
+                      <Button icon={<ReloadOutlined />} onClick={loadTraffic} title="Làm mới">
+                        {!isMobile && 'Làm mới'}
+                      </Button>
                     </Space>
                   }
                 >
@@ -1871,6 +1985,7 @@ export default function AdminPage({ user, onLogout }) {
                     paginationPerPage={20}
                     paginationRowsPerPageOptions={[20]}
                     onChangePage={(page) => setTrafficPage(page)}
+                    renderMobileCard={renderTrafficMobileCard}
                   />
                 </Card>
               </div>
