@@ -939,9 +939,14 @@ export default function AdminPage({ user, onLogout }) {
                     {
                       title: 'Ảnh',
                       dataIndex: 'hasImage',
-                      width: 70,
+                      width: 90,
                       align: 'center',
-                      render: (has) => has ? <Tag icon={<PictureOutlined />} color="purple">Ảnh</Tag> : '-',
+                      render: (_, r) => {
+                        const count = r.imageCount || (r.hasImage ? 1 : 0);
+                        if (count > 1) return <Tag icon={<PictureOutlined />} color="cyan">{count} ảnh</Tag>;
+                        if (count === 1) return <Tag icon={<PictureOutlined />} color="purple">1 ảnh</Tag>;
+                        return '-';
+                      },
                     },
                     {
                       title: 'Thiết bị & Vị trí',
@@ -1495,14 +1500,37 @@ export default function AdminPage({ user, onLogout }) {
                 </div>
               </div>
 
-              {selectedMessage.imageData && (
+              {((selectedMessage.images && selectedMessage.images.length > 0) || selectedMessage.imageData) && (
                 <div>
-                  <Text type="secondary" style={{ fontSize: '0.8rem', display: 'block', marginBottom: 8 }}>Hình ảnh đính kèm:</Text>
-                  <Image
-                    src={`data:${selectedMessage.imageMime || 'image/png'};base64,${selectedMessage.imageData}`}
-                    alt="Đính kèm"
-                    style={{ maxHeight: 300, borderRadius: 8, objectFit: 'contain' }}
-                  />
+                  <Text type="secondary" style={{ fontSize: '0.8rem', display: 'block', marginBottom: 8 }}>
+                    Hình ảnh đính kèm ({selectedMessage.images?.length || 1}/3 ảnh · chuẩn 720p):
+                  </Text>
+                  <Image.PreviewGroup>
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                      {(selectedMessage.images && selectedMessage.images.length > 0
+                        ? selectedMessage.images
+                        : [{ data: selectedMessage.imageData, mime: selectedMessage.imageMime }]
+                      ).map((img, idx) => (
+                        <div key={idx} style={{
+                          background: isDarkMode ? 'rgba(255,255,255,0.04)' : '#f8fafc',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: 8,
+                          padding: 6,
+                          textAlign: 'center',
+                        }}>
+                          <Image
+                            src={`data:${img.mime || 'image/jpeg'};base64,${img.data}`}
+                            alt={`Ảnh ${idx + 1}`}
+                            style={{ height: 160, maxWidth: 220, borderRadius: 6, objectFit: 'cover' }}
+                          />
+                          <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: 4 }}>
+                            {img.width && img.height ? `${img.width}×${img.height}` : '720p'}
+                            {img.size ? ` · ${Math.round(img.size / 1024)} KB` : ''}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Image.PreviewGroup>
                 </div>
               )}
             </div>

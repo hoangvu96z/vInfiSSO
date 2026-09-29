@@ -7,6 +7,15 @@ import {
   Index,
 } from 'typeorm';
 
+export interface AttachedImage {
+  data: string; // Base64 without data URI prefix
+  mime: string; // e.g. "image/jpeg"
+  name?: string; // original file name
+  size?: number; // compressed size in bytes
+  width?: number; // e.g. 1280
+  height?: number; // e.g. 720
+}
+
 @Entity('contact_messages')
 @Index(['sessionId'])
 @Index(['createdAt'])
@@ -38,11 +47,15 @@ export class ContactMessage {
   @Column({ type: 'text' })
   message: string;
 
-  /** Base64-encoded image data (optional, max ~2MB in base64) */
+  /** Array of attached images (up to 3 images, compressed to 720p) */
+  @Column({ type: 'jsonb', nullable: true, name: 'images' })
+  images: AttachedImage[] | null;
+
+  /** Base64-encoded image data (legacy single-image field, for backwards compatibility) */
   @Column({ type: 'text', nullable: true, name: 'image_data' })
   imageData: string | null;
 
-  /** MIME type of the attached image */
+  /** MIME type of the attached image (legacy single-image field) */
   @Column({ type: 'varchar', length: 50, nullable: true, name: 'image_mime' })
   imageMime: string | null;
 

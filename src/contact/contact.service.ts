@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ContactMessage } from './contact-message.entity';
+import { ContactMessage, AttachedImage } from './contact-message.entity';
 import { MailService } from '../mail/mail.service';
 import { ConfigService } from '@nestjs/config';
 import { parseUserAgent, lookupIpLocation } from './device-detector.util';
@@ -28,6 +28,7 @@ export class ContactService {
     message: string;
     imageData?: string;
     imageMime?: string;
+    images?: AttachedImage[];
     senderIp?: string | null;
     userAgent?: string | null;
     clientMeta?: Record<string, any> | null;
@@ -41,14 +42,30 @@ export class ContactService {
       os,
     };
 
+    // Normalize images (up to 3 images max)
+    let images: AttachedImage[] | null = null;
+    let primaryImageData: string | null = null;
+    let primaryImageMime: string | null = null;
+
+    if (dto.images && Array.isArray(dto.images) && dto.images.length > 0) {
+      images = dto.images.slice(0, 3);
+      primaryImageData = images[0]?.data || null;
+      primaryImageMime = images[0]?.mime || null;
+    } else if (dto.imageData) {
+      primaryImageData = dto.imageData;
+      primaryImageMime = dto.imageMime || 'image/jpeg';
+      images = [{ data: dto.imageData, mime: primaryImageMime }];
+    }
+
     const msg = this.messageRepo.create({
       sessionId: dto.sessionId,
       name: dto.name,
       email: dto.email || null,
       title: dto.title || null,
       message: dto.message,
-      imageData: dto.imageData || null,
-      imageMime: dto.imageMime || null,
+      images,
+      imageData: primaryImageData,
+      imageMime: primaryImageMime,
       senderIp: dto.senderIp || null,
       device: device || null,
       browser: browser || null,
@@ -59,7 +76,7 @@ export class ContactService {
     });
 
     const saved = await this.messageRepo.save(msg);
-    this.logger.log(`New contact message from ${dto.name} (${device}, ${geo?.location || 'IP: ' + dto.senderIp})`);
+    this.logger.log(`New contact message from ${dto.name} (${device}, ${geo?.location || 'IP: ' + dto.senderIp}) with ${images ? images.length : 0} image(s)`);
 
     // Send email notification (fire-and-forget)
     this.sendNotificationEmail(saved).catch((err) => {
@@ -141,18 +158,32 @@ export class ContactService {
     const attachments: any[] = [];
     let imageSection = '';
 
-    if (msg.imageData) {
-      const ext = (msg.imageMime?.split('/')[1] || 'png').replace('jpeg', 'jpg');
-      attachments.push({
-        filename: `image_${msg.sessionId?.substring(0, 8) || 'attachment'}.${ext}`,
-        content: Buffer.from(msg.imageData, 'base64'),
-        contentType: msg.imageMime || 'image/png',
-        cid: 'attached_image',
-      });
+    const imagesToAttach = msg.images && msg.images.length > 0
+      ? msg.images
+      : (msg.imageData ? [{ data: msg.imageData, mime: msg.imageMime || 'image/jpeg' }] : []);
+
+    if (imagesToAttach.length > 0) {
+      const imgTags = imagesToAttach.map((img, idx) => {
+        const ext = (img.mime?.split('/')[1] || 'png').replace('jpeg', 'jpg');
+        const cid = `attached_image_${idx}`;
+        attachments.push({
+          filename: `image_${msg.sessionId?.substring(0, 8) || 'attach'}_${idx + 1}.${ext}`,
+          content: Buffer.from(img.data, 'base64'),
+          contentType: img.mime || 'image/jpeg',
+          cid,
+        });
+        return `<div style="display: inline-block; margin: 6px; text-align: center;">
+          <img src="cid:${cid}" alt="Ảnh ${idx + 1}" style="max-width: 100%; max-height: 380px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);" />
+          ${img.width && img.height ? `<div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">720p (${img.width}x${img.height})</div>` : ''}
+        </div>`;
+      }).join('');
+
       imageSection = `
         <div style="margin-top: 24px; padding: 16px; background: rgba(6, 182, 212, 0.06); border: 1px solid rgba(6, 182, 212, 0.25); border-radius: 12px;">
-          <p style="margin: 0 0 12px; font-weight: 600; color: #06b6d4; font-size: 14px;">📷 Hình ảnh đính kèm:</p>
-          <img src="cid:attached_image" alt="Ảnh đính kèm" style="max-width: 100%; max-height: 480px; border-radius: 8px; display: block; box-shadow: 0 4px 12px rgba(0,0,0,0.3);" />
+          <p style="margin: 0 0 12px; font-weight: 600; color: #06b6d4; font-size: 14px;">📷 Hình ảnh đính kèm (${imagesToAttach.length}/3 ảnh · 720p):</p>
+          <div style="text-align: center;">
+            ${imgTags}
+          </div>
         </div>
       `;
     }

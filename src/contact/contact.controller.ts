@@ -48,6 +48,14 @@ export class ContactController {
       message: string;
       imageData?: string;
       imageMime?: string;
+      images?: Array<{
+        data: string;
+        mime: string;
+        name?: string;
+        size?: number;
+        width?: number;
+        height?: number;
+      }>;
       clientMeta?: Record<string, any>;
     },
   ) {
@@ -72,7 +80,26 @@ export class ContactController {
       throw new BadRequestException('title max 300 chars');
     }
 
-    // Validate optional image
+    // Validate optional images array (up to 3 images)
+    if (body.images) {
+      if (!Array.isArray(body.images)) {
+        throw new BadRequestException('images must be an array');
+      }
+      if (body.images.length > 3) {
+        throw new BadRequestException('Tối đa 3 ảnh đính kèm mỗi tin nhắn');
+      }
+      for (let i = 0; i < body.images.length; i++) {
+        const img = body.images[i];
+        if (!img || typeof img.data !== 'string' || img.data.length > MAX_IMAGE_B64_LENGTH) {
+          throw new BadRequestException(`Ảnh ${i + 1} quá lớn (tối đa ~1.5MB)`);
+        }
+        if (!img.mime || !ALLOWED_MIME_TYPES.includes(img.mime)) {
+          throw new BadRequestException(`Ảnh ${i + 1} định dạng không hợp lệ (hỗ trợ JPG, PNG, GIF, WebP)`);
+        }
+      }
+    }
+
+    // Validate optional legacy single image
     if (body.imageData) {
       if (typeof body.imageData !== 'string' || body.imageData.length > MAX_IMAGE_B64_LENGTH) {
         throw new BadRequestException(`Image too large (max ~1.5MB)`);
@@ -95,10 +122,14 @@ export class ContactController {
       message: body.message.trim(),
       imageData: body.imageData,
       imageMime: body.imageMime,
+      images: body.images,
       senderIp,
       userAgent,
       clientMeta: body.clientMeta,
     });
+
+    const hasImage = !!message.imageData || (message.images && message.images.length > 0);
+    const imageCount = message.images?.length || (message.imageData ? 1 : 0);
 
     // Return without imageData to keep response small
     return {
@@ -109,7 +140,8 @@ export class ContactController {
         email: message.email,
         title: message.title,
         message: message.message,
-        hasImage: !!message.imageData,
+        hasImage,
+        imageCount,
         createdAt: message.createdAt,
       },
     };
@@ -132,7 +164,8 @@ export class ContactController {
         email: m.email,
         title: m.title,
         message: m.message,
-        hasImage: !!m.imageData,
+        hasImage: !!m.imageData || (m.images && m.images.length > 0),
+        imageCount: m.images?.length || (m.imageData ? 1 : 0),
         createdAt: m.createdAt,
       })),
     };
@@ -185,7 +218,8 @@ export class ContactController {
         email: m.email,
         title: m.title,
         message: m.message,
-        hasImage: !!m.imageData,
+        hasImage: !!m.imageData || (m.images && m.images.length > 0),
+        imageCount: m.images?.length || (m.imageData ? 1 : 0),
         imageMime: m.imageMime,
         isRead: m.isRead,
         senderIp: m.senderIp,
