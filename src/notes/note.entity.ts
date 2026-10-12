@@ -23,8 +23,8 @@ export interface NoteImage {
 @Entity('notes')
 @Index(['userId'])
 @Index(['guestToken'])
-@Index(['shareToken'], { unique: true, where: '"shareToken" IS NOT NULL' })
-@Index(['expiresAt'], { where: '"expiresAt" IS NOT NULL' })
+@Index(['shareToken'], { unique: true, where: '"share_token" IS NOT NULL' })
+@Index(['expiresAt'], { where: '"expires_at" IS NOT NULL' })
 export class Note {
   @PrimaryGeneratedColumn('uuid')
   id: string;
