@@ -24,6 +24,10 @@ import { ContactMessage } from './contact/contact-message.entity';
 import { Coupon } from './plans/coupon.entity';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { PageVisit } from './analytics/page-visit.entity';
+import { NotesModule } from './notes/notes.module';
+import { Note } from './notes/note.entity';
+import { NoteInvite } from './notes/note-invite.entity';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
@@ -44,12 +48,13 @@ import { PageVisit } from './analytics/page-visit.entity';
         username: config.get<string>('DATABASE_USER', 'postgres'),
         password: config.get<string>('DATABASE_PASSWORD', ''),
         database: config.get<string>('DATABASE_NAME', 'vinfi_sso'),
-        entities: [User, OAuthAccount, Session, AuditLog, Reading, Plan, UserSubscription, AiUsage, Coupon, ContactMessage, PageVisit],
+        entities: [User, OAuthAccount, Session, AuditLog, Reading, Plan, UserSubscription, AiUsage, Coupon, ContactMessage, PageVisit, Note, NoteInvite],
         synchronize: true,
         logging: config.get<string>('NODE_ENV') !== 'production',
       }),
     }),
 
+    ScheduleModule.forRoot(),
     UsersModule,
     AuthModule,
     MemberAppModule,
@@ -59,6 +64,7 @@ import { PageVisit } from './analytics/page-visit.entity';
     PlansModule,
     ContactModule,
     AnalyticsModule,
+    NotesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
