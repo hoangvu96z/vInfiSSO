@@ -299,6 +299,17 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
               >
                 💬 Đến TalkWithMe (Liên hệ)
               </Button>
+              <Button
+                type="default"
+                block
+                style={{ height: 38, borderColor: 'rgba(16,185,129,0.4)', color: '#10b981' }}
+                onClick={() => {
+                  const token = localStorage.getItem('sso_token');
+                  window.location.href = token ? `https://vunph.id.vn/note/?sso_token=${token}` : 'https://vunph.id.vn/note/';
+                }}
+              >
+                📝 Đến NoteNow (Ghi chú)
+              </Button>
             </Space>
 
             <Button type="default" danger block icon={<LogoutOutlined />} onClick={onLogout} style={{ height: 42 }}>
