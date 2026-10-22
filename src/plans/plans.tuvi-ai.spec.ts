@@ -3,8 +3,10 @@ import {
   BadRequestException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { PlansController } from './plans.controller';
 import { PlansService } from './plans.service';
+import { SsoAuthGuard } from '../auth/auth.guard';
 
 describe('TuVi AI SSO integration', () => {
   const consumeQuota = jest.fn();
@@ -20,6 +22,18 @@ describe('TuVi AI SSO integration', () => {
   const previousKey = process.env.TUVI_AI_API_KEY;
   const previousModels = process.env.TUVI_AI_MODELS;
   const previousBaseUrl = process.env.TUVI_AI_BASE_URL;
+
+  it('requires the cookie-compatible SSO guard for the config route', () => {
+    const handler = Object.getOwnPropertyDescriptor(
+      PlansController.prototype,
+      'getTuviAiConfig',
+    )?.value as object;
+
+    expect(Reflect.getMetadata(GUARDS_METADATA, handler) as unknown[]).toEqual(
+      expect.arrayContaining([SsoAuthGuard]),
+    );
+  });
+
   beforeEach(() => {
     jest.resetAllMocks();
     process.env.TUVI_AI_API_KEY = 'test-key';
@@ -80,7 +94,7 @@ describe('TuVi AI SSO integration', () => {
     expect(consumeQuota).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
-  it('public config reveals readiness but never the key', () => {
+  it('reports readiness without exposing the key', () => {
     expect(controller.getTuviAiConfig()).toEqual({
       models: ['combo1'],
       configured: true,

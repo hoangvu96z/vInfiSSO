@@ -222,6 +222,7 @@ export class PlansController {
 
   // TuViNow uses the same SSO session and quota bucket as /plans/consume.
   @Get('tuvi-ai/config')
+  @UseGuards(SsoAuthGuard)
   getTuviAiConfig() {
     const models = (process.env.TUVI_AI_MODELS || 'combo1')
       .split(',')
