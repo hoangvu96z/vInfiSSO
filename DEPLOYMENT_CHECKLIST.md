@@ -57,6 +57,25 @@ change:
 # First take and verify the encrypted, offsite database backup.
 cd /var/www/sso.vunph.click
 
+# Read-only gate for the AI quota uniqueness migration. Stop if the duplicate
+# group count is nonzero. The migration repeats this check and fails without
+# changing rows if duplicates exist when it runs.
+sudo -u postgres psql -X -v ON_ERROR_STOP=1 -d vinfi_sso <<'SQL'
+SELECT COUNT(*) AS duplicate_key_groups
+FROM (
+  SELECT 1
+  FROM public.ai_usage
+  GROUP BY "userId", date, app
+  HAVING COUNT(*) > 1
+) AS duplicate_groups;
+
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE schemaname = 'public'
+  AND tablename = 'ai_usage'
+  AND indexdef ILIKE 'CREATE UNIQUE INDEX%';
+SQL
+
 # Review pending migrations. Stop if the list differs from the approved plan.
 NODE_ENV=production npm run migration:show
 
@@ -79,6 +98,13 @@ do not store those elevated credentials in the repository or application `.env`.
 The existing coupon migration was previously applied as manual SQL. Its TypeORM
 version is idempotent, so running it once through the CLI safely records it in
 `typeorm_migrations` and reapplies the grants without duplicating redemptions.
+The `ai_usage` quota-index migration is also guarded: it checks for duplicate
+`("userId", date, app)` groups and aborts before creating the index if any are
+present. Do not delete or merge duplicate usage rows automatically; stop and
+review them under an approved data procedure. The pre-deploy query above is an
+operator review gate; confirm whether `IDX_72dc538b954157b0ed930f9f19` already
+has the expected definition. The migration validates that canonical index name
+against PostgreSQL's catalog and protects against changes after the review.
 
 `synchronize` and `migrationsRun` remain disabled in the application, and GitHub
 Actions does not run database DDL. Migration review and execution are explicit
