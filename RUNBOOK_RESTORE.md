@@ -1,5 +1,26 @@
 # vInfiSSO Backup and Restore Runbook
 
+## Current production setup and verification status
+
+As of 2026-10-22, the VPS runs the backup job from
+`/usr/local/sbin/backup-vinfi.sh`, scheduled by `/etc/cron.d/vinfi-backup` at
+02:00 server time as root. The script source in this repository is
+[`scripts/backup-vinfi.sh`](scripts/backup-vinfi.sh). Encrypted files are kept
+locally under `/var/backups/vinfi/<run-id>/`; the configured Google Drive
+destination is `gdrive:vinfi-backup`, with daily copies below
+`daily/YYYY-MM-DD/<run-id>/` and monthly copies below
+`monthly/YYYY-MM/<run-id>/`. The status file is
+`/var/backups/vinfi/status.json` and the cron log is
+`/var/log/vinfi-backup.log`.
+
+The backup run `2026-10-22T132519Z` completed with `offsite_ok`, and SHA-256
+checks passed for the encrypted database dump, uploads archive, and app
+environment file. This verifies that the ciphertext reached Drive and matches
+the local checksums. It does **not** verify age decryption or a database/files
+restore: the offline age identity was not available to the operator. Until the
+owner makes that identity available through a secure local path, treat restore
+as unverified and do not claim a completed restore drill.
+
 This runbook covers the PostgreSQL database, `uploads/`, and the server-only
 `.env` file. Backups are encrypted with `age` before they are written to local
 backup storage or uploaded to Google Drive. The `age` private identity must stay
@@ -7,14 +28,15 @@ offline; the server stores only the public recipient.
 
 ## Backup schedule and retention
 
-Run [`scripts/backup-vinfi.sh`](scripts/backup-vinfi.sh)
-daily at 02:00 UTC as root. Each run creates a unique UTC run ID and stores:
+The production cron runs `/usr/local/sbin/backup-vinfi.sh` daily at 02:00
+server time as root. Each run creates a unique UTC run ID and stores:
 
 - Local encrypted files under `/var/backups/vinfi/<run-id>/`, retained for 7 days.
-- A Drive copy under `<remote>/daily/YYYY-MM-DD/<run-id>/`, retained for 30 days.
+- A Drive copy under
+  `gdrive:vinfi-backup/daily/YYYY-MM-DD/<run-id>/`, retained for 30 days.
 - On the first day of each month, a second Drive copy under
-  `<remote>/monthly/YYYY-MM/<run-id>/`, retained for 365 days (approximately
-  12 months).
+  `gdrive:vinfi-backup/monthly/YYYY-MM/<run-id>/`, retained for 365 days
+  (approximately 12 months).
 
 The script uploads and verifies the new daily copy before applying remote or
 local retention. It uses a non-blocking lock to prevent concurrent runs. A
@@ -24,8 +46,8 @@ write a plaintext database dump, uploads archive, or `.env` copy to disk.
 ## One-time server setup
 
 1. Install `age`, `rclone`, `postgresql-client`, and the standard Linux tools
-   used by the script (`flock`, `runuser`, `tar`, `sha256sum`). Run it on the
-   Linux VPS as root.
+   used by the script (`flock`, `runuser`, `tar`, `sha256sum`). The current VPS
+   runs `/usr/local/sbin/backup-vinfi.sh`; run it on the Linux VPS as root.
 2. On a trusted offline machine, generate an age identity with `age-keygen`.
    Store the private identity in the organization password manager and a
    separate offline recovery location. Do not copy it to the VPS, repository,
@@ -48,9 +70,8 @@ write a plaintext database dump, uploads archive, or `.env` copy to disk.
    at `drive.file`.
 4. Create `/etc/vinfi-backup.conf` owned by root with mode `0600`. It accepts
    simple `KEY=value` lines only; do not add shell expansions or commands. Set the
-   values below to match the deployed host; the deployment workflow currently
-   targets `/var/www/sso.vunph.click`, while the deployment guide also describes
-   `/opt/vinfisso`. Confirm the actual path on the VPS without copying or
+   values below to match the deployed host. The current app root is
+   `/var/www/sso.vunph.click`; confirm it before a restore without copying or
    printing `.env` contents.
 
    ```bash
@@ -74,9 +95,9 @@ write a plaintext database dump, uploads archive, or `.env` copy to disk.
    sudo chown root:root /etc/vinfi-backup.conf
    sudo chmod 0600 /etc/vinfi-backup.conf
    sudo install -d -o root -g root -m 0700 /var/backups/vinfi
-   sudo install -d -o root -g root -m 0750 /opt/vinfi-backup
    sudo chmod 0600 /root/.config/rclone/rclone.conf
-   sudo install -o root -g root -m 0750 scripts/backup-vinfi.sh /opt/vinfi-backup/backup-vinfi.sh
+   sudo install -o root -g root -m 0750 scripts/backup-vinfi.sh \
+     /usr/local/sbin/backup-vinfi.sh
    ```
 
    Edit the config with `sudoedit /etc/vinfi-backup.conf`. The database command
@@ -88,19 +109,21 @@ write a plaintext database dump, uploads archive, or `.env` copy to disk.
    without connecting to the database or Drive:
 
    ```bash
-   sudo /opt/vinfi-backup/backup-vinfi.sh --dry-run
+   sudo /usr/local/sbin/backup-vinfi.sh --dry-run
    ```
 
    This does not verify the age recipient, PostgreSQL permissions, rclone remote,
    or Google authorization. Confirm those during the first scheduled backup
    while monitoring only the exit status and encrypted artifact names.
 
-   Then install the daily cron entry. Keep cron output in a root-only log; the
-   script itself never enables shell tracing and does not print command
-   arguments, plaintext, key material, or OAuth tokens.
+   Install the repository's cron and logrotate files at the production paths.
+   The cron entry runs at 02:00 server time as root. Keep cron output in a
+   root-only log; the script itself never enables shell tracing and does not
+   print command arguments, plaintext, key material, or OAuth tokens.
 
-   ```cron
-   0 2 * * * /opt/vinfi-backup/backup-vinfi.sh >> /var/log/vinfi-backup.log 2>&1
+   ```bash
+   sudo install -o root -g root -m 0644 config/cron.d/vinfi-backup /etc/cron.d/vinfi-backup
+   sudo install -o root -g root -m 0644 config/logrotate.d/vinfi-backup /etc/logrotate.d/vinfi-backup
    ```
 
    Create `/var/log/vinfi-backup.log` as root with mode `0600` and configure
@@ -195,9 +218,10 @@ Use a root shell for the command blocks below.
    Decrypt on the trusted recovery workstation as described above, then
    transfer only the decrypted restore files to the root-only staging directory
    on the VPS. Never copy the age private identity to the VPS.
-2. Stop the vInfiSSO process (`pm2 stop vinfisso` or the actual configured PM2
-   process name). Take a fresh encrypted backup of the current database and
-   uploads before replacing them, if the current state remains accessible.
+2. Stop the vInfiSSO process (`pm2 stop vinfi-sso`; verify the configured PM2
+   process name before running the command). Take a fresh encrypted backup of
+   the current database and uploads before replacing them, if the current state
+   remains accessible.
 3. Restore PostgreSQL. Confirm the target name and dump before running this
    command: `--clean --if-exists` drops objects in the target database.
 
