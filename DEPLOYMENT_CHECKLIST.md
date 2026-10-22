@@ -184,25 +184,26 @@ Before going live:
 - [ ] SSL certificate installed and auto-renew enabled
 - [ ] Firewall rules configured (allow only 22, 80, 443, 25)
 - [ ] SSH key-based auth enabled, password auth disabled
-- [ ] Regular backups scheduled
+- [ ] Encrypted backups scheduled and verified (see `docs/backup-restore.md`)
 - [ ] Log rotation configured
 - [ ] All environment variables secured
 - [ ] OAuth credentials are correct
 
 ---
 
-## 💾 Backup Commands
+## Encrypted backup commands
 
 ```bash
-# Database backup
-sudo -u postgres pg_dump vinfi_sso > ~/backup_$(date +%Y%m%d).sql
+# Validate backup configuration without reading the database
+sudo /usr/local/sbin/backup-vinfi.sh --dry-run
 
-# Application backup
-tar -czf ~/app_backup_$(date +%Y%m%d).tar.gz /opt/vinfisso
-
-# Restore database
-sudo -u postgres psql vinfi_sso < backup.sql
+# Create the encrypted backup and inspect its status
+sudo /usr/local/sbin/backup-vinfi.sh
+sudo cat /var/backups/vinfi/status.json
 ```
+
+Use `docs/backup-restore.md` for installation, offsite setup, retention, and
+restore instructions. Do not write plaintext database dumps to disk.
 
 ---
 

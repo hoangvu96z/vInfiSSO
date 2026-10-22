@@ -1,0 +1,9 @@
+/var/log/vinfi-backup.log {
+    su root root
+    weekly
+    rotate 12
+    compress
+    missingok
+    notifempty
+    create 0600 root root
+}

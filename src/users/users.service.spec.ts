@@ -149,3 +149,78 @@ describe('UsersService password reset', () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });
+
+describe('UsersService action token storage', () => {
+  const userRepository = {
+    findOne: jest.fn(),
+    create: jest.fn((value) => value),
+    save: jest.fn(async (user) => user),
+  };
+  const mailService = {
+    sendVerificationEmail: jest.fn().mockResolvedValue(undefined),
+    sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
+  };
+  const service = new UsersService(
+    userRepository as any,
+    {} as any,
+    {} as any,
+    mailService as any,
+    {} as any,
+  );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    userRepository.findOne.mockResolvedValue(null);
+    userRepository.create.mockImplementation((value) => value);
+    userRepository.save.mockImplementation(async (user) => user);
+  });
+
+  it('stores only a digest of the registration verification token', async () => {
+    await service.createUser({ email: 'member@example.test' });
+
+    const rawToken = mailService.sendVerificationEmail.mock.calls[0][1];
+    const tokenDigest = crypto
+      .createHash('sha256')
+      .update(rawToken)
+      .digest('hex');
+
+    expect(userRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ emailVerificationToken: tokenDigest }),
+    );
+    expect(userRepository.save.mock.calls[0][0].emailVerificationToken).not.toBe(
+      rawToken,
+    );
+    expect(mailService.sendVerificationEmail).toHaveBeenCalledWith(
+      'member@example.test',
+      rawToken,
+    );
+  });
+
+  it('stores only a digest of password reset tokens while emailing the raw token', async () => {
+    const user = {
+      id: 'user-1',
+      email: 'member@example.test',
+      displayName: 'Member',
+      passwordResetToken: null as string | null,
+      passwordResetTokenExpiresAt: null as Date | null,
+    };
+    userRepository.findOne.mockResolvedValue(user);
+    await service.requestPasswordReset(user.email);
+
+    const rawToken = mailService.sendPasswordResetEmail.mock.calls[0][1];
+    const tokenDigest = crypto
+      .createHash('sha256')
+      .update(rawToken)
+      .digest('hex');
+
+    expect(userRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ passwordResetToken: tokenDigest }),
+    );
+    expect(user.passwordResetToken).not.toBe(rawToken);
+    expect(mailService.sendPasswordResetEmail).toHaveBeenCalledWith(
+      user.email,
+      rawToken,
+      user.displayName,
+    );
+  });
+});

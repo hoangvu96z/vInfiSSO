@@ -1,0 +1,14 @@
+# Copy to /etc/vinfi-backup.conf, replace the age recipient with the real
+# public recipient, then set owner root:root and mode 600.
+BACKUP_APP_ROOT=/var/www/sso.vunph.click
+BACKUP_ENV_FILE=/var/www/sso.vunph.click/.env
+BACKUP_UPLOADS_PATH=uploads
+BACKUP_DATABASE_NAME=vinfi_sso
+BACKUP_POSTGRES_OS_USER=postgres
+BACKUP_LOCAL_ROOT=/var/backups/vinfi
+BACKUP_AGE_RECIPIENT=age1replace_with_the_real_public_recipient
+
+# Optional offsite upload. Leave both lines commented for encrypted
+# local-only backups. Enable both after rclone is authorized as root.
+# BACKUP_RCLONE_REMOTE=gdrive:vinfi-backup
+# BACKUP_RCLONE_CONFIG=/root/.config/rclone/rclone.conf

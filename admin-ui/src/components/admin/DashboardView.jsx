@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Row, Col, Card, Statistic, message } from 'antd';
+import { Row, Col, Card, Statistic, Table, Button, message } from 'antd';
 import {
-  UserOutlined, PoweroffOutlined, AuditOutlined, RobotOutlined
+  UserOutlined, PoweroffOutlined, AuditOutlined, RobotOutlined, ReloadOutlined
 } from '@ant-design/icons';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
@@ -9,6 +9,7 @@ import {
 } from 'chart.js';
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
 import { authFetch, getResponseErrorMessage, safeArr } from '../../utils/api';
+import { normalizeQuotaStats } from '../../utils/quotaStats';
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement,
@@ -18,14 +19,16 @@ ChartJS.register(
 export default function DashboardView({ isDarkMode }) {
   const [stats, setStats] = useState(null);
   const [analyticsData, setAnalyticsData] = useState(null);
+  const [quotaStats, setQuotaStats] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [resStats, resCharts] = await Promise.all([
+      const [resStats, resCharts, resQuotaStats] = await Promise.all([
         authFetch('/admin/stats'),
         authFetch('/admin/analytics'),
+        authFetch('/admin/quota-stats'),
       ]);
       if (resStats?.ok) {
         const dataStats = await resStats.json();
@@ -38,6 +41,12 @@ export default function DashboardView({ isDarkMode }) {
         setAnalyticsData(dataCharts);
       } else if (resCharts) {
         message.error(await getResponseErrorMessage(resCharts, 'Không thể tải biểu đồ quản trị'));
+      }
+      if (resQuotaStats?.ok) {
+        const dataQuotaStats = await resQuotaStats.json();
+        setQuotaStats(normalizeQuotaStats(dataQuotaStats));
+      } else if (resQuotaStats) {
+        message.error(await getResponseErrorMessage(resQuotaStats, 'Không thể tải thống kê hạn mức AI'));
       }
     } catch {
       message.error('Không thể tải dữ liệu quản trị. Vui lòng thử lại.');
@@ -123,6 +132,22 @@ export default function DashboardView({ isDarkMode }) {
       },
     },
   };
+
+  const planColumns = [
+    { title: 'Gói', dataIndex: 'plan', key: 'plan' },
+    { title: 'Số người dùng', dataIndex: 'count', key: 'count', align: 'right' },
+  ];
+  const topUserColumns = [
+    {
+      title: 'User ID',
+      dataIndex: 'userId',
+      key: 'userId',
+      ellipsis: true,
+      render: (userId) => userId || '—',
+    },
+    { title: 'Lượt AI hôm nay', dataIndex: 'dailyCount', key: 'dailyCount', align: 'right' },
+    { title: 'Bonus đã dùng', dataIndex: 'bonusUsedToday', key: 'bonusUsedToday', align: 'right' },
+  ];
 
   return (
     <div>
@@ -215,6 +240,50 @@ export default function DashboardView({ isDarkMode }) {
           </Card>
         </Col>
       </Row>
+
+      <Card
+        title="🤖 Thống kê hạn mức AI"
+        style={{ marginTop: 24 }}
+        extra={<Button icon={<ReloadOutlined />} loading={loading} onClick={loadData}>Làm mới</Button>}
+      >
+        <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
+          <Col xs={24} sm={12}>
+            <Card size="small" loading={loading}>
+              <Statistic title="Tổng lượt AI hôm nay" value={quotaStats?.today || 0} />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12}>
+            <Card size="small" loading={loading}>
+              <Statistic title="Tổng lượt AI tháng này" value={quotaStats?.thisMonth || 0} />
+            </Card>
+          </Col>
+        </Row>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} lg={8}>
+            <Card size="small" title="Phân bổ gói" loading={loading}>
+              <Table
+                columns={planColumns}
+                dataSource={quotaStats?.planDistribution || []}
+                rowKey="plan"
+                pagination={false}
+                size="small"
+              />
+            </Card>
+          </Col>
+          <Col xs={24} lg={16}>
+            <Card size="small" title="Top người dùng AI hôm nay" loading={loading}>
+              <Table
+                columns={topUserColumns}
+                dataSource={quotaStats?.topUsers || []}
+                rowKey={(record, index) => record.userId || index}
+                pagination={false}
+                size="small"
+                scroll={{ x: 440 }}
+              />
+            </Card>
+          </Col>
+        </Row>
+      </Card>
     </div>
   );
 }

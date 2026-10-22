@@ -1,0 +1,6 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Encrypted PostgreSQL, uploads, and environment backup. Status is written to
+# /var/backups/vinfi/status.json; logs are rotated by logrotate.
+0 2 * * * root /usr/local/sbin/backup-vinfi.sh >> /var/log/vinfi-backup.log 2>&1
