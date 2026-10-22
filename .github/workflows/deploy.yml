@@ -43,7 +43,6 @@ jobs:
         with:
           host: ${{ secrets.SSH_HOST || '43.128.116.69' }}
           username: ${{ secrets.SSH_USER || 'ubuntu' }}
-          password: ${{ secrets.SSH_PASSWORD }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
           script: |
@@ -70,7 +69,6 @@ jobs:
         with:
           host: ${{ secrets.SSH_HOST || '43.128.116.69' }}
           username: ${{ secrets.SSH_USER || 'ubuntu' }}
-          password: ${{ secrets.SSH_PASSWORD }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
           source: 'dist/**,admin-ui/dist/**,package.json,package-lock.json'
@@ -82,7 +80,6 @@ jobs:
         with:
           host: ${{ secrets.SSH_HOST || '43.128.116.69' }}
           username: ${{ secrets.SSH_USER || 'ubuntu' }}
-          password: ${{ secrets.SSH_PASSWORD }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
           script: |
