@@ -6,12 +6,20 @@ import { Plan } from './plan.entity';
 import { UserSubscription } from './user-subscription.entity';
 import { AiUsage } from './ai-usage.entity';
 import { Coupon } from './coupon.entity';
+import { CouponRedemption } from './coupon-redemption.entity';
 import { User } from '../users/user.entity';
 import { SsoModule } from '../sso/sso.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Plan, UserSubscription, AiUsage, Coupon, User]),
+    TypeOrmModule.forFeature([
+      Plan,
+      UserSubscription,
+      AiUsage,
+      Coupon,
+      CouponRedemption,
+      User,
+    ]),
     SsoModule,
   ],
   controllers: [PlansController],

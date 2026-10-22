@@ -20,6 +20,7 @@ import { AiUsage } from './plans/ai-usage.entity';
 import { ContactModule } from './contact/contact.module';
 import { ContactMessage } from './contact/contact-message.entity';
 import { Coupon } from './plans/coupon.entity';
+import { CouponRedemption } from './plans/coupon-redemption.entity';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { PageVisit } from './analytics/page-visit.entity';
 import { NotesModule } from './notes/notes.module';
@@ -59,6 +60,7 @@ import { validateReadingEncryptionEnvironment } from './readings/reading-encrypt
           UserSubscription,
           AiUsage,
           Coupon,
+          CouponRedemption,
           ContactMessage,
           PageVisit,
           Note,

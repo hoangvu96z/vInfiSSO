@@ -10,6 +10,7 @@ import { Plan } from './plan.entity';
 import { UserSubscription } from './user-subscription.entity';
 import { AiUsage } from './ai-usage.entity';
 import { Coupon } from './coupon.entity';
+import { CouponRedemption } from './coupon-redemption.entity';
 import { User } from '../users/user.entity';
 import { normalizeQuotaAppName } from './quota-app.util';
 
@@ -454,6 +455,7 @@ export class PlansService {
     const normalizedCode = code.trim().toUpperCase();
     return this.dataSource.transaction(async (manager) => {
       const coupons = manager.getRepository(Coupon);
+      const redemptions = manager.getRepository(CouponRedemption);
       const subscriptions = manager.getRepository(UserSubscription);
       const coupon = await coupons.findOne({
         where: { code: normalizedCode, isActive: true },
@@ -470,6 +472,11 @@ export class PlansService {
       if (coupon.maxUses !== -1 && coupon.usedCount >= coupon.maxUses) {
         throw new BadRequestException('Mã khuyến mãi đã được sử dụng hết');
       }
+      const existingRedemption = await redemptions.findOne({
+        where: { couponId: coupon.id, userId },
+      });
+      if (existingRedemption)
+        throw new BadRequestException('Bạn đã sử dụng mã khuyến mãi này');
       const previousUse = await subscriptions.findOne({
         where: { userId, grantedByCoupon: normalizedCode },
       });
@@ -508,6 +515,32 @@ export class PlansService {
         throw new BadRequestException('Loại mã khuyến mãi không hỗ trợ');
       }
 
+      try {
+        await redemptions.insert({ couponId: coupon.id, userId });
+      } catch (error) {
+        const errorCode =
+          (error as { driverError?: { code?: string } }).driverError?.code ??
+          (error as { code?: string }).code;
+        if (errorCode === '23505')
+          throw new BadRequestException('Bạn đã sử dụng mã khuyến mãi này');
+        throw error;
+      }
+
+      // Keep the cap enforced by a single conditional database update. The
+      // transaction rolls back the redemption and subscription if no use is
+      // available by the time this statement runs.
+      const claimedUse = (await manager.query(
+        `UPDATE "coupons"
+         SET "usedCount" = "usedCount" + 1,
+             "updatedAt" = CURRENT_TIMESTAMP
+         WHERE "id" = $1
+           AND ("maxUses" = -1 OR "usedCount" < "maxUses")
+         RETURNING "usedCount"`,
+        [coupon.id],
+      )) as Array<{ usedCount: number }>;
+      if (!claimedUse.length)
+        throw new BadRequestException('Mã khuyến mãi đã được sử dụng hết');
+
       await subscriptions.save(
         subscriptions.create({
           userId,
@@ -518,8 +551,6 @@ export class PlansService {
           grantedByAdmin: false,
         }),
       );
-      coupon.usedCount += 1;
-      await coupons.save(coupon);
       return coupon.type === 'trial_days'
         ? {
             message: `Đã thêm ${coupon.durationDays} ngày vào gói của bạn!`,

@@ -1,30 +1,37 @@
 import { UnauthorizedException } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { SsoController } from './sso.controller';
+import type { User } from '../users/user.entity';
 
 describe('SsoController session response', () => {
-  it('does not return the raw bearer token from GET /sso/me', async () => {
-    const user = { id: 'user-1', email: 'member@example.test' };
+  it('returns only the sanitized current user from GET /sso/me', () => {
+    const user = {
+      id: 'user-1',
+      email: 'member@example.test',
+    } as unknown as User;
     const ssoService = {
-      resolveSession: jest.fn().mockResolvedValue(user),
       sanitizeUser: jest.fn().mockReturnValue(user),
     };
     const controller = new SsoController(
       ssoService as any,
       { get: jest.fn() } as any,
     );
-    const req = {
-      headers: { authorization: 'Bearer sensitive-session-token' },
-      socket: { remoteAddress: '127.0.0.1' },
-    } as unknown as Request;
-
-    const response = await controller.me(req);
+    const response = controller.me(user);
 
     expect(response).toEqual({ user });
     expect(response).not.toHaveProperty('token');
-    expect(ssoService.resolveSession).toHaveBeenCalledWith(
-      'sensitive-session-token',
+    expect(ssoService.sanitizeUser).toHaveBeenCalledWith(user);
+  });
+
+  it('keeps GET /sso/me available for unauthenticated visitors', () => {
+    const ssoService = { sanitizeUser: jest.fn() };
+    const controller = new SsoController(
+      ssoService as any,
+      { get: jest.fn() } as any,
     );
+
+    expect(controller.me(undefined)).toEqual({ user: null });
+    expect(ssoService.sanitizeUser).not.toHaveBeenCalled();
   });
 
   it('exchanges an allowed-origin single-use code into an SSO session', async () => {

@@ -22,7 +22,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { SsoService } from './sso.service';
 import { ConfigService } from '@nestjs/config';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
-import { SsoAuthGuard } from '../auth/auth.guard';
+import { OptionalSsoAuthGuard, SsoAuthGuard } from '../auth/auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { extractSessionToken } from '../auth/session-token.util';
 import { User } from '../users/user.entity';
@@ -146,9 +146,8 @@ export class SsoController {
   // ─── GET /sso/me ──────────────────────────────────────────────────────────
 
   @Get('me')
-  async me(@Req() req: Request) {
-    const token = this.getToken(req);
-    const user = await this.ssoService.resolveSession(token);
+  @UseGuards(OptionalSsoAuthGuard)
+  me(@CurrentUser() user?: User) {
     return {
       user: user ? this.ssoService.sanitizeUser(user) : null,
     };
@@ -226,10 +225,7 @@ export class SsoController {
   @Post('register')
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  async register(
-    @Body() body: RegisterDto,
-    @Req() req: Request,
-  ) {
+  async register(@Body() body: RegisterDto, @Req() req: Request) {
     const reqMeta = this.extractRequestMetadata(req);
     const result = await this.ssoService.register(body, reqMeta);
     return { success: true, ...result };

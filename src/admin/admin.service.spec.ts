@@ -142,14 +142,12 @@ describe('AdminService role changes', () => {
 
     expect(query.skip).toHaveBeenCalledWith(60);
     expect(query.take).toHaveBeenCalledWith(30);
-    expect(query.andWhere).toHaveBeenCalledWith(
-      'log.createdAt >= :dateFrom',
-      { dateFrom: new Date('2026-10-01T00:00:00.000Z') },
-    );
-    expect(query.andWhere).toHaveBeenCalledWith(
-      'log.createdAt < :dateTo',
-      { dateTo: new Date('2026-11-01T00:00:00.000Z') },
-    );
+    expect(query.andWhere).toHaveBeenCalledWith('log.createdAt >= :dateFrom', {
+      dateFrom: new Date('2026-10-01T00:00:00.000Z'),
+    });
+    expect(query.andWhere).toHaveBeenCalledWith('log.createdAt < :dateTo', {
+      dateTo: new Date('2026-11-01T00:00:00.000Z'),
+    });
   });
 
   it('rejects an invalid audit date range', async () => {
@@ -161,5 +159,147 @@ describe('AdminService role changes', () => {
     await expect(
       service.getAuditLogs(1, 30, '', '', 'not-a-date'),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('AdminService dashboard and user listing', () => {
+  const userRepo = {
+    count: jest.fn(),
+    createQueryBuilder: jest.fn(),
+  };
+  const sessionRepo = {
+    count: jest.fn(),
+    find: jest.fn(),
+  };
+  const auditLogRepo = { count: jest.fn() };
+  const readingRepo = {
+    count: jest.fn(),
+    find: jest.fn(),
+    createQueryBuilder: jest.fn(),
+  };
+  const aiUsageRepo = { find: jest.fn() };
+  const dataSource = { query: jest.fn() };
+  const service = new AdminService(
+    userRepo as any,
+    sessionRepo as any,
+    auditLogRepo as any,
+    readingRepo as any,
+    aiUsageRepo as any,
+    dataSource as any,
+  );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('aggregates dashboard reading totals without hydrating readings', async () => {
+    userRepo.count.mockResolvedValue(12);
+    sessionRepo.count.mockResolvedValue(5);
+    auditLogRepo.count.mockResolvedValue(3);
+    aiUsageRepo.find.mockResolvedValue([]);
+
+    const readingQuery = {
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({
+        totalReadings: '17',
+        totalIchingReadings: '4',
+        totalTarotReadings: '6',
+        totalTuviReadings: '2',
+      }),
+    };
+    readingRepo.createQueryBuilder.mockReturnValue(readingQuery);
+
+    await expect(service.getDashboardStats()).resolves.toEqual({
+      totalUsers: 12,
+      activeSessions: 5,
+      totalReadings: 17,
+      totalIchingReadings: 4,
+      totalTarotReadings: 6,
+      totalTuviReadings: 2,
+      totalAiQuestions: 0,
+      todayLogins: 3,
+      todayAiQuestions: 0,
+    });
+
+    expect(readingRepo.createQueryBuilder).toHaveBeenCalledWith('reading');
+    expect(readingQuery.select).toHaveBeenCalledWith(
+      'COUNT(*)',
+      'totalReadings',
+    );
+    expect(readingQuery.addSelect).toHaveBeenCalledTimes(3);
+    expect(
+      readingQuery.addSelect.mock.calls.map(([expression]) => expression),
+    ).toEqual([
+      `COUNT(*) FILTER (WHERE LOWER(reading.app) = 'iching')`,
+      `COUNT(*) FILTER (WHERE LOWER(reading.app) = 'tarot')`,
+      `COUNT(*) FILTER (WHERE LOWER(reading.app) LIKE '%tuvi%')`,
+    ]);
+    expect(readingQuery.getRawOne).toHaveBeenCalledTimes(1);
+    expect(readingRepo.find).not.toHaveBeenCalled();
+    expect(readingRepo.count).not.toHaveBeenCalled();
+  });
+
+  it('selects only returned user fields and aggregates sessions for the page', async () => {
+    const createdAt = new Date('2026-10-20T10:00:00.000Z');
+    const user = {
+      id: 'user-1',
+      email: 'member@example.test',
+      username: 'member',
+      displayName: 'Member',
+      role: 'user',
+      planName: 'free',
+      isVerified: true,
+      createdAt,
+    };
+    const query = {
+      select: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[user], 1]),
+    };
+    userRepo.createQueryBuilder.mockReturnValue(query);
+    dataSource.query
+      .mockResolvedValueOnce([{ userId: 'user-1', count: 2 }])
+      .mockResolvedValueOnce([{ userId: 'user-1', count: 3 }])
+      .mockResolvedValueOnce([{ userId: 'user-1', count: 8 }]);
+
+    await expect(service.getUsers(1, 20)).resolves.toEqual({
+      users: [
+        {
+          ...user,
+          activeSessionsCount: 2,
+          readingsCount: 3,
+          aiQuestionsCount: 8,
+        },
+      ],
+      total: 1,
+      page: 1,
+      limit: 20,
+      totalPages: 1,
+    });
+
+    expect(query.select.mock.calls[0][0]).toEqual([
+      'user.id',
+      'user.email',
+      'user.username',
+      'user.displayName',
+      'user.role',
+      'user.planName',
+      'user.isVerified',
+      'user.createdAt',
+    ]);
+    expect(query.select.mock.calls[0][0]).not.toContain('user.avatar');
+    expect(sessionRepo.find).not.toHaveBeenCalled();
+    expect(dataSource.query).toHaveBeenCalledTimes(3);
+    expect(dataSource.query.mock.calls[0][0]).toContain('FROM sessions');
+    expect(dataSource.query.mock.calls[0][0]).toContain(
+      'user_id = ANY($1::uuid[])',
+    );
+    expect(dataSource.query.mock.calls[0][0]).toContain('COUNT(*)::int');
+    expect(dataSource.query.mock.calls[0][0]).toContain('expires_at > NOW()');
+    expect(dataSource.query.mock.calls[0][1]).toEqual([['user-1']]);
   });
 });

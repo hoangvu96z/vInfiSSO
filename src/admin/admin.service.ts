@@ -51,18 +51,32 @@ export class AdminService {
     const activeSessions = await this.sessionRepo.count({
       where: { expiresAt: MoreThan(new Date()) },
     });
-    const totalReadings = await this.readingRepo.count();
+    const readingStats = await this.readingRepo
+      .createQueryBuilder('reading')
+      .select('COUNT(*)', 'totalReadings')
+      .addSelect(
+        `COUNT(*) FILTER (WHERE LOWER(reading.app) = 'iching')`,
+        'totalIchingReadings',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE LOWER(reading.app) = 'tarot')`,
+        'totalTarotReadings',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE LOWER(reading.app) LIKE '%tuvi%')`,
+        'totalTuviReadings',
+      )
+      .getRawOne<{
+        totalReadings: string | number;
+        totalIchingReadings: string | number;
+        totalTarotReadings: string | number;
+        totalTuviReadings: string | number;
+      }>();
 
-    const readings = await this.readingRepo.find({ select: { app: true } });
-    let totalIchingReadings = 0;
-    let totalTarotReadings = 0;
-    let totalTuviReadings = 0;
-    readings.forEach((r) => {
-      const a = (r.app || '').toLowerCase();
-      if (a === 'iching') totalIchingReadings += 1;
-      else if (a === 'tarot') totalTarotReadings += 1;
-      else if (a.includes('tuvi') || a === 'tuvinow') totalTuviReadings += 1;
-    });
+    const totalReadings = Number(readingStats?.totalReadings ?? 0);
+    const totalIchingReadings = Number(readingStats?.totalIchingReadings ?? 0);
+    const totalTarotReadings = Number(readingStats?.totalTarotReadings ?? 0);
+    const totalTuviReadings = Number(readingStats?.totalTuviReadings ?? 0);
 
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
@@ -355,7 +369,8 @@ export class AdminService {
       ) {
         throw new BadRequestException('Invalid audit log date range');
       }
-      if (start) query.andWhere('log.createdAt >= :dateFrom', { dateFrom: start });
+      if (start)
+        query.andWhere('log.createdAt >= :dateFrom', { dateFrom: start });
       if (end) query.andWhere('log.createdAt < :dateTo', { dateTo: end });
     }
 
