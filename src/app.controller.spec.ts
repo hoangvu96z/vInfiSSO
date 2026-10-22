@@ -97,6 +97,7 @@ describe('AppController', () => {
     const pagePath = join(process.cwd(), 'dist', 'sso', 'app-a-page.html');
     (readFileSync as jest.Mock).mockReturnValue('<html>App A</html>');
     const responseMock = {
+      locals: { cspNonce: 'app-page-nonce' },
       setHeader: jest.fn(),
       send: jest.fn(),
     };
@@ -109,6 +110,23 @@ describe('AppController', () => {
       'text/html; charset=utf-8',
     );
     expect(responseMock.send).toHaveBeenCalledWith('<html>App A</html>');
+  });
+
+  it('adds the per-response CSP nonce to inline scripts on legacy app pages', () => {
+    (readFileSync as jest.Mock).mockReturnValue(
+      '<html><script>legacyDemo()</script><script src="/app.js"></script></html>',
+    );
+    const responseMock = {
+      locals: { cspNonce: 'app-page-nonce' },
+      setHeader: jest.fn(),
+      send: jest.fn(),
+    };
+
+    appController.getAppAPage(responseMock as unknown as Response);
+
+    expect(responseMock.send).toHaveBeenCalledWith(
+      '<html><script nonce="app-page-nonce">legacyDemo()</script><script src="/app.js"></script></html>',
+    );
   });
 
   it('serves the favicon from Nest’s deployed asset directory', () => {

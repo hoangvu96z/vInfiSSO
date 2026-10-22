@@ -1,6 +1,8 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { randomBytes } from 'node:crypto';
+import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { getCorsOptions } from './security/cors-options';
@@ -16,6 +18,12 @@ async function bootstrap() {
   // local Nginx/PM2 deployment without trusting forwarded headers from clients.
   app.set('trust proxy', process.env.TRUST_PROXY?.trim() || 'loopback');
 
+  // Helmet reads this value while building the request's CSP header. Legacy
+  // demo pages that still need inline scripts receive the same nonce in HTML.
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.locals.cspNonce = randomBytes(18).toString('base64');
+    next();
+  });
   app.use(helmet(getHelmetOptions(process.env.NODE_ENV === 'production')));
 
   // No wildcard fallback: cross-origin browser requests require an explicitly

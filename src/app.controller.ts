@@ -10,6 +10,13 @@ const HTML_DIR = join(process.cwd(), 'dist', 'sso');
 // Resolve it from cwd because Nest's compiled `__dirname` is `dist/src`.
 const REACT_DIST_DIR = join(process.cwd(), 'admin-ui', 'dist');
 
+function addInlineScriptNonces(html: string, nonce: string): string {
+  return html.replace(
+    /<script\b(?![^>]*\bsrc\s*=)([^>]*)>/gi,
+    (_match, attributes: string) => `<script${attributes} nonce="${nonce}">`,
+  );
+}
+
 @Controller()
 export class AppController {
   constructor(private readonly appService: AppService) {}
@@ -61,10 +68,17 @@ export class AppController {
 
   @Get('ui/app-a')
   getAppAPage(@Res() res: Response) {
+    const nonce: unknown = res.locals.cspNonce;
+    if (typeof nonce !== 'string' || !nonce) {
+      return res
+        .status(500)
+        .type('text/plain')
+        .send('Security headers unavailable');
+    }
     try {
       const html = readFileSync(join(HTML_DIR, 'app-a-page.html'), 'utf8');
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.send(html);
+      res.send(addInlineScriptNonces(html, nonce));
     } catch {
       res.status(404).send('Not found');
     }
@@ -72,10 +86,17 @@ export class AppController {
 
   @Get('ui/app-b')
   getAppBPage(@Res() res: Response) {
+    const nonce: unknown = res.locals.cspNonce;
+    if (typeof nonce !== 'string' || !nonce) {
+      return res
+        .status(500)
+        .type('text/plain')
+        .send('Security headers unavailable');
+    }
     try {
       const html = readFileSync(join(HTML_DIR, 'app-b-page.html'), 'utf8');
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.send(html);
+      res.send(addInlineScriptNonces(html, nonce));
     } catch {
       res.status(404).send('Not found');
     }

@@ -1,12 +1,14 @@
 import type { HelmetOptions } from 'helmet';
+import type { Response } from 'express';
 
 /**
- * CSP for the legacy login/register/app HTML and the compiled admin UI.
+ * CSP for the compiled admin UI and legacy demo pages.
  *
- * The legacy login/register/app pages still use inline scripts, event handlers,
- * and styles, so those remain enabled until those pages are migrated. External
- * scripts and styles are limited to the same origin and Google Fonts; resource
- * types without an explicit source fall back to same-origin.
+ * Inline scripts are allowed only when they carry the per-response nonce set by
+ * main.ts. Inline event handlers are blocked. Inline styles remain enabled for
+ * the legacy layouts; external scripts and styles are limited to same origin
+ * and Google Fonts, while resource types without an explicit source fall back
+ * to same-origin.
  */
 export function getHelmetOptions(isProduction: boolean): HelmetOptions {
   return {
@@ -17,9 +19,16 @@ export function getHelmetOptions(isProduction: boolean): HelmetOptions {
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
         formAction: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
-        // The legacy login/register/app pages attach inline event handlers.
-        scriptSrcAttr: ["'unsafe-inline'"],
+        scriptSrc: [
+          "'self'",
+          (_req, res) => {
+            const nonce: unknown = (res as Response).locals.cspNonce;
+            return typeof nonce === 'string' && nonce
+              ? `'nonce-${nonce}'`
+              : "'none'";
+          },
+        ],
+        scriptSrcAttr: ["'none'"],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
         imgSrc: ["'self'", 'data:', 'blob:', 'https:'],

@@ -6,9 +6,17 @@ import { getHelmetOptions } from './helmet-options';
 describe('Helmet security headers', () => {
   const makeApp = (isProduction: boolean) => {
     const app = express();
+    app.use((_req, res, next) => {
+      res.locals.cspNonce = 'test-nonce';
+      next();
+    });
     app.use(helmet(getHelmetOptions(isProduction)));
     app.get('/ui/admin', (_req, res) => {
-      res.type('html').send('<script>legacyAdminPage()</script>');
+      res
+        .type('html')
+        .send(
+          `<script nonce="${res.locals.cspNonce}">legacyAdminPage()</script>`,
+        );
     });
     return app;
   };
@@ -19,9 +27,11 @@ describe('Helmet security headers', () => {
 
     expect(response.status).toBe(200);
     expect(csp).toContain("default-src 'self'");
-    expect(csp).toContain("script-src 'self' 'unsafe-inline'");
+    expect(csp).toContain("script-src 'self' 'nonce-test-nonce'");
+    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
     expect(csp).not.toContain('https://cdn.jsdelivr.net');
-    expect(csp).toContain("script-src-attr 'unsafe-inline'");
+    expect(csp).toContain("script-src-attr 'none'");
+    expect(response.text).toContain('nonce="test-nonce"');
     expect(csp).toContain("style-src 'self' 'unsafe-inline'");
     expect(csp).toContain('https://fonts.googleapis.com');
     expect(csp).toContain("frame-ancestors 'none'");

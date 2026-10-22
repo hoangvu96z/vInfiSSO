@@ -21,7 +21,7 @@
       <div id="status" class="status">Đang kiểm tra đăng nhập...</div>
       <div style="margin-top: 12px;">
         <a class="button primary" href="/ui/sso">Đến trang SSO</a>
-        <button class="secondary" onclick="logout()">Đăng xuất</button>
+        <button id="logoutButton" class="secondary">Đăng xuất</button>
       </div>
     </div>
 
@@ -46,6 +46,8 @@
         notifyOtherTabs({ type: 'logout' });
         await loadSession();
       }
+
+      document.getElementById('logoutButton')?.addEventListener('click', logout);
 
       window.addEventListener('storage', (event) => {
         if (event.key === 'vInfiSSO-demo-state') {
