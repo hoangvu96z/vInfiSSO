@@ -129,6 +129,31 @@ describe('ReadingsService encryption at rest', () => {
     expect(response.question).toBe(longQuestion);
   });
 
+  it('stores a 125 KiB payload only in the encrypted JSONB envelope', async () => {
+    const largeConversation = 'A'.repeat(125 * 1024);
+    const payload = { aiConversation: largeConversation };
+
+    await service.createReading(userId, {
+      app: 'iching',
+      type: 'luc-hao',
+      question: 'Private question',
+      title: 'Private personal title',
+      data: payload,
+    });
+
+    const stored = getLastSaved();
+    expect(stored.question).toBeNull();
+    expect(stored.title).toBe('iching:luc-hao');
+    expect(stored.title.length).toBeLessThanOrEqual(500);
+    expect(stored.data).toHaveProperty('_enc');
+    expect(JSON.stringify(stored.data)).not.toContain(largeConversation);
+    expect(encryption.decryptEnvelope(stored.data, userId, stored.id)).toEqual({
+      question: 'Private question',
+      title: 'Private personal title',
+      data: payload,
+    });
+  });
+
   it('decrypts v2 rows on list and single-record reads, and leaves legacy rows intact', async () => {
     const encrypted = encryption.encryptPayload(
       { question: 'Question', title: 'Display title', data: { result: 42 } },
