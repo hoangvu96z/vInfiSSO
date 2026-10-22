@@ -4,7 +4,11 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { AppService } from './app.service';
 
-const HTML_DIR = join(__dirname, 'sso');
+// Nest copies HTML/SVG assets to dist/sso at the deployed application root.
+const HTML_DIR = join(process.cwd(), 'dist', 'sso');
+// GitHub Actions deploys this directory beside `dist/` at the application root.
+// Resolve it from cwd because Nest's compiled `__dirname` is `dist/src`.
+const REACT_DIST_DIR = join(process.cwd(), 'admin-ui', 'dist');
 
 @Controller()
 export class AppController {
@@ -33,7 +37,7 @@ export class AppController {
 
   @Get(['ui/sso', 'ui/admin', 'ui/register', 'ui/profile', 'ui/payment'])
   getReactApp(@Res() res: Response) {
-    const reactIndex = join(__dirname, '..', 'admin-ui', 'dist', 'index.html');
+    const reactIndex = join(REACT_DIST_DIR, 'index.html');
     if (!existsSync(reactIndex)) {
       return res.status(503).type('text/plain').send('Web UI is not built');
     }
@@ -45,7 +49,7 @@ export class AppController {
 
   @Get(['assets/:file', 'ui/assets/:file'])
   getReactAsset(@Param('file') file: string, @Res() res: Response) {
-    const assetPath = join(__dirname, '..', 'admin-ui', 'dist', 'assets', file);
+    const assetPath = join(REACT_DIST_DIR, 'assets', file);
     if (existsSync(assetPath)) {
       if (file.endsWith('.js'))
         res.setHeader('Content-Type', 'application/javascript');

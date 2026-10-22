@@ -18,6 +18,7 @@ const DEFAULT_BATCH_SIZE = 200;
 interface MigrationOptions {
   apply: boolean;
   reencrypt: boolean;
+  skipUnreadableLegacy: boolean;
   batchSize: number;
 }
 
@@ -25,10 +26,24 @@ interface BatchResult {
   batch: Reading[];
   eligible: number;
   alreadyCurrent: number;
+  legacyDecryptionFailed: number;
 }
 
-function parseOptions(args: string[]): MigrationOptions {
-  const knownFlags = new Set(['--apply', '--dry-run', '--reencrypt']);
+interface MigrationSummary {
+  scanned: number;
+  eligible: number;
+  alreadyCurrent: number;
+  legacyDecryptionFailed: number;
+  updated: number;
+}
+
+export function parseOptions(args: string[]): MigrationOptions {
+  const knownFlags = new Set([
+    '--apply',
+    '--dry-run',
+    '--reencrypt',
+    '--skip-unreadable-legacy',
+  ]);
   for (const arg of args) {
     if (arg.startsWith('--batch-size=')) continue;
     if (!knownFlags.has(arg)) throw new Error('Unknown migration option');
@@ -36,9 +51,13 @@ function parseOptions(args: string[]): MigrationOptions {
   const apply = args.includes('--apply');
   const dryRun = args.includes('--dry-run');
   const reencrypt = args.includes('--reencrypt');
+  const skipUnreadableLegacy = args.includes('--skip-unreadable-legacy');
   if (apply && dryRun) throw new Error('Choose either --apply or --dry-run');
   if (reencrypt && !apply) {
     throw new Error('--reencrypt requires --apply');
+  }
+  if (skipUnreadableLegacy && !apply) {
+    throw new Error('--skip-unreadable-legacy requires --apply');
   }
 
   const batchArg = args.find((arg) => arg.startsWith('--batch-size='));
@@ -55,7 +74,12 @@ function parseOptions(args: string[]): MigrationOptions {
     );
   }
 
-  return { apply: apply && !dryRun, reencrypt, batchSize };
+  return {
+    apply: apply && !dryRun,
+    reencrypt,
+    skipUnreadableLegacy,
+    batchSize,
+  };
 }
 
 function isV2ReadingData(value: unknown): boolean {
@@ -157,7 +181,7 @@ async function loadBatch(
   return query.getMany();
 }
 
-async function processBatch(
+export async function processBatch(
   repo: Repository<Reading>,
   cursor: string | null,
   options: MigrationOptions,
@@ -165,6 +189,7 @@ async function processBatch(
 ): Promise<BatchResult> {
   const batch = await loadBatch(repo, cursor, options.batchSize, options.apply);
   let alreadyCurrent = 0;
+  let legacyDecryptionFailed = 0;
   const pending: Reading[] = [];
 
   for (const reading of batch) {
@@ -179,9 +204,21 @@ async function processBatch(
       continue;
     }
 
-    const payload = encrypted
-      ? encryption.decryptEnvelope(reading.data, reading.userId)
-      : decryptLegacyPayload(reading);
+    let payload: ReadingPayload;
+    if (encrypted) {
+      // V2 authentication and key errors remain fatal in every mode.
+      payload = encryption.decryptEnvelope(reading.data, reading.userId);
+    } else {
+      try {
+        payload = decryptLegacyPayload(reading);
+      } catch {
+        legacyDecryptionFailed += 1;
+        if (options.apply && !options.skipUnreadableLegacy) {
+          throw new Error('Unreadable legacy reading record');
+        }
+        continue;
+      }
+    }
     reading.question = null;
     reading.title = getStorageTitle(reading.app, reading.type);
     reading.data = encryption.encryptPayload(payload, reading.userId);
@@ -189,7 +226,64 @@ async function processBatch(
   }
 
   if (options.apply && pending.length > 0) await repo.save(pending);
-  return { batch, eligible: pending.length, alreadyCurrent };
+  return {
+    batch,
+    eligible: pending.length,
+    alreadyCurrent,
+    legacyDecryptionFailed,
+  };
+}
+
+export async function runPass(
+  repo: Repository<Reading>,
+  options: MigrationOptions,
+  encryption: ReadingEncryption,
+  dataSource: DataSource,
+): Promise<MigrationSummary> {
+  let cursor: string | null = null;
+  const summary: MigrationSummary = {
+    scanned: 0,
+    eligible: 0,
+    alreadyCurrent: 0,
+    legacyDecryptionFailed: 0,
+    updated: 0,
+  };
+
+  while (true) {
+    const result: BatchResult = options.apply
+      ? await dataSource.transaction<BatchResult>((manager) =>
+          processBatch(
+            manager.getRepository(Reading),
+            cursor,
+            options,
+            encryption,
+          ),
+        )
+      : await processBatch(repo, cursor, options, encryption);
+    if (result.batch.length === 0) break;
+    cursor = result.batch[result.batch.length - 1].id;
+    summary.scanned += result.batch.length;
+    summary.eligible += result.eligible;
+    summary.alreadyCurrent += result.alreadyCurrent;
+    summary.legacyDecryptionFailed += result.legacyDecryptionFailed;
+    if (options.apply) summary.updated += result.eligible;
+  }
+  return summary;
+}
+
+function reportSummary(
+  options: MigrationOptions,
+  summary: MigrationSummary,
+): void {
+  console.log(
+    JSON.stringify({
+      mode: options.apply ? 'apply' : 'dry-run',
+      batchSize: options.batchSize,
+      reencrypt: options.reencrypt,
+      skipUnreadableLegacy: options.skipUnreadableLegacy,
+      ...summary,
+    }),
+  );
 }
 
 async function migrate(options: MigrationOptions): Promise<void> {
@@ -202,48 +296,33 @@ async function migrate(options: MigrationOptions): Promise<void> {
   const dataSource = createDataSource();
   await dataSource.initialize();
 
-  let cursor: string | null = null;
-  let scanned = 0;
-  let eligible = 0;
-  let alreadyCurrent = 0;
-  let updated = 0;
-
   try {
     const repo = dataSource.getRepository(Reading);
-    while (true) {
-      const result: BatchResult = options.apply
-        ? await dataSource.transaction<BatchResult>((manager) =>
-            processBatch(
-              manager.getRepository(Reading),
-              cursor,
-              options,
-              encryption,
-            ),
-          )
-        : await processBatch(repo, cursor, options, encryption);
-      const batch: Reading[] = result.batch;
-      if (batch.length === 0) break;
-      cursor = batch[batch.length - 1].id;
-      scanned += batch.length;
-      eligible += result.eligible;
-      alreadyCurrent += result.alreadyCurrent;
-      if (options.apply) updated += result.eligible;
+    if (options.apply && !options.skipUnreadableLegacy) {
+      // Validate every row before writing so known unreadable legacy records
+      // cannot leave an earlier batch migrated by a default apply run.
+      const preflight = await runPass(
+        repo,
+        { ...options, apply: false },
+        encryption,
+        dataSource,
+      );
+      if (preflight.legacyDecryptionFailed > 0) {
+        reportSummary(options, preflight);
+        throw new Error(
+          'Unreadable legacy reading records found; no changes applied',
+        );
+      }
+    }
+
+    const summary = await runPass(repo, options, encryption, dataSource);
+    reportSummary(options, summary);
+    if (!options.apply && summary.legacyDecryptionFailed > 0) {
+      throw new Error('Unreadable legacy reading records found during dry-run');
     }
   } finally {
     await dataSource.destroy();
   }
-
-  console.log(
-    JSON.stringify({
-      mode: options.apply ? 'apply' : 'dry-run',
-      batchSize: options.batchSize,
-      reencrypt: options.reencrypt,
-      scanned,
-      eligible,
-      alreadyCurrent,
-      updated,
-    }),
-  );
 }
 
 async function main(): Promise<void> {
@@ -257,4 +336,4 @@ async function main(): Promise<void> {
   }
 }
 
-void main();
+if (require.main === module) void main();
