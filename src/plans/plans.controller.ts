@@ -11,6 +11,7 @@ import {
   BadGatewayException,
   Res,
 } from '@nestjs/common';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { PlansService } from './plans.service';
 import { SsoAuthGuard } from '../auth/auth.guard';
@@ -63,7 +64,8 @@ export class PlansController {
 
   // POST /plans/ai — quota-gated server-side OpenAI-compatible streaming proxy.
   @Post('ai')
-  @UseGuards(SsoAuthGuard)
+  @UseGuards(SsoAuthGuard, ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async proxyAi(
     @CurrentUser() user: User,
     @Body() body: PlansAiDto,

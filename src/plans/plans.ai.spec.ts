@@ -3,11 +3,33 @@ import {
   ForbiddenException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { GUARDS_METADATA } from '@nestjs/common/constants';
+import { ThrottlerGuard } from '@nestjs/throttler';
+import {
+  THROTTLER_LIMIT,
+  THROTTLER_TTL,
+} from '@nestjs/throttler/dist/throttler.constants';
 import { PlansController } from './plans.controller';
 import { PlansService } from './plans.service';
 import { PlansAiDto } from './dto/plan-write.dto';
+import { SsoAuthGuard } from '../auth/auth.guard';
 
 describe('PlansController POST /plans/ai', () => {
+  it('requires authentication and limits each client to 10 requests per minute', () => {
+    const handler = Object.getOwnPropertyDescriptor(
+      PlansController.prototype,
+      'proxyAi',
+    )?.value as object;
+
+    expect(Reflect.getMetadata(GUARDS_METADATA, handler) as unknown[]).toEqual(
+      expect.arrayContaining([SsoAuthGuard, ThrottlerGuard]),
+    );
+    expect(Reflect.getMetadata(THROTTLER_LIMIT + 'default', handler)).toBe(10);
+    expect(Reflect.getMetadata(THROTTLER_TTL + 'default', handler)).toBe(
+      60_000,
+    );
+  });
+
   const consumeQuota = jest.fn();
   const checkQuota = jest.fn();
   const refundQuota = jest.fn();
