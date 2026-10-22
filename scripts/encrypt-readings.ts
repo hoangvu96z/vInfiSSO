@@ -1,3 +1,5 @@
+import { constants } from 'node:fs';
+import { open } from 'node:fs/promises';
 import { ConfigModule } from '@nestjs/config';
 import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 import { getEnvFiles } from '../src/config/env-files';
@@ -15,12 +17,17 @@ import { Session } from '../src/users/session.entity';
 
 const MAX_BATCH_SIZE = 200;
 const DEFAULT_BATCH_SIZE = 200;
+const MAX_EXPECTED_UNREADABLE_LEGACY_IDS = 200;
+const MAX_EXPECTED_IDS_FILE_BYTES = 32 * 1024;
+const EXPECTED_IDS_ARGUMENT = '--expected-unreadable-legacy-ids-file=';
 
 interface MigrationOptions {
   apply: boolean;
   reencrypt: boolean;
   rollbackToV2: boolean;
-  skipUnreadableLegacy: boolean;
+  expectedUnreadableLegacyIdsFile: string | null;
+  expectedUnreadableLegacyIds: ReadonlySet<string>;
+  lockRows?: boolean;
   batchSize: number;
 }
 
@@ -30,6 +37,7 @@ interface BatchResult {
   alreadyCurrent: number;
   legacyDecryptionFailed: number;
   legacyPreserved: number;
+  legacyDecryptionFailedIds: Set<string>;
 }
 
 interface MigrationSummary {
@@ -38,6 +46,7 @@ interface MigrationSummary {
   alreadyCurrent: number;
   legacyDecryptionFailed: number;
   legacyPreserved: number;
+  legacyDecryptionFailedIds: Set<string>;
   updated: number;
 }
 
@@ -47,29 +56,39 @@ export function parseOptions(args: string[]): MigrationOptions {
     '--dry-run',
     '--reencrypt',
     '--rollback-to-v2',
-    '--skip-unreadable-legacy',
   ]);
+  const expectedIdsArgs = args.filter((arg) =>
+    arg.startsWith(EXPECTED_IDS_ARGUMENT),
+  );
+  if (expectedIdsArgs.length > 1) {
+    throw new Error('Provide only one expected unreadable ID file');
+  }
   for (const arg of args) {
     if (arg.startsWith('--batch-size=')) continue;
+    if (arg.startsWith(EXPECTED_IDS_ARGUMENT)) continue;
     if (!knownFlags.has(arg)) throw new Error('Unknown migration option');
   }
   const apply = args.includes('--apply');
   const dryRun = args.includes('--dry-run');
   const reencrypt = args.includes('--reencrypt');
   const rollbackToV2 = args.includes('--rollback-to-v2');
-  const skipUnreadableLegacy = args.includes('--skip-unreadable-legacy');
+  const expectedUnreadableLegacyIdsFile = expectedIdsArgs.length
+    ? expectedIdsArgs[0].slice(EXPECTED_IDS_ARGUMENT.length).trim()
+    : null;
+  if (expectedIdsArgs.length && !expectedUnreadableLegacyIdsFile) {
+    throw new Error('Expected unreadable ID file path is required');
+  }
   if (apply && dryRun) throw new Error('Choose either --apply or --dry-run');
   if (reencrypt && !apply) {
     throw new Error('--reencrypt requires --apply');
   }
-  if (skipUnreadableLegacy && !apply) {
-    throw new Error('--skip-unreadable-legacy requires --apply');
+  if (expectedUnreadableLegacyIdsFile && rollbackToV2) {
+    throw new Error(
+      'Expected unreadable ID files cannot be used with --rollback-to-v2',
+    );
   }
   if (rollbackToV2 && reencrypt) {
     throw new Error('--rollback-to-v2 cannot be combined with --reencrypt');
-  }
-  if (rollbackToV2 && skipUnreadableLegacy) {
-    throw new Error('--rollback-to-v2 cannot be combined with --skip-unreadable-legacy');
   }
 
   const batchArg = args.find((arg) => arg.startsWith('--batch-size='));
@@ -90,9 +109,68 @@ export function parseOptions(args: string[]): MigrationOptions {
     apply: apply && !dryRun,
     reencrypt,
     rollbackToV2,
-    skipUnreadableLegacy,
+    expectedUnreadableLegacyIdsFile,
+    expectedUnreadableLegacyIds: new Set<string>(),
     batchSize,
   };
+}
+
+export async function loadExpectedUnreadableLegacyIds(
+  filePath: string | null,
+): Promise<ReadonlySet<string>> {
+  if (!filePath) return new Set<string>();
+
+  let file;
+  try {
+    const flags = constants.O_RDONLY | (constants.O_NOFOLLOW || 0);
+    file = await open(filePath, flags);
+    const fileStat = await file.stat();
+    if (
+      !fileStat.isFile() ||
+      fileStat.size > MAX_EXPECTED_IDS_FILE_BYTES ||
+      (fileStat.mode & 0o077) !== 0 ||
+      (typeof process.getuid === 'function' &&
+        fileStat.uid !== process.getuid())
+    ) {
+      throw new Error('Invalid private expected unreadable ID file');
+    }
+
+    const contents = await file.readFile({ encoding: 'utf8' });
+    const ids = contents
+      .replace(/^\uFEFF/, '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (
+      ids.length > MAX_EXPECTED_UNREADABLE_LEGACY_IDS ||
+      ids.some((id) => !/^[A-Za-z0-9_-]{1,128}$/.test(id)) ||
+      new Set(ids).size !== ids.length
+    ) {
+      throw new Error('Invalid private expected unreadable ID file');
+    }
+    return new Set(ids);
+  } catch {
+    // Do not echo the file path or its contents into operator logs.
+    throw new Error(
+      'Unable to read a valid private expected unreadable ID file',
+    );
+  } finally {
+    await file?.close();
+  }
+}
+
+function assertExpectedUnreadableIdsMatch(
+  actual: ReadonlySet<string>,
+  expected: ReadonlySet<string>,
+): void {
+  if (
+    actual.size !== expected.size ||
+    [...actual].some((id) => !expected.has(id))
+  ) {
+    throw new Error(
+      'Unreadable legacy reading set does not match the expected ID file',
+    );
+  }
 }
 
 function hasReadingEnvelope(value: unknown): boolean {
@@ -190,10 +268,16 @@ export async function processBatch(
   options: MigrationOptions,
   encryption: ReadingEncryption,
 ): Promise<BatchResult> {
-  const batch = await loadBatch(repo, cursor, options.batchSize, options.apply);
+  const batch = await loadBatch(
+    repo,
+    cursor,
+    options.batchSize,
+    options.apply || !!options.lockRows,
+  );
   let alreadyCurrent = 0;
   let legacyDecryptionFailed = 0;
   let legacyPreserved = 0;
+  const legacyDecryptionFailedIds = new Set<string>();
   const pending: Reading[] = [];
 
   for (const reading of batch) {
@@ -210,10 +294,7 @@ export async function processBatch(
         );
         pending.push({
           ...reading,
-          data: encryption.encryptPayloadV2ForRollback(
-            payload,
-            reading.userId,
-          ),
+          data: encryption.encryptPayloadV2ForRollback(payload, reading.userId),
         });
       } else if (envelopeVersion === 'v2') {
         // Validate existing V2 ciphertext before declaring it rollback-ready.
@@ -246,20 +327,23 @@ export async function processBatch(
         payload = decryptLegacyPayload(reading);
       } catch {
         legacyDecryptionFailed += 1;
-        if (options.apply && !options.skipUnreadableLegacy) {
+        legacyDecryptionFailedIds.add(reading.id);
+        if (options.expectedUnreadableLegacyIds.has(reading.id)) {
+          legacyPreserved += 1;
+          continue;
+        }
+        if (options.apply) {
           throw new Error('Unreadable legacy reading record');
         }
         continue;
       }
     }
-    reading.question = null;
-    reading.title = getStorageTitle(reading.app, reading.type);
-    reading.data = encryption.encryptPayload(
-      payload,
-      reading.userId,
-      reading.id,
-    );
-    pending.push(reading);
+    pending.push({
+      ...reading,
+      question: null,
+      title: getStorageTitle(reading.app, reading.type),
+      data: encryption.encryptPayload(payload, reading.userId, reading.id),
+    });
   }
 
   if (options.apply && pending.length > 0) await repo.save(pending);
@@ -269,6 +353,7 @@ export async function processBatch(
     alreadyCurrent,
     legacyDecryptionFailed,
     legacyPreserved,
+    legacyDecryptionFailedIds,
   };
 }
 
@@ -277,6 +362,7 @@ export async function runPass(
   options: MigrationOptions,
   encryption: ReadingEncryption,
   dataSource: DataSource,
+  transactionPerBatch = true,
 ): Promise<MigrationSummary> {
   let cursor: string | null = null;
   const summary: MigrationSummary = {
@@ -285,20 +371,22 @@ export async function runPass(
     alreadyCurrent: 0,
     legacyDecryptionFailed: 0,
     legacyPreserved: 0,
+    legacyDecryptionFailedIds: new Set<string>(),
     updated: 0,
   };
 
   while (true) {
-    const result: BatchResult = options.apply
-      ? await dataSource.transaction<BatchResult>((manager) =>
-          processBatch(
-            manager.getRepository(Reading),
-            cursor,
-            options,
-            encryption,
-          ),
-        )
-      : await processBatch(repo, cursor, options, encryption);
+    const result: BatchResult =
+      options.apply && transactionPerBatch
+        ? await dataSource.transaction<BatchResult>((manager) =>
+            processBatch(
+              manager.getRepository(Reading),
+              cursor,
+              options,
+              encryption,
+            ),
+          )
+        : await processBatch(repo, cursor, options, encryption);
     if (result.batch.length === 0) break;
     cursor = result.batch[result.batch.length - 1].id;
     summary.scanned += result.batch.length;
@@ -306,8 +394,67 @@ export async function runPass(
     summary.alreadyCurrent += result.alreadyCurrent;
     summary.legacyDecryptionFailed += result.legacyDecryptionFailed;
     summary.legacyPreserved += result.legacyPreserved;
+    for (const id of result.legacyDecryptionFailedIds) {
+      summary.legacyDecryptionFailedIds.add(id);
+    }
     if (options.apply) summary.updated += result.eligible;
   }
+  return summary;
+}
+
+export async function applyWithExpectedUnreadableLegacyIds(
+  dataSource: DataSource,
+  options: MigrationOptions,
+  encryption: ReadingEncryption,
+): Promise<MigrationSummary> {
+  if (!options.apply || !options.expectedUnreadableLegacyIdsFile) {
+    throw new Error('An apply run with a private expected ID file is required');
+  }
+
+  return dataSource.transaction('SERIALIZABLE', async (manager) => {
+    const repo = manager.getRepository(Reading);
+    const preflight = await runPass(
+      repo,
+      { ...options, apply: false, lockRows: true },
+      encryption,
+      dataSource,
+      false,
+    );
+    assertExpectedUnreadableIdsMatch(
+      preflight.legacyDecryptionFailedIds,
+      options.expectedUnreadableLegacyIds,
+    );
+
+    // Apply inside the same transaction. Row locks acquired during preflight
+    // remain held, and a second exact-set check rolls back all batches if the
+    // observed failures change before commit.
+    const applied = await runPass(
+      repo,
+      { ...options, lockRows: true },
+      encryption,
+      dataSource,
+      false,
+    );
+    assertExpectedUnreadableIdsMatch(
+      applied.legacyDecryptionFailedIds,
+      options.expectedUnreadableLegacyIds,
+    );
+    return applied;
+  });
+}
+
+export async function runValidatedDryRun(
+  repo: Repository<Reading>,
+  options: MigrationOptions,
+  encryption: ReadingEncryption,
+  dataSource: DataSource,
+): Promise<MigrationSummary> {
+  if (options.apply) throw new Error('A dry-run option is required');
+  const summary = await runPass(repo, options, encryption, dataSource);
+  assertExpectedUnreadableIdsMatch(
+    summary.legacyDecryptionFailedIds,
+    options.expectedUnreadableLegacyIds,
+  );
   return summary;
 }
 
@@ -315,14 +462,22 @@ function reportSummary(
   options: MigrationOptions,
   summary: MigrationSummary,
 ): void {
+  const safeSummary = {
+    scanned: summary.scanned,
+    eligible: summary.eligible,
+    alreadyCurrent: summary.alreadyCurrent,
+    legacyDecryptionFailed: summary.legacyDecryptionFailed,
+    legacyPreserved: summary.legacyPreserved,
+    updated: summary.updated,
+  };
   console.log(
     JSON.stringify({
       mode: options.apply ? 'apply' : 'dry-run',
       batchSize: options.batchSize,
       reencrypt: options.reencrypt,
       rollbackToV2: options.rollbackToV2,
-      skipUnreadableLegacy: options.skipUnreadableLegacy,
-      ...summary,
+      allowlistedLegacyExceptions: options.expectedUnreadableLegacyIds.size,
+      ...safeSummary,
     }),
   );
 }
@@ -339,7 +494,17 @@ async function migrate(options: MigrationOptions): Promise<void> {
 
   try {
     const repo = dataSource.getRepository(Reading);
-    if (options.apply && !options.skipUnreadableLegacy) {
+    if (options.apply && options.expectedUnreadableLegacyIdsFile) {
+      const summary = await applyWithExpectedUnreadableLegacyIds(
+        dataSource,
+        options,
+        encryption,
+      );
+      reportSummary(options, summary);
+      return;
+    }
+
+    if (options.apply) {
       // Validate every row before writing so known unreadable legacy records
       // cannot leave an earlier batch migrated by a default apply run.
       const preflight = await runPass(
@@ -348,19 +513,32 @@ async function migrate(options: MigrationOptions): Promise<void> {
         encryption,
         dataSource,
       );
-      if (preflight.legacyDecryptionFailed > 0) {
-        reportSummary(options, preflight);
+      reportSummary(options, preflight);
+      try {
+        assertExpectedUnreadableIdsMatch(
+          preflight.legacyDecryptionFailedIds,
+          options.expectedUnreadableLegacyIds,
+        );
+      } catch {
         throw new Error(
           'Unreadable legacy reading records found; no changes applied',
         );
       }
     }
 
+    if (!options.apply) {
+      const summary = await runValidatedDryRun(
+        repo,
+        options,
+        encryption,
+        dataSource,
+      );
+      reportSummary(options, summary);
+      return;
+    }
+
     const summary = await runPass(repo, options, encryption, dataSource);
     reportSummary(options, summary);
-    if (!options.apply && summary.legacyDecryptionFailed > 0) {
-      throw new Error('Unreadable legacy reading records found during dry-run');
-    }
   } finally {
     await dataSource.destroy();
   }
@@ -368,7 +546,11 @@ async function migrate(options: MigrationOptions): Promise<void> {
 
 async function main(): Promise<void> {
   try {
-    await migrate(parseOptions(process.argv.slice(2)));
+    const options = parseOptions(process.argv.slice(2));
+    options.expectedUnreadableLegacyIds = await loadExpectedUnreadableLegacyIds(
+      options.expectedUnreadableLegacyIdsFile,
+    );
+    await migrate(options);
   } catch {
     console.error(
       'Reading encryption migration failed. No record contents or configuration values were logged.',

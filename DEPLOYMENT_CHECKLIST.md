@@ -123,40 +123,77 @@ records. This migration rewrites encrypted `readings.data` values only; it does
 not change the database schema. The CLI reports counts only and never exports
 decrypted reading content.
 
-Before a production apply, follow `RUNBOOK_RESTORE.md` and complete a restore
-drill from an encrypted offsite backup, including reading decryption. A
-checksum or successful upload alone is not enough. Deploy the v3-capable API
+Before a production apply, follow `RUNBOOK_RESTORE.md`, complete a restore drill
+from an encrypted offsite backup including reading decryption, and create a
+fresh encrypted offsite backup with `/usr/local/sbin/backup-vinfi.sh`. Verify
+its status and checksums before proceeding; a successful upload alone is not
+enough. Deploy the v3-capable API
 first. The build emits `dist/scripts/encrypt-readings.js`; the deploy workflow
 checks for and uploads that compiled entry point with the release. The CLI runs
 with Node and production dependencies only; it does not require the TypeScript
 source or `ts-node` on the VPS. Verify the deployed artifact exists before
 running it. New v3 writes are readable alongside existing v2/legacy rows, so
-the API may serve traffic during the migration dry-run. The dry-run must finish
-with zero `legacyDecryptionFailed` and be reviewed before any write:
+the API may serve traffic during a migration dry-run. With no known exceptions,
+the dry-run must finish with zero `legacyDecryptionFailed` and be reviewed before
+any write:
 
 ```bash
 cd /var/www/sso.vunph.click
 NODE_ENV=production npm run encrypt:readings -- --dry-run
 ```
 
-If the dry-run is clean, stop `vinfi-sso` to prevent concurrent reading writes,
-then apply the migration. The command validates all records before its first
-batch and commits bounded batches of at most 200 records. If it stops midway,
-the deployed API can read the resulting mix of v2 and v3; rerun the dry-run,
-review its counts, then resume with `--apply` before restarting the API.
+If a reviewed inventory contains legacy ciphertext that cannot be authenticated
+with any retained legacy key, do not use a blanket skip option. Put exactly the
+approved reading IDs, one per line, in a caller-provided file outside the
+repository. The file must be a regular file owned by the operator running the
+CLI with no group or world permissions; mode `0600` is recommended and `0400`
+is also accepted. Blank lines are ignored. The CLI never prints IDs or record
+contents. The exact-ID mode runs a no-write preflight and requires the
+unreadable legacy ID set to equal the file contents. It rejects extra failures,
+missing IDs, duplicate IDs, and insecure files. Review the summary counts and
+use the same protected file for every dry-run/apply check:
 
 ```bash
-pm2 stop vinfi-sso
-NODE_ENV=production npm run encrypt:readings -- --apply
-NODE_ENV=production npm run encrypt:readings -- --dry-run
-pm2 restart vinfi-sso --update-env
+# Prepare this file outside the repository as the same OS user that will run
+# the CLI; enter one approved reading ID per line with a secure local editor.
+EXPECTED_IDS_FILE=/home/ubuntu/.private/reading-unreadable-ids.txt
+chmod 600 "$EXPECTED_IDS_FILE"
+NODE_ENV=production npm run encrypt:readings -- --dry-run --expected-unreadable-legacy-ids-file="$EXPECTED_IDS_FILE"
 ```
 
-After apply, the dry-run must report `eligible: 0`, `legacyDecryptionFailed: 0`,
-and all migrated records as `alreadyCurrent` (legacy rows, if any, are reported
-as `legacyPreserved`). Verify the API and a reading can be fetched and decrypted
-before accepting the release. Keep the verified pre-migration backup until
-acceptance.
+If the dry-run passes its configured policy, stop `vinfi-sso` to prevent
+concurrent reading writes, then apply the migration. For the exact-ID mode,
+repeat the dry-run after the service is stopped, then apply using the same
+allowlist. Preflight and all bounded batches run in one `SERIALIZABLE`
+transaction with row locks; if the failed-ID set differs from the allowlist
+during apply, the transaction aborts without committing any batch. If this
+controlled apply fails, keep the service stopped, rerun dry-run, and investigate
+before changing the private allowlist or retrying. Without an allowlist, the
+default apply also validates all records before writing, then commits bounded
+batches of at most 200 records. If a default apply stops midway, the deployed
+API can read the resulting mix of v2 and v3; rerun the dry-run, review its
+counts, then resume before restarting the API.
+
+```bash
+EXPECTED_IDS_FILE=/home/ubuntu/.private/reading-unreadable-ids.txt
+pm2 stop vinfi-sso && \
+  NODE_ENV=production npm run encrypt:readings -- --dry-run --expected-unreadable-legacy-ids-file="$EXPECTED_IDS_FILE" && \
+  NODE_ENV=production npm run encrypt:readings -- --apply --expected-unreadable-legacy-ids-file="$EXPECTED_IDS_FILE" && \
+  NODE_ENV=production npm run encrypt:readings -- --dry-run --expected-unreadable-legacy-ids-file="$EXPECTED_IDS_FILE" && \
+  pm2 restart vinfi-sso --update-env
+```
+
+Run the chain as one block. If it returns a failure after stopping the service,
+leave `vinfi-sso` stopped and investigate; the restart is reached only after
+both dry-runs and the apply succeed.
+
+After a normal apply, the dry-run must report `eligible: 0`,
+`legacyDecryptionFailed: 0`, and all migrated records as `alreadyCurrent`. With
+the exact-ID exception file, the post-apply dry-run must report `eligible: 0`,
+`legacyPreserved` and `legacyDecryptionFailed` equal to the allowlist count, and
+must match that same ID set exactly. Verify the API and a reading can be fetched
+and decrypted before accepting the release. Keep the verified pre-migration
+backup until acceptance.
 
 For an application rollback to a v2-only release, use the deployed migration
 CLI to downgrade every v3 envelope to v2 while preserving the current database
@@ -165,8 +202,9 @@ the backfill finishes. Run a dry-run, stop `vinfi-sso`, run the dry-run again,
 then apply and run the dry-run once more. Only deploy/resume the old application
 after the final report shows `eligible: 0` and `legacyDecryptionFailed: 0`.
 V2/legacy reads remain compatible with the current release throughout this
-step. This preserves readings created by the v3 release, including records
-written before or during the v2-to-v3 backfill. Keep the service stopped until
+step; legacy ciphertext rows are preserved unchanged and appear in
+`legacyPreserved`. This preserves readings created by the v3 release, including
+records written before or during the v2-to-v3 backfill. Keep the service stopped until
 the v2-only release takes over, so no new v3 rows are written. Do not restore
 the old pre-migration database for an application-only rollback, since that
 would discard newer readings. Use the full verified backup only for database
@@ -174,14 +212,18 @@ recovery, and never manually edit envelopes or use `--reencrypt` as a rollback.
 
 ```bash
 cd /var/www/sso.vunph.click
-NODE_ENV=production npm run encrypt:readings -- --rollback-to-v2 --dry-run
-pm2 stop vinfi-sso
-NODE_ENV=production npm run encrypt:readings -- --rollback-to-v2 --dry-run
-NODE_ENV=production npm run encrypt:readings -- --rollback-to-v2 --apply
-NODE_ENV=production npm run encrypt:readings -- --rollback-to-v2 --dry-run
+NODE_ENV=production npm run encrypt:readings -- --rollback-to-v2 --dry-run && \
+  pm2 stop vinfi-sso && \
+  NODE_ENV=production npm run encrypt:readings -- --rollback-to-v2 --dry-run && \
+  NODE_ENV=production npm run encrypt:readings -- --rollback-to-v2 --apply && \
+  NODE_ENV=production npm run encrypt:readings -- --rollback-to-v2 --dry-run
 # Now deploy/revert the application to the v2-only release and let its deploy
 # restart PM2. Do not restart the v3 release between conversion and rollback.
 ```
+
+Run the rollback chain as one block. If it returns a failure after stopping
+the service, keep the service stopped and do not deploy the v2-only release
+until the failure is resolved and the final rollback dry-run succeeds.
 
 ### Phase 6: Configure Environment
 ```bash
