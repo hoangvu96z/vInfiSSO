@@ -105,6 +105,30 @@ describe('ReadingsService encryption at rest', () => {
     );
   });
 
+  it('stores a question over 500 characters only in the encrypted JSONB envelope', async () => {
+    const longQuestion = 'Q'.repeat(501);
+
+    const response = await service.createReading(userId, {
+      app: 'iching',
+      type: 'luc-hao',
+      question: longQuestion,
+      title: 'Private personal title',
+      data: { result: { hexagram: 'Moon' } },
+    });
+
+    const stored = getLastSaved();
+    expect(stored.question).toBeNull();
+    expect(stored.title).toBe('iching:luc-hao');
+    expect(stored.data).toHaveProperty('_enc');
+    expect(JSON.stringify(stored.data)).not.toContain(longQuestion);
+    expect(encryption.decryptEnvelope(stored.data, userId, stored.id)).toEqual({
+      question: longQuestion,
+      title: 'Private personal title',
+      data: { result: { hexagram: 'Moon' } },
+    });
+    expect(response.question).toBe(longQuestion);
+  });
+
   it('decrypts v2 rows on list and single-record reads, and leaves legacy rows intact', async () => {
     const encrypted = encryption.encryptPayload(
       { question: 'Question', title: 'Display title', data: { result: 42 } },
