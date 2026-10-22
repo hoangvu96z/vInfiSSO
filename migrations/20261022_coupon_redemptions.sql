@@ -1,5 +1,6 @@
--- Manual schema migration. TypeORM synchronize is disabled and this project
--- does not configure an automatic migration runner.
+-- Manual SQL fallback for the explicit TypeORM migration at
+-- src/database/migrations/1792627200000-CouponRedemptions.ts. Keep the SQL
+-- semantics in sync; neither application startup nor GitHub Actions runs DDL.
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS coupon_redemptions (

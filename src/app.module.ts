@@ -68,6 +68,8 @@ import { validateReadingEncryptionEnvironment } from './readings/reading-encrypt
         ],
         // Production schema changes must be applied through explicit migrations.
         synchronize: false,
+        // Migrations are run explicitly by an operator before deploying code.
+        migrationsRun: false,
         logging: config.get<string>('NODE_ENV') !== 'production',
       }),
     }),

@@ -100,20 +100,33 @@ git clone https://github.com/hoangvu96z/vInfiSSO.git .
 
 ### Apply pending database migrations before rollout
 
-Production schema migrations are manual; the GitHub Actions deploy workflow
-does not apply SQL files. Before deploying code that depends on a pending
-migration, verify a recent database backup and apply the SQL from a checkout
-that contains the migration file. For the coupon-redemption table, run this as
-the PostgreSQL administrator before the application rollout:
+Production migrations use the explicit TypeORM CLI. From the checkout of the
+release being prepared, take and verify the encrypted database backup first,
+then review and apply migrations before triggering the deployment:
 
 ```bash
 cd /opt/vinfisso
-sudo -u postgres psql -v ON_ERROR_STOP=1 -d vinfi_sso \
-  -f migrations/20261022_coupon_redemptions.sql
+npm ci
+npm run build
+NODE_ENV=production npm run migration:show
+NODE_ENV=production npm run migration:run
+NODE_ENV=production npm run migration:show
 ```
 
-This migration is safe to rerun: it preserves existing redemptions and reapplies
-the table and sequence privileges required by the `vinfi_sso` runtime role.
+Review the pending list before running it. If the runtime database role cannot
+create schema objects, supply `MIGRATION_DATABASE_*` overrides through the
+operator's secure shell environment for both CLI commands. Do not put elevated
+migration credentials in the repository or application `.env` file.
+
+The coupon-redemption migration is safe to run after its earlier manual SQL
+application: it preserves existing uses, avoids duplicate redemptions, reapplies
+the table and sequence grants required by the `vinfi_sso` runtime role, and then
+records the migration in `typeorm_migrations`. It is forward-only because
+dropping the table would discard coupon-use history.
+
+The Nest application keeps `synchronize` and `migrationsRun` disabled, and
+GitHub Actions does not apply schema DDL. The required order is verified
+encrypted backup → `migration:show` → `migration:run` → deployment.
 
 ### 1. Install Dependencies
 ```bash

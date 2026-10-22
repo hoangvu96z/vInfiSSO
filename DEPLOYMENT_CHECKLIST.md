@@ -39,17 +39,37 @@ npm install
 npm run build
 ```
 
-Before rolling out code that depends on a pending database schema change, take a
-database backup and apply its manual SQL migration as the PostgreSQL administrator.
-For the coupon-redemption table, apply the idempotent migration before the app
-rollout:
+Before rolling out code that depends on a database schema change, follow this
+order from the release checkout in `/opt/vinfisso`:
 
 ```bash
-sudo -u postgres psql -v ON_ERROR_STOP=1 -d vinfi_sso \
-  -f /opt/vinfisso/migrations/20261022_coupon_redemptions.sql
+# 1. Take and verify the encrypted database backup, including its offsite copy.
+# 2. Build the exact release so the compiled DataSource and migrations exist.
+cd /opt/vinfisso
+npm ci
+npm run build
+
+# 3. Review the pending migration list. Stop if it differs from the release plan.
+NODE_ENV=production npm run migration:show
+
+# 4. Apply only the reviewed migrations with a database role allowed to run DDL.
+NODE_ENV=production npm run migration:run
+
+# 5. Confirm no expected migration remains pending, then deploy this release.
+NODE_ENV=production npm run migration:show
 ```
 
-The GitHub Actions deploy workflow does not apply SQL migrations automatically.
+The TypeORM CLI uses `DATABASE_*` settings from the server environment files.
+If the runtime database role cannot create schema objects, provide the
+`MIGRATION_DATABASE_*` overrides only in the operator's secure shell environment;
+do not store those elevated credentials in the repository or application `.env`.
+The existing coupon migration was previously applied as manual SQL. Its TypeORM
+version is idempotent, so running it once through the CLI safely records it in
+`typeorm_migrations` and reapplies the grants without duplicating redemptions.
+
+`synchronize` and `migrationsRun` remain disabled in the application, and GitHub
+Actions does not run database DDL. Migration review and execution are explicit
+operator steps before deployment.
 
 ### Phase 6: Configure Environment
 ```bash
