@@ -93,6 +93,9 @@ describe('AdminService role changes', () => {
         }),
       }),
     );
+    expect(sessionRepo.delete).toHaveBeenCalledWith({
+      user: { id: 'member-1' },
+    });
   });
 
   it('aggregates AI usage without hydrating encrypted reading data', async () => {

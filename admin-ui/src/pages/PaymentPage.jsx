@@ -132,7 +132,7 @@ export default function PaymentPage({ user }) {
         </Button>
         <Title level={3} style={{ margin: '4px 0 2px' }}>💳 Thanh Toán</Title>
         <Text type="secondary" style={{ fontSize: '0.85rem' }}>
-          Hoàn tất thanh toán để nâng cấp gói dịch vụ
+          Tham khảo các gói dịch vụ và mức giá hiện hành
         </Text>
 
         {/* ── Bước 1: Chọn gói ── */}
@@ -165,7 +165,7 @@ export default function PaymentPage({ user }) {
         {/* ── Payment is disabled until a server-side order flow is available ── */}
         <div style={{ marginTop: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <Text type="secondary" style={{ fontSize: '0.8rem' }}>Tổng thanh toán</Text>
+            <Text type="secondary" style={{ fontSize: '0.8rem' }}>Giá gói được chọn</Text>
             <div style={{ fontWeight: 800, fontSize: '1.35rem', color: '#f5d78e' }}>{formatPrice(plan.price)}</div>
           </div>
         </div>
