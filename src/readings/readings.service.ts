@@ -9,7 +9,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Repository } from 'typeorm';
 import { Reading } from './reading.entity';
 import { AuditLog } from '../users/audit-log.entity';
-import { ReadingEncryptionService } from './reading-encryption';
+import {
+  decryptLegacyClientTree,
+  ReadingEncryptionService,
+} from './reading-encryption';
 
 const ENCRYPTED_READING_KEY = '_enc';
 
@@ -119,7 +122,14 @@ export class ReadingsService {
       throw new BadRequestException('Reading update data must be an object');
     }
 
-    const current = this.decryptStoredReading(reading);
+    const hasEncryptedEnvelope =
+      !!reading.data &&
+      typeof reading.data === 'object' &&
+      !Array.isArray(reading.data) &&
+      Object.prototype.hasOwnProperty.call(reading.data, ENCRYPTED_READING_KEY);
+    const current = hasEncryptedEnvelope
+      ? this.decryptStoredReading(reading)
+      : this.decryptLegacyReadingForUpdate(reading, userId);
     const mergedData = { ...current.data, ...partialData };
     const safeTitle = getSafeMetadataTitle(reading.app, reading.type);
     reading.question = null;
@@ -196,6 +206,37 @@ export class ReadingsService {
       };
     } catch {
       // Never expose corrupt ciphertext or allow an update to overwrite it.
+      throw new InternalServerErrorException(
+        'Unable to read encrypted history. Contact support before retrying.',
+      );
+    }
+  }
+
+  private decryptLegacyReadingForUpdate(
+    reading: Reading,
+    userId: string,
+  ): Reading {
+    try {
+      const question = decryptLegacyClientTree(reading.question ?? null, userId);
+      const title = decryptLegacyClientTree(reading.title, userId);
+      const data = decryptLegacyClientTree(reading.data, userId);
+      if (
+        (question !== null && typeof question !== 'string') ||
+        typeof title !== 'string' ||
+        !data ||
+        typeof data !== 'object' ||
+        Array.isArray(data)
+      ) {
+        throw new Error('Invalid legacy reading payload');
+      }
+      return {
+        ...reading,
+        question,
+        title,
+        data: data as Record<string, unknown>,
+      };
+    } catch {
+      // Legacy client ciphertext must be authenticated before a PATCH can replace it.
       throw new InternalServerErrorException(
         'Unable to read encrypted history. Contact support before retrying.',
       );

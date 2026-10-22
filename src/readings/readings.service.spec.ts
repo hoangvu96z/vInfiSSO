@@ -1,9 +1,13 @@
+import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { InternalServerErrorException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { AuditLog } from '../users/audit-log.entity';
 import { Reading } from './reading.entity';
-import { ReadingEncryptionService } from './reading-encryption';
+import {
+  LEGACY_CLIENT_SALT,
+  ReadingEncryptionService,
+} from './reading-encryption';
 import { ReadingsService } from './readings.service';
 import { User } from '../users/user.entity';
 
@@ -23,6 +27,21 @@ describe('ReadingsService encryption at rest', () => {
   const userId = 'owner-1';
   const owner = Object.assign(new User(), { id: userId });
   const createdAt = new Date('2026-10-22T00:00:00.000Z');
+
+  function encryptLegacyValue(value: unknown, accountId: string): string {
+    const key = createHash('sha256')
+      .update(`${accountId}:${LEGACY_CLIENT_SALT}`, 'utf8')
+      .digest();
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const plaintext = typeof value === 'string' ? value : JSON.stringify(value);
+    const ciphertext = Buffer.concat([
+      cipher.update(plaintext, 'utf8'),
+      cipher.final(),
+      cipher.getAuthTag(),
+    ]);
+    return `enc_v1::${iv.toString('base64')}:${ciphertext.toString('base64')}`;
+  }
 
   beforeEach(() => {
     lastSaved = undefined;
@@ -166,6 +185,50 @@ describe('ReadingsService encryption at rest', () => {
     });
   });
 
+  it('decrypts readable legacy fields before updating them to a V2 envelope', async () => {
+    const row = {
+      id: 'reading-legacy-readable',
+      userId,
+      user: owner,
+      app: 'iching',
+      type: 'luc-hao',
+      question: encryptLegacyValue('Saved question', userId),
+      title: encryptLegacyValue('Saved personal title', userId),
+      data: {
+        result: { hexagram: 'Moon' },
+        aiConversation: encryptLegacyValue(
+          { initialInterpretation: 'Old answer', followUps: [] },
+          userId,
+        ),
+      },
+      createdAt,
+    } as Reading;
+    repo.findOne.mockResolvedValue(row);
+
+    const response = await service.updateReadingData(userId, row.id, {
+      aiConversation: {
+        initialInterpretation: 'Old answer',
+        followUps: [{ question: 'Next', answer: 'New answer' }],
+      },
+    });
+
+    const stored = getLastSaved();
+    expect(stored.question).toBeNull();
+    expect(stored.title).toBe('iching:luc-hao');
+    expect(stored.data).toHaveProperty('_enc');
+    expect(response).toMatchObject({
+      question: 'Saved question',
+      title: 'Saved personal title',
+      data: {
+        result: { hexagram: 'Moon' },
+        aiConversation: {
+          initialInterpretation: 'Old answer',
+          followUps: [{ question: 'Next', answer: 'New answer' }],
+        },
+      },
+    });
+  });
+
   it('refuses to overwrite an envelope that fails authentication', async () => {
     repo.findOne.mockResolvedValue({
       id: 'reading-4',
@@ -180,6 +243,26 @@ describe('ReadingsService encryption at rest', () => {
 
     await expect(
       service.updateReadingData(userId, 'reading-4', { aiConversation: [] }),
+    ).rejects.toBeInstanceOf(InternalServerErrorException);
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('refuses to overwrite unreadable legacy client ciphertext', async () => {
+    repo.findOne.mockResolvedValue({
+      id: 'reading-5',
+      userId,
+      app: 'iching',
+      type: 'luc-hao',
+      question: null,
+      title: 'iching:luc-hao',
+      data: { aiConversation: 'enc_v1::invalid' },
+      createdAt,
+    });
+
+    await expect(
+      service.updateReadingData(userId, 'reading-5', {
+        aiConversation: { followUps: [{ question: 'new', answer: 'new' }] },
+      }),
     ).rejects.toBeInstanceOf(InternalServerErrorException);
     expect(repo.save).not.toHaveBeenCalled();
   });
