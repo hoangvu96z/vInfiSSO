@@ -26,6 +26,80 @@ describe('ContactController guest session access', () => {
     expect(contactService.getMessagesBySession).not.toHaveBeenCalled();
   });
 
+  it('rejects forged tokens before loading history', async () => {
+    const contactService = {
+      isValidGuestSessionToken: jest.fn().mockReturnValue(false),
+      getMessagesBySession: jest.fn(),
+    };
+    const controller = new ContactController(
+      contactService as unknown as ContactService,
+    );
+
+    await expect(
+      controller.getSessionMessages('session-1', {
+        headers: { 'x-guest-token': 'forged-token' },
+      } as unknown as Request),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(contactService.isValidGuestSessionToken).toHaveBeenCalledWith(
+      'session-1',
+      'forged-token',
+    );
+    expect(contactService.getMessagesBySession).not.toHaveBeenCalled();
+  });
+
+  it('allows a signed token to read only its session history fields', async () => {
+    const createdAt = new Date('2026-10-20T10:00:00.000Z');
+    const contactService = {
+      isValidGuestSessionToken: jest.fn().mockReturnValue(true),
+      getMessagesBySession: jest.fn().mockResolvedValue([
+        {
+          id: 'message-1',
+          sessionId: 'session-1',
+          name: 'Visitor',
+          email: 'visitor@example.test',
+          title: 'Question',
+          message: 'Private message content',
+          images: [{ data: 'private-base64-image', mime: 'image/png' }],
+          imageData: 'legacy-private-base64-image',
+          imageMime: 'image/png',
+          senderIp: '192.0.2.1',
+          metadata: { timezone: 'Asia/Ho_Chi_Minh' },
+          createdAt,
+        },
+      ]),
+    };
+    const controller = new ContactController(
+      contactService as unknown as ContactService,
+    );
+
+    await expect(
+      controller.getSessionMessages('session-1', {
+        headers: { 'x-guest-token': 'signed-guest-token' },
+      } as unknown as Request),
+    ).resolves.toEqual({
+      messages: [
+        {
+          id: 'message-1',
+          sessionId: 'session-1',
+          name: 'Visitor',
+          email: 'visitor@example.test',
+          title: 'Question',
+          message: 'Private message content',
+          hasImage: true,
+          imageCount: 1,
+          createdAt,
+        },
+      ],
+    });
+    expect(contactService.isValidGuestSessionToken).toHaveBeenCalledWith(
+      'session-1',
+      'signed-guest-token',
+    );
+    expect(contactService.getMessagesBySession).toHaveBeenCalledWith(
+      'session-1',
+    );
+  });
+
   it('rejects contact images whose combined encoded size exceeds the body budget', async () => {
     const contactService = {
       isValidGuestSessionToken: jest.fn(),

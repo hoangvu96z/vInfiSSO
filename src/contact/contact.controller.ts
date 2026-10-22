@@ -203,7 +203,7 @@ export class ContactController {
   }
 
   /**
-   * GET /contact/session/:sessionId — Get all messages for a session (public)
+   * GET /contact/session/:sessionId — Require signed guest token for history
    */
   @Get('session/:sessionId')
   @UseGuards(ThrottlerGuard)
