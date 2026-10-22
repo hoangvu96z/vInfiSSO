@@ -93,6 +93,34 @@ describe('AppController', () => {
     expect(responseMock.sendFile).toHaveBeenCalledWith(assetPath);
   });
 
+  it.each([
+    ['favicon.svg', 'getReactFavicon'],
+    ['vlnfi_sso_favicon_option_1.svg', 'getReactBrandFavicon'],
+  ] as const)(
+    'serves the React %s icon from the deployed UI build',
+    (file, handler) => {
+      const faviconPath = join(process.cwd(), 'admin-ui', 'dist', file);
+      (existsSync as jest.Mock).mockReturnValue(true);
+      const responseMock = {
+        setHeader: jest.fn(),
+        sendFile: jest.fn(),
+      };
+
+      appController[handler](responseMock as unknown as Response);
+
+      expect(existsSync).toHaveBeenCalledWith(faviconPath);
+      expect(responseMock.setHeader).toHaveBeenCalledWith(
+        'Content-Type',
+        'image/svg+xml',
+      );
+      expect(responseMock.setHeader).toHaveBeenCalledWith(
+        'Cache-Control',
+        'public, max-age=86400',
+      );
+      expect(responseMock.sendFile).toHaveBeenCalledWith(faviconPath);
+    },
+  );
+
   it('serves legacy HTML pages from Nest’s deployed asset directory', () => {
     const pagePath = join(process.cwd(), 'dist', 'sso', 'app-a-page.html');
     (readFileSync as jest.Mock).mockReturnValue('<html>App A</html>');

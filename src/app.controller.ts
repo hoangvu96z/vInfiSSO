@@ -66,6 +66,16 @@ export class AppController {
     return res.status(404).send('Not found');
   }
 
+  @Get('ui/favicon.svg')
+  getReactFavicon(@Res() res: Response) {
+    return this.sendReactFavicon('favicon.svg', res);
+  }
+
+  @Get('ui/vlnfi_sso_favicon_option_1.svg')
+  getReactBrandFavicon(@Res() res: Response) {
+    return this.sendReactFavicon('vlnfi_sso_favicon_option_1.svg', res);
+  }
+
   @Get('ui/app-a')
   getAppAPage(@Res() res: Response) {
     const nonce: unknown = res.locals.cspNonce;
@@ -119,5 +129,16 @@ export class AppController {
     } catch {
       res.status(404).send('Not found');
     }
+  }
+
+  private sendReactFavicon(file: string, res: Response) {
+    const faviconPath = join(REACT_DIST_DIR, file);
+    if (!existsSync(faviconPath)) {
+      return res.status(404).send('Not found');
+    }
+
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.sendFile(faviconPath);
   }
 }
