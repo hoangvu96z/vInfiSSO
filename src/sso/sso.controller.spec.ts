@@ -1,5 +1,5 @@
 import { UnauthorizedException } from '@nestjs/common';
-import type { Request, Response } from 'express';
+import type { CookieOptions, Request, Response } from 'express';
 import { SsoController } from './sso.controller';
 import type { User } from '../users/user.entity';
 
@@ -47,7 +47,13 @@ describe('SsoController session response', () => {
         ),
       } as any,
     );
-    const cookie = jest.fn();
+    const cookie = jest.fn(
+      (name: string, value: string, options: CookieOptions) => ({
+        name,
+        value,
+        options,
+      }),
+    );
     const response = { cookie } as unknown as Response;
     const request = {
       headers: { origin: 'https://vunph.click', 'user-agent': 'test' },
@@ -85,7 +91,13 @@ describe('SsoController session response', () => {
       ssoService as any,
       { get: jest.fn() } as any,
     );
-    const cookie = jest.fn();
+    const cookie = jest.fn(
+      (name: string, value: string, options: CookieOptions) => ({
+        name,
+        value,
+        options,
+      }),
+    );
     const response = { cookie } as unknown as Response;
 
     const result = await controller.resetPassword(
@@ -103,11 +115,11 @@ describe('SsoController session response', () => {
       'reset-token',
       'new-valid-password',
     );
-    expect(cookie).toHaveBeenCalledWith(
-      'sso_token',
-      'raw-session-token',
-      expect.objectContaining({ httpOnly: true, maxAge: expect.any(Number) }),
-    );
+    expect(cookie).toHaveBeenCalledTimes(1);
+    expect(cookie.mock.calls[0][0]).toBe('sso_token');
+    expect(cookie.mock.calls[0][1]).toBe('raw-session-token');
+    expect(cookie.mock.calls[0][2].httpOnly).toBe(true);
+    expect(typeof cookie.mock.calls[0][2].maxAge).toBe('number');
   });
 
   it('exchanges an allowed-origin single-use code into an SSO session', async () => {
@@ -131,7 +143,13 @@ describe('SsoController session response', () => {
     const req = {
       headers: { origin: 'http://localhost:5173' },
     } as unknown as Request;
-    const cookie = jest.fn();
+    const cookie = jest.fn(
+      (name: string, value: string, options: CookieOptions) => ({
+        name,
+        value,
+        options,
+      }),
+    );
     const response = { cookie } as unknown as Response;
 
     const result = await controller.exchangeOAuthCode(
@@ -150,11 +168,11 @@ describe('SsoController session response', () => {
       'user-1',
       'http://localhost:5173',
     );
-    expect(cookie).toHaveBeenCalledWith(
-      'sso_token',
-      'new-session-token',
-      expect.objectContaining({ httpOnly: true, maxAge: expect.any(Number) }),
-    );
+    expect(cookie).toHaveBeenCalledTimes(1);
+    expect(cookie.mock.calls[0][0]).toBe('sso_token');
+    expect(cookie.mock.calls[0][1]).toBe('new-session-token');
+    expect(cookie.mock.calls[0][2].httpOnly).toBe(true);
+    expect(typeof cookie.mock.calls[0][2].maxAge).toBe('number');
   });
 
   it('clears the host-only cookie on logout by default', async () => {
@@ -169,10 +187,7 @@ describe('SsoController session response', () => {
     const clearCookie = jest.fn();
     const response = { clearCookie } as unknown as Response;
 
-    await controller.logoutApi(
-      { headers: {} } as unknown as Request,
-      response,
-    );
+    await controller.logoutApi({ headers: {} } as unknown as Request, response);
 
     expect(clearCookie).toHaveBeenCalledTimes(1);
     expect(clearCookie).toHaveBeenCalledWith(
@@ -311,9 +326,9 @@ describe('SsoController session response', () => {
     );
     const req = {
       user: { providerId: 'provider-user' },
-      query: {
-        redirect: 'https://app.example.test/callback?sso_token=old-value',
-      },
+      oauthRedirectTarget:
+        'https://app.example.test/callback?sso_token=old-value',
+      query: {},
       headers: {},
       ip: '127.0.0.1',
       socket: { remoteAddress: '127.0.0.1' },

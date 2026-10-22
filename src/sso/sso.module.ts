@@ -6,6 +6,12 @@ import { UsersModule } from '../users/users.module';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { FacebookStrategy } from './strategies/facebook.strategy';
 import {
+  FacebookOAuthCallbackGuard,
+  FacebookOAuthStartGuard,
+  GoogleOAuthCallbackGuard,
+  GoogleOAuthStartGuard,
+} from './oauth-state.guard';
+import {
   ForbiddenSsoAuthGuard,
   OptionalSsoAuthGuard,
   SsoAuthGuard,
@@ -19,6 +25,10 @@ import { RolesGuard } from '../auth/roles.guard';
     SsoService,
     GoogleStrategy,
     FacebookStrategy,
+    GoogleOAuthStartGuard,
+    GoogleOAuthCallbackGuard,
+    FacebookOAuthStartGuard,
+    FacebookOAuthCallbackGuard,
     SsoAuthGuard,
     OptionalSsoAuthGuard,
     ForbiddenSsoAuthGuard,

@@ -207,7 +207,7 @@ APP_BASE_URL=https://vunph.click
 ICHINGNOW_URL=https://vunph.click/kinhdich
 TAROTNOW_URL=https://vunph.click/tarot
 TUVINOW_URL=https://vunph.click/tuvi
-TALKWITHME_URL=https://vunph.click/talkwithme
+TALKWITHME_URL=https://vunph.click/talk/
 
 # ─── TalkWithMe Notifications ──────────
 CONTACT_NOTIFY_EMAIL=admin@vunph.id.vn

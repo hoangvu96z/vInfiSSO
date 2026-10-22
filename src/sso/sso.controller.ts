@@ -17,7 +17,6 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SsoService } from './sso.service';
 import { ConfigService } from '@nestjs/config';
@@ -46,6 +45,13 @@ import {
   getSessionCookieOptions,
   SSO_SESSION_COOKIE_NAME,
 } from './session-cookie.util';
+import {
+  FacebookOAuthCallbackGuard,
+  FacebookOAuthStartGuard,
+  GoogleOAuthCallbackGuard,
+  GoogleOAuthStartGuard,
+  OAuthCallbackRequest,
+} from './oauth-state.guard';
 
 @Controller('sso')
 export class SsoController {
@@ -94,10 +100,6 @@ export class SsoController {
 
   private resolveRedirect(rawUrl: string | undefined): URL | null {
     return resolveAllowedRedirectUrl(rawUrl, this.getAllowedRedirectOrigins());
-  }
-
-  private firstQueryValue(...values: unknown[]): string | undefined {
-    return values.find((value): value is string => typeof value === 'string');
   }
 
   private extractRequestMetadata(req: Request) {
@@ -323,15 +325,15 @@ export class SsoController {
   // ─── GET /sso/oauth/google ────────────────────────────────────────────────
 
   @Get('oauth/google')
-  @UseGuards(AuthGuard('google'))
+  @UseGuards(GoogleOAuthStartGuard)
   googleLogin() {
     // Passport redirects to Google
   }
 
   @Get('oauth/google/callback')
-  @UseGuards(AuthGuard('google'))
+  @UseGuards(GoogleOAuthCallbackGuard)
   async googleCallback(
-    @Req() req: Request & { user?: any },
+    @Req() req: OAuthCallbackRequest & { user?: any },
     @Res() res: Response,
   ) {
     if (!req.user) {
@@ -352,25 +354,15 @@ export class SsoController {
       'SSO_BASE_URL',
       'http://localhost:3000',
     );
-    const redirectRaw = this.firstQueryValue(
-      req.query.redirect,
-      req.query.redirect_uri,
-      req.query.redirect_url,
-      req.query.app,
-      req.query.app_url,
-    );
-
-    if (redirectRaw) {
-      const target = this.resolveRedirect(redirectRaw);
-      if (target) {
-        const code = await this.ssoService.createOAuthLoginCode(
-          user.id,
-          target.origin,
-        );
-        target.searchParams.delete('sso_token');
-        target.searchParams.set('sso_code', code);
-        return res.redirect(target.toString());
-      }
+    const target = this.resolveRedirect(req.oauthRedirectTarget);
+    if (target) {
+      const code = await this.ssoService.createOAuthLoginCode(
+        user.id,
+        target.origin,
+      );
+      target.searchParams.delete('sso_token');
+      target.searchParams.set('sso_code', code);
+      return res.redirect(target.toString());
     }
     res.redirect(`${base}/ui/sso`);
   }
@@ -378,15 +370,15 @@ export class SsoController {
   // ─── GET /sso/oauth/facebook ──────────────────────────────────────────────
 
   @Get('oauth/facebook')
-  @UseGuards(AuthGuard('facebook'))
+  @UseGuards(FacebookOAuthStartGuard)
   facebookLogin() {
     // Passport redirects to Facebook
   }
 
   @Get('oauth/facebook/callback')
-  @UseGuards(AuthGuard('facebook'))
+  @UseGuards(FacebookOAuthCallbackGuard)
   async facebookCallback(
-    @Req() req: Request & { user?: any },
+    @Req() req: OAuthCallbackRequest & { user?: any },
     @Res() res: Response,
   ) {
     if (!req.user) {
@@ -405,25 +397,15 @@ export class SsoController {
       'SSO_BASE_URL',
       'http://localhost:3000',
     );
-    const redirectRaw = this.firstQueryValue(
-      req.query.redirect,
-      req.query.redirect_uri,
-      req.query.redirect_url,
-      req.query.app,
-      req.query.app_url,
-    );
-
-    if (redirectRaw) {
-      const target = this.resolveRedirect(redirectRaw);
-      if (target) {
-        const code = await this.ssoService.createOAuthLoginCode(
-          user.id,
-          target.origin,
-        );
-        target.searchParams.delete('sso_token');
-        target.searchParams.set('sso_code', code);
-        return res.redirect(target.toString());
-      }
+    const target = this.resolveRedirect(req.oauthRedirectTarget);
+    if (target) {
+      const code = await this.ssoService.createOAuthLoginCode(
+        user.id,
+        target.origin,
+      );
+      target.searchParams.delete('sso_token');
+      target.searchParams.set('sso_code', code);
+      return res.redirect(target.toString());
     }
     res.redirect(`${base}/ui/sso`);
   }
