@@ -368,7 +368,12 @@ if [[ "${RUN_DATE:8:2}" == 01 ]]; then
 fi
 
 # Retention runs only after the new copy has uploaded and passed rclone check.
+# Create both retention roots if absent so first-run cleanup is harmless.
 RUN_STAGE=remote_retention
+rclone --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
+  mkdir "$REMOTE_BASE/daily"
+rclone --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
+  mkdir "$REMOTE_BASE/monthly"
 rclone --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
   delete "$REMOTE_BASE/daily" --min-age 30d
 rclone --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
