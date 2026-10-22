@@ -61,7 +61,7 @@ describe('PaymentsService', () => {
       save: savedOrder,
     };
     const { dataSource } = transactionHarness(
-      new Map([
+      new Map<unknown, any>([
         [Plan, planRepo],
         [PaymentSettings, settingsRepo],
         [PaymentOrder, orderRepo],
@@ -90,7 +90,7 @@ describe('PaymentsService', () => {
       accountName: 'NGUYEN VAN A',
     });
     expect(inserted.reference).toMatch(/^VINF[A-F0-9]{16}$/);
-    expect(new Date(inserted.expiresAt).getTime()).toBeGreaterThan(Date.now());
+    expect(new Date(inserted.expiresAt!).getTime()).toBeGreaterThan(Date.now());
     expect(result).toMatchObject({
       id: 'order-id',
       amount: 99000,
@@ -99,7 +99,9 @@ describe('PaymentsService', () => {
       reference: inserted.reference,
     });
     expect(result.qrImageUrl).toContain('amount=99000');
-    expect(result.qrImageUrl).toContain(encodeURIComponent(inserted.reference));
+    expect(result.qrImageUrl).toContain(
+      encodeURIComponent(inserted.reference!),
+    );
     expect(savedAudit).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'payment_order_created' }),
     );
@@ -116,7 +118,7 @@ describe('PaymentsService', () => {
     };
     const orderRepo = { create: jest.fn(), save: jest.fn() };
     const { dataSource } = transactionHarness(
-      new Map([
+      new Map<unknown, any>([
         [Plan, planRepo],
         [PaymentSettings, { findOne: jest.fn().mockResolvedValue(null) }],
         [PaymentOrder, orderRepo],
@@ -145,7 +147,7 @@ describe('PaymentsService', () => {
     };
     const orderRepo = { create: jest.fn(), save: jest.fn() };
     const { dataSource } = transactionHarness(
-      new Map([
+      new Map<unknown, any>([
         [Plan, planRepo],
         [PaymentOrder, orderRepo],
       ]),
@@ -173,7 +175,7 @@ describe('PaymentsService', () => {
     };
     const orderRepo = { create: jest.fn(), save: jest.fn() };
     const { dataSource } = transactionHarness(
-      new Map([
+      new Map<unknown, any>([
         [Plan, planRepo],
         [
           PaymentSettings,
@@ -230,7 +232,7 @@ describe('PaymentsService', () => {
     };
     const auditRepo = { save: jest.fn().mockResolvedValue(undefined) };
     const { dataSource } = transactionHarness(
-      new Map([
+      new Map<unknown, any>([
         [PaymentOrder, orderRepo],
         [User, userRepo],
         [UserSubscription, subscriptionRepo],
@@ -292,7 +294,7 @@ describe('PaymentsService', () => {
     };
     const subscriptionRepo = { save: jest.fn() };
     const { dataSource } = transactionHarness(
-      new Map([
+      new Map<unknown, any>([
         [PaymentOrder, orderRepo],
         [User, { findOne: jest.fn() }],
         [UserSubscription, subscriptionRepo],
