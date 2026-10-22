@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
-test('keeps the payment page in an explicit unavailable state without success claims', async () => {
+test('presents server-priced VietQR orders without claiming that an order is already paid', async () => {
   const vite = await createServer({
     root: projectRoot,
     configFile: resolve(projectRoot, 'vite.config.js'),
@@ -29,10 +29,11 @@ test('keeps the payment page in an explicit unavailable state without success cl
       React.createElement(PaymentPage, { user: { id: 'test-user' } }),
     );
 
-    assert.match(html, /Thanh toán hiện chưa được hỗ trợ/);
-    assert.match(html, /Chưa có quy trình tạo và xác nhận đơn thanh toán an toàn/);
-    assert.doesNotMatch(html, /Thanh toán thành công|Đã thanh toán/i);
-    assert.doesNotMatch(html, /Thanh toán ngay|Xác nhận thanh toán/i);
+    assert.match(html, /Thanh toán VietQR/);
+    assert.match(html, /Tạo đơn và mã VietQR/);
+    assert.match(html, /Chưa có đơn thanh toán/);
+    assert.doesNotMatch(html, /10\.000đ|20\.000đ/);
+    assert.doesNotMatch(html, /Thanh toán thành công/);
   } finally {
     if (originalWindow === undefined) delete globalThis.window;
     else globalThis.window = originalWindow;

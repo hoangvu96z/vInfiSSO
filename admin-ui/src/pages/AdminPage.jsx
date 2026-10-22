@@ -5,7 +5,8 @@ import {
 import {
   BarChartOutlined, UserOutlined, AuditOutlined, RobotOutlined,
   CrownOutlined, TagOutlined, LogoutOutlined, SunOutlined, MoonOutlined,
-  MenuFoldOutlined, MenuUnfoldOutlined, MessageOutlined, GlobalOutlined
+  MenuFoldOutlined, MenuUnfoldOutlined, MessageOutlined, GlobalOutlined,
+  BankOutlined,
 } from '@ant-design/icons';
 
 // Child View Components
@@ -17,6 +18,7 @@ import AiLeaderboardView from '../components/admin/AiLeaderboardView';
 import PlansView from '../components/admin/PlansView';
 import CouponsView from '../components/admin/CouponsView';
 import ContactMessagesView from '../components/admin/ContactMessagesView';
+import PaymentsView from '../components/admin/PaymentsView';
 
 // Utilities
 import { DEFAULT_TIMEZONE, TIMEZONE_OPTIONS, getTimezoneLabel } from '../utils/dateUtils';
@@ -95,6 +97,7 @@ export default function AdminPage({ user, onLogout }) {
     contact: '💬 Hộp Thư TalkWithMe',
     plans: '💎 Gói Dịch Vụ & Hạn Mức',
     coupons: '🎟️ Quản Lý Mã Khuyến Mãi',
+    payments: '⚙️ Cài Đặt Thanh Toán',
   };
 
   return (
@@ -181,6 +184,7 @@ export default function AdminPage({ user, onLogout }) {
               { type: 'divider' },
               { key: 'plans', icon: <CrownOutlined />, label: 'Gói Dịch Vụ' },
               { key: 'coupons', icon: <TagOutlined />, label: 'Mã Khuyến Mãi' },
+              { key: 'payments', icon: <BankOutlined />, label: 'Thanh Toán & Ngân Hàng' },
             ]}
           />
         </Sider>
@@ -268,6 +272,7 @@ export default function AdminPage({ user, onLogout }) {
             {currentRoute === 'ai' && <AiLeaderboardView isDarkMode={isDarkMode} />}
             {currentRoute === 'plans' && <PlansView isDarkMode={isDarkMode} />}
             {currentRoute === 'coupons' && <CouponsView isDarkMode={isDarkMode} />}
+            {currentRoute === 'payments' && <PaymentsView />}
             {currentRoute === 'contact' && (
               <ContactMessagesView
                 isDarkMode={isDarkMode}

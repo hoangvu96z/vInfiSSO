@@ -29,6 +29,9 @@ import { NoteInvite } from './notes/note-invite.entity';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { validateReadingEncryptionEnvironment } from './readings/reading-encryption';
+import { PaymentsModule } from './payments/payments.module';
+import { PaymentOrder } from './payments/payment-order.entity';
+import { PaymentSettings } from './payments/payment-settings.entity';
 
 @Module({
   imports: [
@@ -65,6 +68,8 @@ import { validateReadingEncryptionEnvironment } from './readings/reading-encrypt
           PageVisit,
           Note,
           NoteInvite,
+          PaymentOrder,
+          PaymentSettings,
         ],
         // Production schema changes must be applied through explicit migrations.
         synchronize: false,
@@ -84,6 +89,7 @@ import { validateReadingEncryptionEnvironment } from './readings/reading-encrypt
     ContactModule,
     AnalyticsModule,
     NotesModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
