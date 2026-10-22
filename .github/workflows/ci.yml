@@ -42,6 +42,9 @@ jobs:
       - name: Test backend
         run: npm test -- --runInBand
 
+      - name: Test admin UI
+        run: npm test --prefix admin-ui
+
       - name: Lint backend (informational while existing baseline is cleaned)
         id: backend-lint
         continue-on-error: true

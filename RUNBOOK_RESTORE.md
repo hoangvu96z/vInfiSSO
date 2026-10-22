@@ -2,9 +2,10 @@
 
 ## Current production setup and verification status
 
-As of 2026-10-22, the VPS runs the backup job from
-`/usr/local/sbin/backup-vinfi.sh`, scheduled by `/etc/cron.d/vinfi-backup` at
-02:00 server time as root. The script source in this repository is
+As of 2026-10-22, the backup job is installed at
+`/usr/local/sbin/backup-vinfi.sh`, with a root cron entry in
+`/etc/cron.d/vinfi-backup` scheduled for 02:00 server time. The script source
+in this repository is
 [`scripts/backup-vinfi.sh`](scripts/backup-vinfi.sh). Encrypted files are kept
 locally under `/var/backups/vinfi/<run-id>/`; the configured Google Drive
 destination is `gdrive:vinfi-backup`, with daily copies below
@@ -12,6 +13,11 @@ destination is `gdrive:vinfi-backup`, with daily copies below
 `monthly/YYYY-MM/<run-id>/`. The status file is
 `/var/backups/vinfi/status.json` and the cron log is
 `/var/log/vinfi-backup.log`.
+
+At verification, cron was active, but the entry had been installed at 18:43
+server time, after that day's 02:00 slot. No invocation was recorded in the
+cron logs and the backup log was empty, so the first unattended run is still
+pending. The successful backup below does not verify scheduled execution.
 
 The backup run `2026-10-22T132519Z` completed with `offsite_ok`, and SHA-256
 checks passed for the encrypted database dump, uploads archive, and app
@@ -28,8 +34,9 @@ offline; the server stores only the public recipient.
 
 ## Backup schedule and retention
 
-The production cron runs `/usr/local/sbin/backup-vinfi.sh` daily at 02:00
-server time as root. Each run creates a unique UTC run ID and stores:
+The installed production cron entry schedules
+`/usr/local/sbin/backup-vinfi.sh` daily at 02:00 server time as root. Each run
+creates a unique UTC run ID and stores:
 
 - Local encrypted files under `/var/backups/vinfi/<run-id>/`, retained for 7 days.
 - A Drive copy under
@@ -188,11 +195,22 @@ Database commands deliberately switch to the PostgreSQL OS user.
    The age private identity is not needed on that host.
 
 4. Restore the database into an empty temporary database owned by the expected
-   application role (or into a dedicated test role with equivalent grants):
+   application role. The backup uses `pg_dump --no-owner`; restoring as
+   `postgres` with `pg_restore --no-owner` alone would make `postgres` own the
+   restored objects. `pg_restore --role` issues `SET ROLE` before restoring, so
+   use the application role for object ownership. Confirm that the role exists
+   and can create the application objects. Confirm that the PostgreSQL role
+   reached by `sudo -u postgres` can `SET ROLE` to the restore role (a
+   superuser can). Handle any superuser-only restore items separately and
+   verify the application role can use the restored objects. For a dedicated
+   test role, use that role consistently as the database owner, restore role,
+   and staging application's database user.
 
    ```bash
-   sudo -u postgres createdb --owner=vinfi_sso vinfi_restore_test
-   sudo -u postgres pg_restore --exit-on-error --no-owner --dbname=vinfi_restore_test \
+   RESTORE_DB_ROLE=vinfi_sso
+   sudo -u postgres createdb --owner="$RESTORE_DB_ROLE" vinfi_restore_test
+   sudo -u postgres pg_restore --exit-on-error --no-owner --role="$RESTORE_DB_ROLE" \
+     --dbname=vinfi_restore_test \
      /var/tmp/vinfi-restore/plain/db.dump
    ```
 
@@ -222,11 +240,14 @@ Use a root shell for the command blocks below.
    process name before running the command). Take a fresh encrypted backup of
    the current database and uploads before replacing them, if the current state
    remains accessible.
-3. Restore PostgreSQL. Confirm the target name and dump before running this
-   command: `--clean --if-exists` drops objects in the target database.
+3. Restore PostgreSQL. Confirm that the `vinfi_sso` database role exists and
+   owns or can create the application objects. `--clean --if-exists` drops
+   objects in the target database; `--role=vinfi_sso` makes the restored
+   objects owned by the application role instead of `postgres`.
 
    ```bash
    sudo -u postgres pg_restore --exit-on-error --clean --if-exists --no-owner \
+     --role=vinfi_sso \
      --dbname=vinfi_sso /var/tmp/vinfi-restore/plain/db.dump
    ```
 
