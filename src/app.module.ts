@@ -64,7 +64,8 @@ import { validateReadingEncryptionEnvironment } from './readings/reading-encrypt
           Note,
           NoteInvite,
         ],
-        synchronize: true,
+        // Production schema changes must be applied through explicit migrations.
+        synchronize: false,
         logging: config.get<string>('NODE_ENV') !== 'production',
       }),
     }),
