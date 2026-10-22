@@ -39,6 +39,18 @@ npm install
 npm run build
 ```
 
+Before rolling out code that depends on a pending database schema change, take a
+database backup and apply its manual SQL migration as the PostgreSQL administrator.
+For the coupon-redemption table, apply the idempotent migration before the app
+rollout:
+
+```bash
+sudo -u postgres psql -v ON_ERROR_STOP=1 -d vinfi_sso \
+  -f /opt/vinfisso/migrations/20261022_coupon_redemptions.sql
+```
+
+The GitHub Actions deploy workflow does not apply SQL migrations automatically.
+
 ### Phase 6: Configure Environment
 ```bash
 # Copy production .env

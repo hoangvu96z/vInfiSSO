@@ -98,6 +98,23 @@ git clone https://github.com/hoangvu96z/vInfiSSO.git .
 
 ## 📦 Deploy Application
 
+### Apply pending database migrations before rollout
+
+Production schema migrations are manual; the GitHub Actions deploy workflow
+does not apply SQL files. Before deploying code that depends on a pending
+migration, verify a recent database backup and apply the SQL from a checkout
+that contains the migration file. For the coupon-redemption table, run this as
+the PostgreSQL administrator before the application rollout:
+
+```bash
+cd /opt/vinfisso
+sudo -u postgres psql -v ON_ERROR_STOP=1 -d vinfi_sso \
+  -f migrations/20261022_coupon_redemptions.sql
+```
+
+This migration is safe to rerun: it preserves existing redemptions and reapplies
+the table and sequence privileges required by the `vinfi_sso` runtime role.
+
 ### 1. Install Dependencies
 ```bash
 cd /opt/vinfisso
@@ -224,19 +241,20 @@ key makes readings encrypted with that ID unrecoverable.
 
 Before applying a migration, verify a recent database backup and secure backups
 of the encryption keyring. The migration prints counts only and processes at most
-200 records per batch. It defaults to dry-run and does not alter records unless
-`--apply` is supplied:
+200 records per batch. The production deploy installs only production
+dependencies, so run the compiled script after building; it defaults to dry-run
+and does not alter records unless `--apply` is supplied:
 
 ```bash
 cd /opt/vinfisso
-npm run encrypt:readings -- --dry-run
-npm run encrypt:readings -- --apply
+node dist/scripts/encrypt-readings.js --dry-run
+node dist/scripts/encrypt-readings.js --apply
 ```
 
 For a key rotation, re-encrypt v2 records under the configured active key:
 
 ```bash
-npm run encrypt:readings -- --apply --reencrypt
+node dist/scripts/encrypt-readings.js --apply --reencrypt
 ```
 
 Do not run the apply commands until the database backup and key recovery copies

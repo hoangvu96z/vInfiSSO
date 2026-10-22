@@ -26,4 +26,10 @@ WHERE s."grantedByCoupon" IS NOT NULL
 GROUP BY c.id, s."userId"
 ON CONFLICT (coupon_id, user_id) DO NOTHING;
 
+-- This migration is applied by the database owner (often postgres), while the
+-- service connects as vinfi_sso. Database-level grants do not cover this table
+-- or its serial sequence, and GRANT is safe to repeat on existing installations.
+GRANT SELECT, INSERT ON TABLE public.coupon_redemptions TO vinfi_sso;
+GRANT USAGE, SELECT ON SEQUENCE public.coupon_redemptions_id_seq TO vinfi_sso;
+
 COMMIT;
