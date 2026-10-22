@@ -12,8 +12,15 @@ describe('PlansService admin coupon listing', () => {
   };
   const couponRepo = { createQueryBuilder: jest.fn() };
 
-  for (const method of ['orderBy', 'addOrderBy', 'andWhere', 'skip', 'take']) {
-    query[method].mockReturnValue(query);
+  const chainMethods = [
+    query.orderBy,
+    query.addOrderBy,
+    query.andWhere,
+    query.skip,
+    query.take,
+  ];
+  for (const method of chainMethods) {
+    method.mockReturnValue(query);
   }
 
   const service = new PlansService(
@@ -27,8 +34,8 @@ describe('PlansService admin coupon listing', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    for (const method of ['orderBy', 'addOrderBy', 'andWhere', 'skip', 'take']) {
-      query[method].mockReturnValue(query);
+    for (const method of chainMethods) {
+      method.mockReturnValue(query);
     }
     couponRepo.createQueryBuilder.mockReturnValue(query);
     query.getManyAndCount.mockResolvedValue([[{ id: 'coupon-1' }], 21]);
