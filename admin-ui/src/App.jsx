@@ -26,9 +26,11 @@ export default function App() {
         queryParams.get('logged_out') === 'true' ||
         sessionStorage.getItem('just_logged_out') === '1';
 
+      // Remove legacy bearer tokens left by previous SSO UI versions.
+      localStorage.removeItem('sso_token');
+
       if (isLoggedOut) {
         sessionStorage.removeItem('just_logged_out');
-        localStorage.removeItem('sso_token');
         // Clean up URL params without page reload
         if (queryParams.get('logged_out')) {
           queryParams.delete('logged_out');
@@ -42,9 +44,7 @@ export default function App() {
       }
 
       try {
-        const token = localStorage.getItem('sso_token');
         const res = await fetch('/sso/me', {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
           credentials: 'include',
         });
         if (res.ok) {
@@ -52,11 +52,9 @@ export default function App() {
           if (data.user) {
             setUser(data.user);
           } else {
-            localStorage.removeItem('sso_token');
             setUser(null);
           }
         } else if (res.status === 401 || res.status === 403) {
-          localStorage.removeItem('sso_token');
           setUser(null);
         } else {
           setUser(null);

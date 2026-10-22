@@ -34,6 +34,82 @@ describe('SsoController session response', () => {
     expect(ssoService.sanitizeUser).not.toHaveBeenCalled();
   });
 
+  it('returns the login user without the raw session token', async () => {
+    const user = { id: 'user-1', email: 'member@example.test' };
+    const ssoService = {
+      login: jest.fn().mockResolvedValue({ token: 'raw-session-token', user }),
+    };
+    const controller = new SsoController(
+      ssoService as any,
+      {
+        get: jest.fn((key: string) =>
+          key === 'NODE_ENV' ? 'production' : undefined,
+        ),
+      } as any,
+    );
+    const cookie = jest.fn();
+    const response = { cookie } as unknown as Response;
+    const request = {
+      headers: { origin: 'https://vunph.click', 'user-agent': 'test' },
+      ip: '127.0.0.1',
+      socket: { remoteAddress: '127.0.0.1' },
+    } as unknown as Request;
+
+    const result = await controller.login(
+      { email: user.email, password: 'valid-password' },
+      request,
+      response,
+    );
+
+    expect(result).toEqual({ success: true, user });
+    expect(result).not.toHaveProperty('token');
+    expect(cookie).toHaveBeenCalledWith(
+      'sso_token',
+      'raw-session-token',
+      expect.objectContaining({
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: true,
+      }),
+    );
+  });
+
+  it('returns a cookie-only session after resetting the password', async () => {
+    const user = { id: 'user-1', email: 'member@example.test' };
+    const ssoService = {
+      resetPassword: jest.fn().mockResolvedValue(user),
+      createSessionForUser: jest.fn().mockResolvedValue('raw-session-token'),
+      sanitizeUser: jest.fn().mockReturnValue(user),
+    };
+    const controller = new SsoController(
+      ssoService as any,
+      { get: jest.fn() } as any,
+    );
+    const cookie = jest.fn();
+    const response = { cookie } as unknown as Response;
+
+    const result = await controller.resetPassword(
+      { token: 'reset-token', password: 'new-valid-password' },
+      response,
+    );
+
+    expect(result).toEqual({
+      success: true,
+      message: 'Mật khẩu đã được đặt lại thành công',
+      user,
+    });
+    expect(result).not.toHaveProperty('token');
+    expect(ssoService.resetPassword).toHaveBeenCalledWith(
+      'reset-token',
+      'new-valid-password',
+    );
+    expect(cookie).toHaveBeenCalledWith(
+      'sso_token',
+      'raw-session-token',
+      expect.objectContaining({ httpOnly: true, maxAge: expect.any(Number) }),
+    );
+  });
+
   it('exchanges an allowed-origin single-use code into an SSO session', async () => {
     const user = { id: 'user-1', email: 'member@example.test' };
     const ssoService = {
@@ -64,7 +140,8 @@ describe('SsoController session response', () => {
       response,
     );
 
-    expect(result).toEqual({ success: true, token: 'new-session-token', user });
+    expect(result).toEqual({ success: true, user });
+    expect(result).not.toHaveProperty('token');
     expect(ssoService.consumeOAuthLoginCode).toHaveBeenCalledWith(
       'one-time-code',
       'http://localhost:5173',
@@ -76,7 +153,36 @@ describe('SsoController session response', () => {
     expect(cookie).toHaveBeenCalledWith(
       'sso_token',
       'new-session-token',
-      expect.objectContaining({ httpOnly: true }),
+      expect.objectContaining({ httpOnly: true, maxAge: expect.any(Number) }),
+    );
+  });
+
+  it('clears the host-only cookie on logout by default', async () => {
+    const controller = new SsoController(
+      { logout: jest.fn() } as any,
+      {
+        get: jest.fn((key: string) =>
+          key === 'NODE_ENV' ? 'production' : undefined,
+        ),
+      } as any,
+    );
+    const clearCookie = jest.fn();
+    const response = { clearCookie } as unknown as Response;
+
+    await controller.logoutApi(
+      { headers: {} } as unknown as Request,
+      response,
+    );
+
+    expect(clearCookie).toHaveBeenCalledTimes(1);
+    expect(clearCookie).toHaveBeenCalledWith(
+      'sso_token',
+      expect.objectContaining({
+        path: '/',
+        sameSite: 'lax',
+        secure: true,
+        httpOnly: true,
+      }),
     );
   });
 
@@ -147,7 +253,6 @@ describe('SsoController session response', () => {
       ),
     ).resolves.toEqual({
       success: true,
-      token: 'session-token',
       user: { id: 'user-1' },
     });
   });

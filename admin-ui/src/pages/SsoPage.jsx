@@ -32,18 +32,10 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
   const onLoginSuccessRef = useRef(onLoginSuccess);
   onLoginSuccessRef.current = onLoginSuccess;
 
-  const setAuthToken = useCallback((token) => {
-    if (token) localStorage.setItem('sso_token', token);
-    else localStorage.removeItem('sso_token');
-  }, []);
-
-  const requestRedirectUrl = useCallback(async (redirectUri, token = localStorage.getItem('sso_token')) => {
+  const requestRedirectUrl = useCallback(async (redirectUri) => {
     const res = await fetch('/sso/issue-code', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({ redirectUri }),
     });
@@ -115,13 +107,12 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
       })
         .then(async (res) => {
           const data = await res.json().catch(() => ({}));
-          if (!res.ok || !data.token || !data.user) {
+          if (!res.ok || !data.user) {
             throw new Error(data.message || 'Mã đăng nhập không hợp lệ hoặc đã hết hạn.');
           }
-          setAuthToken(data.token);
           const redirectTarget = getRedirectTargetUrl();
           if (redirectTarget && redirectTarget.origin !== window.location.origin) {
-            window.location.href = await requestRedirectUrl(redirectTarget.toString(), data.token);
+            window.location.href = await requestRedirectUrl(redirectTarget.toString());
             return;
           }
           if (redirectTarget && redirectTarget.pathname !== window.location.pathname) {
@@ -187,9 +178,9 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
           setAlertInfo({ type: 'error', message: error.message || 'Không thể quay lại ứng dụng.' });
         });
     }
-  }, [user, getRedirectTargetUrl, requestRedirectUrl, setAuthToken]);
+  }, [user, getRedirectTargetUrl, requestRedirectUrl]);
 
-  // A login response keeps the bearer in localStorage and issues a short-lived code to another app.
+  // The session is HttpOnly; only the sanitized user is returned to this page.
   const handleLogin = async (values) => {
     setLoading(true);
     setAlertInfo(null);
@@ -201,8 +192,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
         body: JSON.stringify(values),
       });
       const data = await res.json();
-      if (res.ok && data.token) {
-        setAuthToken(data.token);
+      if (res.ok && data.user) {
         notification.success({
           message: 'Đăng nhập thành công!',
           description: `Chào mừng ${data.user?.fullName || data.user?.email}`,
@@ -219,7 +209,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
               return;
             }
           } else {
-            window.location.href = await requestRedirectUrl(redirectTarget.toString(), data.token);
+            window.location.href = await requestRedirectUrl(redirectTarget.toString());
             return;
           }
         }
@@ -375,7 +365,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                 block
                 style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
                 loading={loading}
-                onClick={() => navigateToApp('https://vunph.id.vn/kinhdich/')}
+                onClick={() => navigateToApp('https://vunph.click/kinhdich/')}
               >
                 ☯️ Đến IChingNow
               </Button>
@@ -384,7 +374,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                 block
                 style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
                 loading={loading}
-                onClick={() => navigateToApp('https://vunph.id.vn/tarot/')}
+                onClick={() => navigateToApp('https://vunph.click/tarot/')}
               >
                 🃏 Đến TarotNow
               </Button>
@@ -393,7 +383,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                 block
                 style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
                 loading={loading}
-                onClick={() => navigateToApp('https://vunph.id.vn/tuvi/')}
+                onClick={() => navigateToApp('https://vunph.click/tuvi/')}
               >
                 🔮 Đến TuViNow
               </Button>
@@ -402,7 +392,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                 block
                 style={{ height: 38, borderColor: 'rgba(56,189,248,0.4)', color: '#38bdf8' }}
                 onClick={() => {
-                  window.location.href = 'https://vunph.id.vn/talk/';
+                  window.location.href = 'https://vunph.click/talk/';
                 }}
               >
                 💬 Đến TalkWithMe (Liên hệ)
@@ -412,7 +402,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                 block
                 style={{ height: 38, borderColor: 'rgba(16,185,129,0.4)', color: '#10b981' }}
                 loading={loading}
-                onClick={() => navigateToApp('https://vunph.id.vn/note/')}
+                onClick={() => navigateToApp('https://vunph.click/note/')}
               >
                 📝 Đến NoteNow (Ghi chú)
               </Button>
@@ -548,9 +538,9 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
       </Card>
 
       <div style={{ textAlign: 'center', marginTop: 18, fontSize: '0.82rem', color: 'rgba(255,255,255,0.7)' }}>
-        <span>© 2026 vunph.id.vn · </span>
+        <span>© 2026 vunph.click · </span>
         <a
-          href="https://vunph.id.vn/talk/"
+          href="https://vunph.click/talk/"
           target="_blank"
           rel="noopener noreferrer"
           style={{ color: '#38bdf8', textDecoration: 'none', fontWeight: 600 }}

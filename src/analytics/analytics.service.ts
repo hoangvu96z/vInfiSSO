@@ -38,7 +38,14 @@ function normalizeReferrer(ref = ''): string {
     if (host.includes('google')) return 'Google Search';
     if (host.includes('tiktok')) return 'TikTok';
     if (host.includes('instagram')) return 'Instagram';
-    if (host.includes('vunph.id.vn')) return `Nội bộ (${u.pathname.split('/')[1] || 'root'})`;
+    if (
+      host === 'vunph.click' ||
+      host.endsWith('.vunph.click') ||
+      host === 'vunph.id.vn' ||
+      host.endsWith('.vunph.id.vn')
+    ) {
+      return `Nội bộ (${u.pathname.split('/')[1] || 'root'})`;
+    }
     return host;
   } catch {
     return ref.slice(0, 50);

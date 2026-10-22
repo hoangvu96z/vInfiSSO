@@ -44,11 +44,6 @@ export default function ProfilePage({ user: initialUser, onLogout, onUserUpdated
   const [alertInfo, setAlertInfo] = useState(null);
   const [form] = Form.useForm();
 
-  const authHeaders = () => {
-    const token = localStorage.getItem('sso_token');
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  };
-
   const applyUpdatedUser = (updated) => {
     if (!updated) return;
     setUser(updated);
@@ -63,7 +58,7 @@ export default function ProfilePage({ user: initialUser, onLogout, onUserUpdated
     try {
       const res = await fetch('/sso/profile', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ displayName: values.displayName }),
       });
@@ -89,7 +84,6 @@ export default function ProfilePage({ user: initialUser, onLogout, onUserUpdated
       formData.append('file', file);
       const res = await fetch('/sso/avatar', {
         method: 'POST',
-        headers: authHeaders(),
         credentials: 'include',
         body: formData,
       });

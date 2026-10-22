@@ -18,15 +18,20 @@ function replaceGlobal(name, value) {
 
 test('authFetch returns 403 responses without redirecting to the login page', async () => {
   const response = { status: 403 };
+  let requestOptions;
   const restores = [
-    replaceGlobal('localStorage', { getItem: () => 'admin-token' }),
     replaceGlobal('window', { location: { href: '' } }),
-    replaceGlobal('fetch', async () => response),
+    replaceGlobal('fetch', async (_url, options) => {
+      requestOptions = options;
+      return response;
+    }),
   ];
 
   try {
     assert.equal(await authFetch('/admin/stats'), response);
     assert.equal(globalThis.window.location.href, '');
+    assert.equal(requestOptions.credentials, 'include');
+    assert.equal('Authorization' in requestOptions.headers, false);
   } finally {
     restores.reverse().forEach((restore) => restore());
   }
@@ -34,7 +39,6 @@ test('authFetch returns 403 responses without redirecting to the login page', as
 
 test('authFetch redirects to login and returns null for 401 responses', async () => {
   const restores = [
-    replaceGlobal('localStorage', { getItem: () => null }),
     replaceGlobal('window', { location: { href: '' } }),
     replaceGlobal('fetch', async () => ({ status: 401 })),
   ];

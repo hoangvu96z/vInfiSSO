@@ -16,7 +16,7 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import type { CookieOptions, Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SsoService } from './sso.service';
@@ -41,18 +41,11 @@ import {
   normalizeWebOrigin,
   resolveAllowedRedirectUrl,
 } from './oauth-redirect.util';
-
-const COOKIE_NAME = 'sso_token';
-const isProd = process.env.NODE_ENV === 'production';
-const COOKIE_OPTIONS: CookieOptions = {
-  httpOnly: true,
-  // SameSite=None;Secure bắt buộc để cookie cross-domain (sso.vunph.click → vunph.id.vn)
-  // Dev dùng lax vì HTTP không hỗ trợ Secure
-  sameSite: isProd ? 'none' : 'lax',
-  secure: isProd,
-  path: '/',
-  maxAge: 30 * 24 * 60 * 60 * 1000, // 30 ngày
-};
+import {
+  getSessionCookieClearOptions,
+  getSessionCookieOptions,
+  SSO_SESSION_COOKIE_NAME,
+} from './session-cookie.util';
 
 @Controller('sso')
 export class SsoController {
@@ -66,7 +59,26 @@ export class SsoController {
   }
 
   private setSessionCookie(res: Response, token: string) {
-    res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
+    res.cookie(
+      SSO_SESSION_COOKIE_NAME,
+      token,
+      getSessionCookieOptions({
+        nodeEnv:
+          this.configService.get<string>('NODE_ENV') ?? process.env.NODE_ENV,
+        cookieDomain: this.configService.get<string>('SSO_COOKIE_DOMAIN'),
+      }),
+    );
+  }
+
+  private clearSessionCookies(res: Response) {
+    const options = getSessionCookieClearOptions({
+      nodeEnv:
+        this.configService.get<string>('NODE_ENV') ?? process.env.NODE_ENV,
+      cookieDomain: this.configService.get<string>('SSO_COOKIE_DOMAIN'),
+    });
+    for (const cookieOptions of options) {
+      res.clearCookie(SSO_SESSION_COOKIE_NAME, cookieOptions);
+    }
   }
 
   private getAllowedRedirectOrigins(): string[] {
@@ -251,7 +263,7 @@ export class SsoController {
       reqMeta,
     );
     this.setSessionCookie(res, token);
-    return { success: true, token, user };
+    return { success: true, user };
   }
 
   // ─── POST /sso/logout (API call từ app, trả về JSON) ──────────────────────
@@ -266,13 +278,7 @@ export class SsoController {
       await this.ssoService.logout(token);
     }
 
-    const clearOpts: CookieOptions = {
-      path: '/',
-      sameSite: isProd ? 'none' : 'lax',
-      secure: isProd,
-    };
-    res.clearCookie(COOKIE_NAME, clearOpts);
-    res.clearCookie(COOKIE_NAME, { path: '/' });
+    this.clearSessionCookies(res);
 
     return { success: true, message: 'Logged out successfully' };
   }
@@ -291,13 +297,7 @@ export class SsoController {
       await this.ssoService.logout(token);
     }
 
-    const clearOpts: CookieOptions = {
-      path: '/',
-      sameSite: isProd ? 'none' : 'lax',
-      secure: isProd,
-    };
-    res.clearCookie(COOKIE_NAME, clearOpts);
-    res.clearCookie(COOKIE_NAME, { path: '/' });
+    this.clearSessionCookies(res);
 
     const redirectRaw =
       redirectQuery ||
@@ -453,7 +453,7 @@ export class SsoController {
     const user = await this.ssoService.consumeOAuthLoginCode(body.code, origin);
     const token = await this.ssoService.createSessionForUser(user.id, origin);
     this.setSessionCookie(res, token);
-    return { success: true, token, user: this.ssoService.sanitizeUser(user) };
+    return { success: true, user: this.ssoService.sanitizeUser(user) };
   }
 
   @Post('issue-code')
@@ -567,7 +567,6 @@ export class SsoController {
     return {
       success: true,
       message: 'Mật khẩu đã được đặt lại thành công',
-      token,
       user: this.ssoService.sanitizeUser(user),
     };
   }

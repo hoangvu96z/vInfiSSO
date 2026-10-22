@@ -248,6 +248,7 @@ TAROTNOW_URL=https://vunph.click/tarot
 # CORS
 ALLOWED_ORIGINS=https://vunph.id.vn,https://www.vunph.id.vn,https://vunph.click,https://www.vunph.click
 ALLOWED_REDIRECT_ORIGINS=https://vunph.id.vn,https://www.vunph.id.vn
+APP_BASE_URL=https://vunph.click
 TRUST_PROXY=loopback
 ```
 

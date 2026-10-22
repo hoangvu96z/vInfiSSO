@@ -120,13 +120,9 @@ export default function PaymentPage({ user }) {
       setReturnError('');
       setReturning(true);
       try {
-        const token = localStorage.getItem('sso_token');
         const response = await fetch('/sso/issue-code', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
+          headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ redirectUri: redirectUrl }),
         });

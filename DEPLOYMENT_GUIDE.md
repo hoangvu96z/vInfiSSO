@@ -202,6 +202,7 @@ MAIL_FROM=noreply@vunph.click
 
 # ─── URLs ──────────────────────────────
 SSO_BASE_URL=https://sso.vunph.click
+APP_BASE_URL=https://vunph.click
 ICHINGNOW_URL=https://vunph.click/kinhdich
 TAROTNOW_URL=https://vunph.click/tarot
 TUVINOW_URL=https://vunph.click/tuvi

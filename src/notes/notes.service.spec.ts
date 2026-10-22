@@ -82,6 +82,37 @@ describe('NotesService', () => {
     expect(service).toBeDefined();
   });
 
+  it('uses the vunph.click NoteNow URL for invite links by default', async () => {
+    mockNotesRepo.findOne.mockResolvedValue({
+      id: 'note-1',
+      userId: 'owner-1',
+      title: 'Shared note',
+      sharedWith: [],
+    });
+    mockUsersService.findByEmail.mockResolvedValue({
+      id: 'invitee-1',
+      email: 'reader@example.test',
+      displayName: 'Reader',
+    });
+    mockInviteRepo.findOne.mockResolvedValue(null);
+
+    await service.sendShareInvite(
+      'note-1',
+      'owner-1',
+      'reader@example.test',
+      'view',
+    );
+
+    const token = mockInviteRepo.save.mock.calls[0][0].token;
+    expect(mockMailService.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        html: expect.stringContaining(
+          `https://vunph.click/note/invite/${token}`,
+        ),
+      }),
+    );
+  });
+
   describe('Character Limit Validation', () => {
     it('should allow guest note with <= 2048 chars', async () => {
       const content = 'a'.repeat(2048);

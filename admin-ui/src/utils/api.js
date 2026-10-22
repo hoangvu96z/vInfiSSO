@@ -1,10 +1,5 @@
-export function getAuthHeaders() {
-  const token = localStorage.getItem('sso_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 export async function authFetch(url, options = {}) {
-  const headers = { ...getAuthHeaders(), ...(options.headers || {}) };
+  const headers = { ...(options.headers || {}) };
   const res = await fetch(url, { ...options, headers, credentials: 'include' });
   if (res.status === 401) {
     window.location.href = '/ui/sso';

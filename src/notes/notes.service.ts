@@ -823,7 +823,7 @@ export class NotesService {
   ) {
     const appUrl = this.configService.get<string>(
       'APP_BASE_URL',
-      'https://vunph.id.vn',
+      'https://vunph.click',
     );
     const acceptLink = `${appUrl}/note/invite/${token}`;
     const permLabel = permission === 'edit' ? 'chỉnh sửa' : 'xem';

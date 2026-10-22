@@ -36,6 +36,61 @@ describe('AnalyticsService traffic log filters', () => {
     );
     expect(result).toMatchObject({ page: 2, limit: 20, days: 7, total: 0 });
   });
+
+  it('classifies both current and legacy app hosts as internal referrers', async () => {
+    jest.useFakeTimers();
+    const visits = [
+      {
+        createdAt: new Date(),
+        ipAddress: '198.51.100.1',
+        device: 'Desktop',
+        browser: 'Chrome',
+        location: 'Hồ Chí Minh',
+        referrer: 'https://vunph.click/kinhdich/',
+        app: 'iching',
+      },
+      {
+        createdAt: new Date(),
+        ipAddress: '198.51.100.2',
+        device: 'Desktop',
+        browser: 'Chrome',
+        location: 'Hồ Chí Minh',
+        referrer: 'https://www.vunph.id.vn/note/',
+        app: 'notenow',
+      },
+      {
+        createdAt: new Date(),
+        ipAddress: '198.51.100.3',
+        device: 'Desktop',
+        browser: 'Chrome',
+        location: 'Hồ Chí Minh',
+        referrer: 'https://vunph.click.attacker.example/kinhdich/',
+        app: 'iching',
+      },
+    ];
+    const query = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue(visits),
+    };
+    const repository = {
+      createQueryBuilder: jest.fn().mockReturnValue(query),
+    };
+    const service = new AnalyticsService(
+      repository as unknown as Repository<PageVisit>,
+    );
+
+    const result = await service.getTrafficStats(1);
+
+    expect(result.referrers.map(({ name }) => name)).toEqual(
+      expect.arrayContaining([
+        'Nội bộ (kinhdich)',
+        'Nội bộ (note)',
+        'vunph.click.attacker.example',
+      ]),
+    );
+  });
 });
 
 describe('extractClientIp', () => {

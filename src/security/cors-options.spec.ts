@@ -10,15 +10,18 @@ describe('CORS options', () => {
 
   it('uses only the configured application and redirect origins', () => {
     const options = getCorsOptions({
-      ALLOWED_ORIGINS: 'https://app.example, http://localhost:5173,',
+      ALLOWED_ORIGINS:
+        'https://vunph.click,https://vunph.id.vn, http://localhost:5173,',
       ALLOWED_REDIRECT_ORIGINS: 'https://other.example',
     });
 
     expect(options.origin).toEqual([
-      'https://app.example',
+      'https://vunph.click',
+      'https://vunph.id.vn',
       'http://localhost:5173',
       'https://other.example',
     ]);
     expect(options.origin).not.toContain('*');
+    expect(options.credentials).toBe(true);
   });
 });
