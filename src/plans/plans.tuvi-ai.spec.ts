@@ -8,6 +8,7 @@ import { PlansService } from './plans.service';
 
 describe('TuVi AI SSO integration', () => {
   const consumeQuota = jest.fn();
+  const refundQuota = jest.fn();
   const fetchMock = jest.fn();
   const originalFetch = global.fetch;
   let controller: PlansController;
@@ -18,15 +19,23 @@ describe('TuVi AI SSO integration', () => {
   };
   const previousKey = process.env.TUVI_AI_API_KEY;
   const previousModels = process.env.TUVI_AI_MODELS;
+  const previousBaseUrl = process.env.TUVI_AI_BASE_URL;
   beforeEach(() => {
     jest.resetAllMocks();
     process.env.TUVI_AI_API_KEY = 'test-key';
     process.env.TUVI_AI_MODELS = 'combo1';
+    process.env.TUVI_AI_BASE_URL = 'http://127.0.0.1:20128/v1';
     global.fetch = fetchMock;
-    consumeQuota.mockResolvedValue(undefined);
-    controller = new PlansController(
-      { consumeQuota } as unknown as PlansService,
-    );
+    consumeQuota.mockResolvedValue({
+      app: 'tuvinow',
+      date: '2026-10-22',
+      month: '2026-10',
+      usedBonus: true,
+    });
+    controller = new PlansController({
+      consumeQuota,
+      refundQuota,
+    } as unknown as PlansService);
   });
   afterAll(() => {
     global.fetch = originalFetch;
@@ -34,6 +43,8 @@ describe('TuVi AI SSO integration', () => {
     else process.env.TUVI_AI_API_KEY = previousKey;
     if (previousModels === undefined) delete process.env.TUVI_AI_MODELS;
     else process.env.TUVI_AI_MODELS = previousModels;
+    if (previousBaseUrl === undefined) delete process.env.TUVI_AI_BASE_URL;
+    else process.env.TUVI_AI_BASE_URL = previousBaseUrl;
   });
   it('validates roles and model before quota', async () => {
     await expect(
@@ -55,7 +66,10 @@ describe('TuVi AI SSO integration', () => {
   });
   it('reports unavailable for blank keys without exposing credentials or charging', async () => {
     process.env.TUVI_AI_API_KEY = '   ';
-    expect(controller.getTuviAiConfig()).toEqual({ models: ['combo1'], configured: false });
+    expect(controller.getTuviAiConfig()).toEqual({
+      models: ['combo1'],
+      configured: false,
+    });
     try {
       await controller.interpretTuvi(user, body);
       throw new Error('Expected unavailable service');
@@ -67,13 +81,26 @@ describe('TuVi AI SSO integration', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
   it('public config reveals readiness but never the key', () => {
-    expect(controller.getTuviAiConfig()).toEqual({ models: ['combo1'], configured: true });
+    expect(controller.getTuviAiConfig()).toEqual({
+      models: ['combo1'],
+      configured: true,
+    });
   });
   it('does not call upstream when quota is exhausted', async () => {
     consumeQuota.mockRejectedValue(new Error('Hết lượt'));
     await expect(controller.interpretTuvi(user, body)).rejects.toThrow(
       'Hết lượt',
     );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it('fails closed on a public TuVi AI endpoint before reserving quota', async () => {
+    process.env.TUVI_AI_BASE_URL = 'http://43.128.116.69:20128/v1';
+
+    await expect(controller.interpretTuvi(user, body)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+
+    expect(consumeQuota).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
   it('retries upstream once but consumes the tuvinow quota only once', async () => {
@@ -90,10 +117,39 @@ describe('TuVi AI SSO integration', () => {
     });
     expect(consumeQuota).toHaveBeenCalledTimes(1);
     expect(consumeQuota).toHaveBeenCalledWith('user-1', 'tuvinow');
+    expect(refundQuota).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const sent = JSON.parse(fetchMock.mock.calls[1][1].body);
     expect(sent.messages[1]).toEqual(body.messages[0]);
     expect(sent.messages[0].content).toContain('chỉ trả JSON hợp lệ');
+  });
+  it('refunds the reserved quota after upstream retries fail', async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValueOnce({ ok: false, status: 503 });
+
+    await expect(controller.interpretTuvi(user, body)).rejects.toBeInstanceOf(
+      BadGatewayException,
+    );
+
+    expect(consumeQuota).toHaveBeenCalledTimes(1);
+    expect(refundQuota).toHaveBeenCalledTimes(1);
+    expect(refundQuota).toHaveBeenCalledWith(
+      'user-1',
+      'tuvinow',
+      '2026-10-22',
+      true,
+    );
+  });
+  it('refunds after the upstream connection fails on each attempt', async () => {
+    fetchMock.mockRejectedValue(new Error('network failure'));
+
+    await expect(controller.interpretTuvi(user, body)).rejects.toBeInstanceOf(
+      BadGatewayException,
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(refundQuota).toHaveBeenCalledTimes(1);
   });
   it('does not leak upstream errors or retry authentication failures', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 401 });

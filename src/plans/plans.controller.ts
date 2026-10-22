@@ -17,6 +17,7 @@ import { SsoAuthGuard } from '../auth/auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { User } from '../users/user.entity';
 import { AppQuotaDto, ApplyCouponDto, PlansAiDto, TuviAiDto } from './dto/plan-write.dto';
+import { resolveLocalAiBaseUrl } from './ai-upstream.util';
 
 @Controller('plans')
 export class PlansController {
@@ -144,11 +145,9 @@ export class PlansController {
         message: 'Dịch vụ AI chưa được cấu hình.',
       });
     }
-    const endpoint = (
-      process.env.AI_BASE_URL ||
-      process.env.TUVI_AI_BASE_URL ||
-      'http://127.0.0.1:20128/v1'
-    ).replace(/\/$/, '');
+    const endpoint = resolveLocalAiBaseUrl(
+      process.env.AI_BASE_URL || process.env.TUVI_AI_BASE_URL,
+    );
     const reservation = await this.plansService.consumeQuota(user.id, quotaApp);
     let responseStarted = false;
     try {
@@ -267,60 +266,71 @@ export class PlansController {
           'Dịch vụ luận giải Tử Vi chưa sẵn sàng. Bạn vẫn có thể sao chép prompt để sử dụng với AI khác.',
       });
     }
-    const endpoint = (
-      process.env.TUVI_AI_BASE_URL || 'http://43.128.116.69:20128/v1'
-    ).replace(/\/$/, '');
+    const endpoint = resolveLocalAiBaseUrl(process.env.TUVI_AI_BASE_URL);
     // Charge once per submitted question, never again for an upstream retry.
-    await this.plansService.consumeQuota(user.id, 'tuvinow');
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const response = await fetch(`${endpoint}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model,
-            stream: false,
-            messages: [
-              {
-                role: 'system',
-                content:
-                  'Bạn là người luận giải Tử Vi Đẩu Số. Trả lời bằng tiếng Việt. Tuân thủ định dạng đầu ra được yêu cầu: nếu yêu cầu JSON có sections và references thì chỉ trả JSON hợp lệ, Markdown chỉ được dùng trong chuỗi text; nếu không yêu cầu JSON thì dùng Markdown. Bám đúng dữ liệu lá số được cung cấp; không tự an lại sao, không bịa sao, tiểu hạn hoặc lưu niên còn thiếu. Phân biệt diễn giải với dữ kiện, không khẳng định số phận chắc chắn. Với câu hỏi tiếp theo, trả lời trực tiếp và ngắn gọn dựa trên hội thoại.',
-              },
-              ...messages,
-            ],
-          }),
-          signal: AbortSignal.timeout(90000),
-        });
-        if (!response.ok) {
-          if (
-            attempt === 0 &&
-            (response.status === 429 || response.status >= 500)
-          )
-            continue;
-          throw new BadGatewayException(
-            'Máy chủ AI từ chối yêu cầu. Vui lòng thử lại sau.',
-          );
+    const reservation = await this.plansService.consumeQuota(
+      user.id,
+      'tuvinow',
+    );
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await fetch(`${endpoint}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model,
+              stream: false,
+              messages: [
+                {
+                  role: 'system',
+                  content:
+                    'Bạn là người luận giải Tử Vi Đẩu Số. Trả lời bằng tiếng Việt. Tuân thủ định dạng đầu ra được yêu cầu: nếu yêu cầu JSON có sections và references thì chỉ trả JSON hợp lệ, Markdown chỉ được dùng trong chuỗi text; nếu không yêu cầu JSON thì dùng Markdown. Bám đúng dữ liệu lá số được cung cấp; không tự an lại sao, không bịa sao, tiểu hạn hoặc lưu niên còn thiếu. Phân biệt diễn giải với dữ kiện, không khẳng định số phận chắc chắn. Với câu hỏi tiếp theo, trả lời trực tiếp và ngắn gọn dựa trên hội thoại.',
+                },
+                ...messages,
+              ],
+            }),
+            signal: AbortSignal.timeout(90000),
+          });
+          if (!response.ok) {
+            if (
+              attempt === 0 &&
+              (response.status === 429 || response.status >= 500)
+            )
+              continue;
+            throw new BadGatewayException(
+              'Máy chủ AI từ chối yêu cầu. Vui lòng thử lại sau.',
+            );
+          }
+          const data = (await response.json()) as {
+            choices?: Array<{ message?: { content?: string } }>;
+          };
+          const content = data.choices?.[0]?.message?.content;
+          if (typeof content !== 'string' || !content.trim()) {
+            throw new BadGatewayException('AI chưa trả về nội dung luận giải');
+          }
+          return { content };
+        } catch (error) {
+          if (error instanceof BadGatewayException) throw error;
+          if (attempt === 1)
+            throw new BadGatewayException(
+              'Không kết nối được AI hoặc yêu cầu đã hết thời gian.',
+            );
         }
-        const data = (await response.json()) as {
-          choices?: Array<{ message?: { content?: string } }>;
-        };
-        const content = data.choices?.[0]?.message?.content;
-        if (typeof content !== 'string' || !content.trim()) {
-          throw new BadGatewayException('AI chưa trả về nội dung luận giải');
-        }
-        return { content };
-      } catch (error) {
-        if (error instanceof BadGatewayException) throw error;
-        if (attempt === 1)
-          throw new BadGatewayException(
-            'Không kết nối được AI hoặc yêu cầu đã hết thời gian.',
-          );
       }
+      throw new BadGatewayException('Không kết nối được AI');
+    } catch (error) {
+      await this.plansService.refundQuota(
+        user.id,
+        reservation.app,
+        reservation.date,
+        reservation.usedBonus,
+      );
+      throw error;
     }
-    throw new BadGatewayException('Không kết nối được AI');
   }
 
   // POST /plans/bonus — Xin thêm 5 câu (Premium only)

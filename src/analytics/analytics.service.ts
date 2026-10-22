@@ -15,20 +15,14 @@ function isBotUserAgent(ua = ''): boolean {
 }
 
 /**
- * Extract clean client IP address from proxy headers or socket
+ * Use Express's resolved client address, which applies the configured trust
+ * proxy chain. Reading forwarding headers here would let clients spoof logs.
  */
-function extractClientIp(req: Request): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (forwarded) {
-    const list = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-    const firstIp = list.split(',')[0].trim();
-    if (firstIp) return firstIp.replace(/^::ffff:/, '');
-  }
-  const realIp = req.headers['x-real-ip'];
-  if (realIp && typeof realIp === 'string') {
-    return realIp.trim().replace(/^::ffff:/, '');
-  }
-  return (req.ip || req.socket?.remoteAddress || '127.0.0.1').replace(/^::ffff:/, '');
+export function extractClientIp(req: Request): string {
+  return (req.ip || req.socket?.remoteAddress || '127.0.0.1').replace(
+    /^::ffff:/,
+    '',
+  );
 }
 
 /**

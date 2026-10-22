@@ -1,4 +1,8 @@
-import { BadGatewayException, ForbiddenException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  ForbiddenException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { PlansController } from './plans.controller';
 import { PlansService } from './plans.service';
 import { PlansAiDto } from './dto/plan-write.dto';
@@ -10,6 +14,8 @@ describe('PlansController POST /plans/ai', () => {
   const originalFetch = global.fetch;
   const originalAiKey = process.env.AI_API_KEY;
   const originalTuviKey = process.env.TUVI_AI_API_KEY;
+  const originalAiBaseUrl = process.env.AI_BASE_URL;
+  const originalTuviAiBaseUrl = process.env.TUVI_AI_BASE_URL;
   let controller: PlansController;
   const user = { id: 'user-1' } as any;
   const response = {
@@ -30,6 +36,8 @@ describe('PlansController POST /plans/ai', () => {
     jest.resetAllMocks();
     process.env.AI_API_KEY = 'test-key';
     delete process.env.TUVI_AI_API_KEY;
+    delete process.env.AI_BASE_URL;
+    delete process.env.TUVI_AI_BASE_URL;
     global.fetch = jest.fn() as unknown as typeof fetch;
     consumeQuota.mockResolvedValue({
       app: 'ichingnow',
@@ -51,6 +59,11 @@ describe('PlansController POST /plans/ai', () => {
     else process.env.AI_API_KEY = originalAiKey;
     if (originalTuviKey === undefined) delete process.env.TUVI_AI_API_KEY;
     else process.env.TUVI_AI_API_KEY = originalTuviKey;
+    if (originalAiBaseUrl === undefined) delete process.env.AI_BASE_URL;
+    else process.env.AI_BASE_URL = originalAiBaseUrl;
+    if (originalTuviAiBaseUrl === undefined)
+      delete process.env.TUVI_AI_BASE_URL;
+    else process.env.TUVI_AI_BASE_URL = originalTuviAiBaseUrl;
   });
 
   it('maps the public app alias onto the existing quota bucket and streams upstream chunks', async () => {
@@ -68,11 +81,26 @@ describe('PlansController POST /plans/ai', () => {
     await controller.proxyAi(user, body, response);
 
     expect(consumeQuota).toHaveBeenCalledWith('user-1', 'ichingnow');
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:20128/v1/chat/completions',
+      expect.any(Object),
+    );
     expect(checkQuota).toHaveBeenCalledWith('user-1', 'ichingnow');
     expect(response.setHeader).toHaveBeenCalledWith('X-Quota-Remaining', '4');
     expect(response.write).toHaveBeenCalledWith(chunk);
     expect(response.end).toHaveBeenCalled();
     expect(refundQuota).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on a public AI endpoint before reserving quota', async () => {
+    process.env.AI_BASE_URL = 'http://43.128.116.69:20128/v1';
+
+    await expect(
+      controller.proxyAi(user, body, response),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+
+    expect(consumeQuota).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it('returns an upstream failure before streaming and refunds the reserved quota', async () => {

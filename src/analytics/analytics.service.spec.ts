@@ -1,6 +1,7 @@
-import { AnalyticsService } from './analytics.service';
+import { AnalyticsService, extractClientIp } from './analytics.service';
 import type { Repository } from 'typeorm';
 import type { PageVisit } from './page-visit.entity';
+import type { Request } from 'express';
 
 describe('AnalyticsService traffic log filters', () => {
   afterEach(() => {
@@ -34,5 +35,33 @@ describe('AnalyticsService traffic log filters', () => {
       expect.objectContaining({ since: expect.any(Date) }),
     );
     expect(result).toMatchObject({ page: 2, limit: 20, days: 7, total: 0 });
+  });
+});
+
+describe('extractClientIp', () => {
+  it('uses Express resolved IP instead of client supplied forwarding headers', () => {
+    const request = {
+      ip: '198.51.100.24',
+      headers: {
+        'x-forwarded-for': '203.0.113.9',
+        'x-real-ip': '203.0.113.10',
+      },
+      socket: { remoteAddress: '127.0.0.1' },
+    } as unknown as Request;
+
+    expect(extractClientIp(request)).toBe('198.51.100.24');
+  });
+
+  it('falls back to the socket address and normalizes IPv4 mapped IPv6', () => {
+    const request = {
+      ip: '',
+      headers: {
+        'x-forwarded-for': '203.0.113.9',
+        'x-real-ip': '203.0.113.10',
+      },
+      socket: { remoteAddress: '::ffff:192.0.2.15' },
+    } as unknown as Request;
+
+    expect(extractClientIp(request)).toBe('192.0.2.15');
   });
 });
