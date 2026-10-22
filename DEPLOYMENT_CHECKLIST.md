@@ -39,35 +39,40 @@ npm install
 npm run build
 ```
 
-Before rolling out code that depends on a database schema change, follow this
-order on the VPS from the production PM2 working directory,
-`/var/www/sso.vunph.click`. The compiled files in `dist/` must belong to the
-exact release being prepared. Stage that release's compiled artifacts in the
-deployment directory before running the CLI, and defer the PM2 restart until
-the migration has been reviewed and applied.
+The deploy workflow runs on push, uploads the compiled release, and restarts
+PM2 without a migration approval pause. Use two releases for every schema
+change:
+
+1. Push a migration-only or backward-compatible release containing the
+   migration and CLI, but no application code that requires the new schema.
+   Wait for its Deploy Action and health check to succeed.
+2. Take and verify the encrypted database backup, including its offsite copy.
+   On the VPS, review and apply the migration from the deployed release.
+3. Only after the final `migration:show` confirms the expected state, push the
+   application release that depends on the migrated schema.
 
 ```bash
-# 1. Take and verify the encrypted database backup, including its offsite copy.
-# 2. Use the VPS deployment directory with the exact release artifacts staged.
+# Run after the migration-capable release deployed successfully and before
+# pushing/deploying application code that depends on this schema.
+# First take and verify the encrypted, offsite database backup.
 cd /var/www/sso.vunph.click
 
-# 3. Review the pending migration list. Stop if it differs from the release plan.
+# Review pending migrations. Stop if the list differs from the approved plan.
 NODE_ENV=production npm run migration:show
 
-# 4. Apply only the reviewed migrations with a database role allowed to run DDL.
+# Apply only the reviewed migrations with a database role allowed to run DDL.
 NODE_ENV=production npm run migration:run
 
-# 5. Confirm no expected migration remains pending, then deploy this release.
+# Verify the expected migration state before pushing the dependent release.
 NODE_ENV=production npm run migration:show
 ```
 
 The TypeORM CLI uses `DATABASE_*` settings from the server environment files.
 Run it from `/var/www/sso.vunph.click`; the compiled DataSource loads `.env` and
 `.env.production` from that working directory without printing their contents.
-The workflow installs production dependencies and uploads compiled artifacts
-to this directory. It restarts PM2 after upload, so for a release with a pending
-migration, stage the matching release artifacts and complete this operator
-review before allowing that restart.
+Each push deploys and restarts automatically. Do not put schema-dependent app
+code in the migration-capable release; deploy that code in the second release,
+after the manual migration succeeds.
 If the runtime database role cannot create schema objects, provide the
 `MIGRATION_DATABASE_*` overrides only in the operator's secure shell environment;
 do not store those elevated credentials in the repository or application `.env`.
@@ -77,7 +82,11 @@ version is idempotent, so running it once through the CLI safely records it in
 
 `synchronize` and `migrationsRun` remain disabled in the application, and GitHub
 Actions does not run database DDL. Migration review and execution are explicit
-operator steps before deployment.
+operator steps between the migration-capable release and the schema-dependent
+application release. Use expand/contract across releases for destructive
+changes: expand with backward-compatible schema first, move application use in
+a later release, and remove old schema only in a subsequent release after no
+deployed code depends on it.
 
 ### Phase 6: Configure Environment
 ```bash

@@ -100,15 +100,20 @@ git clone https://github.com/hoangvu96z/vInfiSSO.git .
 
 ### Apply pending database migrations before rollout
 
-Production migrations use the explicit TypeORM CLI. Take and verify the
-encrypted database backup first. On the VPS, stage the exact release's compiled
-artifacts in the production deployment directory before reviewing migrations;
-defer the PM2 restart and dependent application rollout until the reviewed
-migrations have been applied:
+The deploy workflow runs on push, uploads the compiled release, and restarts
+PM2 automatically. Use a two-stage release for schema changes: first deploy a
+migration-only or backward-compatible release that contains the migration CLI
+and migration but does not require the new schema. Wait for its Deploy Action
+and health check to succeed. Then take and verify the encrypted, offsite backup
+and run the migration from the deployed release. Push the application code that
+depends on the new schema only after the migration is verified.
 
 ```bash
+# Run after the migration-capable release succeeds and before pushing the
+# schema-dependent application release. Back up and verify offsite first.
 cd /var/www/sso.vunph.click
 NODE_ENV=production npm run migration:show
+# Review the pending list; stop if it differs from the approved migration plan.
 NODE_ENV=production npm run migration:run
 NODE_ENV=production npm run migration:show
 ```
@@ -116,9 +121,10 @@ NODE_ENV=production npm run migration:show
 The live PM2 working directory is `/var/www/sso.vunph.click`. Run the commands
 there so the compiled DataSource uses that release's `dist/` and loads the
 existing `.env` and `.env.production` from the same directory. Do not copy or
-print those files. The deploy workflow uploads artifacts to this path and then
-restarts PM2; a release with pending schema changes needs an operator-controlled
-staging and review step before that restart.
+print those files. Because each push deploys and restarts PM2 automatically,
+keep the migration-capable release backward-compatible with the existing
+schema; deploy dependent application code only after this operator-reviewed
+migration succeeds.
 
 Review the pending list before running it. If the runtime database role cannot
 create schema objects, supply `MIGRATION_DATABASE_*` overrides through the
@@ -132,10 +138,10 @@ records the migration in `typeorm_migrations`. It is forward-only because
 dropping the table would discard coupon-use history.
 
 The Nest application keeps `synchronize` and `migrationsRun` disabled, and
-GitHub Actions does not apply schema DDL. The required order is verified
-encrypted backup → stage the intended release → `migration:show` and operator
-review → `migration:run` → confirm with `migration:show` → deployment and PM2
-restart.
+GitHub Actions does not apply schema DDL. Keep destructive changes in an
+expand/contract sequence across releases: add compatible schema first, deploy
+code that moves off the old schema, then remove obsolete schema in a later
+release after no deployed code depends on it.
 
 ### 1. Install Dependencies
 ```bash
