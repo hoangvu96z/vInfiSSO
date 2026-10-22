@@ -1,11 +1,11 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { json, urlencoded } from 'express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { getCorsOptions } from './security/cors-options';
 import { getHelmetOptions } from './security/helmet-options';
+import { createRequestBodyParsers } from './security/request-body-parsers';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -22,10 +22,12 @@ async function bootstrap() {
   // configured application origin. Same-origin SSO UI traffic needs no CORS.
   app.enableCors(getCorsOptions());
 
-  // Increase JSON body limit for image attachments (TalkWithMe). Keep parsers
-  // after Helmet/CORS so parser errors also receive the response headers.
-  app.use(json({ limit: '5mb' }));
-  app.use(urlencoded({ extended: true, limit: '5mb' }));
+  // The contact message endpoint accepts image attachments up to 5 MiB. Keep
+  // parsers after Helmet/CORS so parser errors also receive response headers,
+  // and use the smaller default limit for every other route.
+  const bodyParsers = createRequestBodyParsers();
+  app.use(bodyParsers.json);
+  app.use(bodyParsers.urlencoded);
 
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
