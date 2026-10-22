@@ -45,6 +45,7 @@ describe('UsersService password reset', () => {
     {} as any,
     {} as any,
     dataSource as any,
+    { get: jest.fn(() => 'x'.repeat(32)) } as any,
   );
   let oauthCodeConsumed: boolean;
 
@@ -166,6 +167,7 @@ describe('UsersService action token storage', () => {
     {} as any,
     mailService as any,
     {} as any,
+    { get: jest.fn(() => 'x'.repeat(32)) } as any,
   );
 
   beforeEach(() => {
@@ -187,9 +189,9 @@ describe('UsersService action token storage', () => {
     expect(userRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({ emailVerificationToken: tokenDigest }),
     );
-    expect(userRepository.save.mock.calls[0][0].emailVerificationToken).not.toBe(
-      rawToken,
-    );
+    expect(
+      userRepository.save.mock.calls[0][0].emailVerificationToken,
+    ).not.toBe(rawToken);
     expect(mailService.sendVerificationEmail).toHaveBeenCalledWith(
       'member@example.test',
       rawToken,

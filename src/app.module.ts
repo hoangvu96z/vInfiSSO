@@ -28,7 +28,7 @@ import { Note } from './notes/note.entity';
 import { NoteInvite } from './notes/note-invite.entity';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { validateReadingEncryptionEnvironment } from './readings/reading-encryption';
+import { validateApplicationEnvironment } from './config/environment';
 import { PaymentsModule } from './payments/payments.module';
 import { PaymentOrder } from './payments/payment-order.entity';
 import { PaymentSettings } from './payments/payment-settings.entity';
@@ -40,7 +40,7 @@ import { PaymentSettings } from './payments/payment-settings.entity';
       isGlobal: true,
       // Preserve existing .env settings; fill missing production settings from the deployment file.
       envFilePath: getEnvFiles(),
-      validate: validateReadingEncryptionEnvironment,
+      validate: validateApplicationEnvironment,
     }),
 
     // PostgreSQL via TypeORM (local on VPS)

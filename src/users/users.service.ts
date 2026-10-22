@@ -4,6 +4,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import * as bcryptjs from 'bcryptjs';
@@ -12,6 +13,15 @@ import { OAuthAccount } from './oauth-account.entity';
 import { Session } from './session.entity';
 import { MailService } from '../mail/mail.service';
 import * as crypto from 'node:crypto';
+
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const SESSION_ROTATION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const SESSION_ROTATION_GRACE_MS = 2 * 60 * 1000;
+
+export interface ResolvedSession {
+  user: User;
+  rotatedToken?: string;
+}
 
 @Injectable()
 export class UsersService {
@@ -27,7 +37,50 @@ export class UsersService {
 
     private readonly mailService: MailService,
     private readonly dataSource: DataSource,
+    private readonly configService: ConfigService,
   ) {}
+
+  private getSessionRotationSecret(): string | null {
+    const secret = this.configService.get<string>('SESSION_SECRET')?.trim();
+    return secret && secret.length >= 32 ? secret : null;
+  }
+
+  private hashSessionToken(rawToken: string): string {
+    return crypto.createHash('sha256').update(rawToken).digest('hex');
+  }
+
+  private deriveRotatedSessionToken(
+    parentTokenHash: string,
+    secret: string,
+  ): string {
+    const mac = crypto
+      .createHmac('sha256', secret)
+      .update(`vinfisso:sso-session-rotation:v1:${parentTokenHash}`)
+      .digest('hex');
+    return `v1.${parentTokenHash}.${mac}`;
+  }
+
+  private getRotatedTokenParentHash(
+    rawToken: string,
+    secret: string,
+  ): string | null {
+    const match = /^v1\.([a-f0-9]{64})\.([a-f0-9]{64})$/.exec(rawToken);
+    if (!match) return null;
+
+    const [, parentTokenHash, suppliedMac] = match;
+    const expectedMac = crypto
+      .createHmac('sha256', secret)
+      .update(`vinfisso:sso-session-rotation:v1:${parentTokenHash}`)
+      .digest();
+    const actualMac = Buffer.from(suppliedMac, 'hex');
+    if (
+      actualMac.length !== expectedMac.length ||
+      !crypto.timingSafeEqual(actualMac, expectedMac)
+    ) {
+      return null;
+    }
+    return parentTokenHash;
+  }
 
   private digestActionToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
@@ -201,7 +254,7 @@ export class UsersService {
   async createSession(
     userId: string,
     appOrigin?: string,
-    ttlMs = 30 * 24 * 60 * 60 * 1000,
+    ttlMs = SESSION_TTL_MS,
   ): Promise<string> {
     // Generate a secure random token
     const rawToken = crypto.randomBytes(32).toString('hex');
@@ -279,14 +332,143 @@ export class UsersService {
     return session.user;
   }
 
+  /**
+   * Resolve a session for an authenticated request and rotate it near expiry.
+   * The existing session row is locked while the replacement is created. The
+   * replacement token is deterministic for the old token and server secret, so
+   * concurrent requests carrying the old cookie can only reissue the same
+   * replacement cookie during the short grace period.
+   */
+  async resolveSessionForRequest(
+    rawToken: string,
+  ): Promise<ResolvedSession | null> {
+    if (!rawToken) return null;
+
+    const tokenHash = this.hashSessionToken(rawToken);
+    const rotationSecret = this.getSessionRotationSecret();
+    const currentSession = await this.sessionsRepo.findOne({
+      where: { tokenHash },
+      relations: { user: true },
+    });
+    if (!currentSession) return null;
+
+    const initialNow = new Date();
+    if (currentSession.expiresAt <= initialNow) {
+      await this.sessionsRepo.delete(currentSession.id);
+      return null;
+    }
+    if (
+      !rotationSecret ||
+      currentSession.expiresAt.getTime() - initialNow.getTime() >
+        SESSION_ROTATION_WINDOW_MS
+    ) {
+      return { user: currentSession.user };
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const rows = await manager.query(
+        'SELECT id, user_id, app_origin, expires_at FROM sessions WHERE token_hash = $1 FOR UPDATE',
+        [tokenHash],
+      );
+      const session = rows[0] as
+        | {
+            id: string;
+            user_id: string;
+            app_origin: string | null;
+            expires_at: Date | string;
+          }
+        | undefined;
+      if (!session) return null;
+
+      const now = new Date();
+      const expiresAt = new Date(session.expires_at);
+      if (expiresAt <= now) {
+        await manager.query('DELETE FROM sessions WHERE id = $1', [session.id]);
+        return null;
+      }
+
+      const user = await manager
+        .getRepository(User)
+        .findOne({ where: { id: session.user_id } });
+      if (!user) return null;
+
+      const remainingMs = expiresAt.getTime() - now.getTime();
+      if (!rotationSecret || remainingMs > SESSION_ROTATION_WINDOW_MS) {
+        return { user };
+      }
+
+      const rotatedToken = this.deriveRotatedSessionToken(
+        tokenHash,
+        rotationSecret,
+      );
+      const rotatedTokenHash = this.hashSessionToken(rotatedToken);
+      const childRows = await manager.query(
+        'SELECT id FROM sessions WHERE token_hash = $1 AND user_id = $2 AND expires_at > $3',
+        [rotatedTokenHash, session.user_id, now],
+      );
+      const hasActiveReplacement = childRows.length > 0;
+
+      // An old token is still accepted briefly after rotation. Reissue exactly
+      // the same child token during this window, never mint another one.
+      if (remainingMs <= SESSION_ROTATION_GRACE_MS && hasActiveReplacement) {
+        return { user, rotatedToken };
+      }
+
+      if (!hasActiveReplacement) {
+        const sessionsRepository = manager.getRepository(Session);
+        await sessionsRepository.save(
+          sessionsRepository.create({
+            user: { id: session.user_id } as User,
+            tokenHash: rotatedTokenHash,
+            appOrigin: session.app_origin,
+            expiresAt: new Date(now.getTime() + SESSION_TTL_MS),
+          }),
+        );
+      }
+
+      // Retain the presented token for a brief recovery window. The row lock
+      // ensures only one replacement is inserted, and the deterministic child
+      // prevents concurrent responses from setting different cookies.
+      await manager.query('UPDATE sessions SET expires_at = $1 WHERE id = $2', [
+        new Date(now.getTime() + SESSION_ROTATION_GRACE_MS),
+        session.id,
+      ]);
+      return { user, rotatedToken };
+    });
+  }
+
   async deleteSessionByToken(rawToken: string): Promise<void> {
     if (!rawToken) return;
 
-    const tokenHash = crypto
-      .createHash('sha256')
-      .update(rawToken)
-      .digest('hex');
-    await this.sessionsRepo.delete({ tokenHash });
+    const tokenHash = this.hashSessionToken(rawToken);
+    const rotationSecret = this.getSessionRotationSecret();
+    const parentTokenHash = rotationSecret
+      ? this.getRotatedTokenParentHash(rawToken, rotationSecret)
+      : null;
+    const tokenHashes = parentTokenHash
+      ? [parentTokenHash, tokenHash]
+      : [tokenHash];
+    if (rotationSecret) {
+      tokenHashes.push(
+        this.hashSessionToken(
+          this.deriveRotatedSessionToken(tokenHash, rotationSecret),
+        ),
+      );
+    }
+    const uniqueTokenHashes = [...new Set(tokenHashes)];
+
+    await this.dataSource.transaction(async (manager) => {
+      // Lock ancestors, the presented session, then descendants. Concurrent
+      // parent/child logouts therefore acquire shared rows in the same order.
+      await manager.query(
+        'SELECT token_hash FROM sessions WHERE token_hash = ANY($1::varchar[]) ORDER BY array_position($1::varchar[], token_hash) FOR UPDATE',
+        [uniqueTokenHashes],
+      );
+      await manager.query(
+        'DELETE FROM sessions WHERE token_hash = ANY($1::varchar[])',
+        [uniqueTokenHashes],
+      );
+    });
   }
 
   async deleteAllSessionsForUser(userId: string): Promise<void> {

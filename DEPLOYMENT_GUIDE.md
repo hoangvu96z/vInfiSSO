@@ -175,7 +175,8 @@ PORT=3000
 # ─── JWT ────────────────────────────────
 JWT_SECRET=generate-random-string-min-32-chars-use-openssl-rand-hex-16
 JWT_EXPIRES_IN=7d
-SESSION_SECRET=another-random-string-min-32-chars
+# Keep this value identical across SSO instances and deployments while rotated sessions are active.
+SESSION_SECRET=REPLACE_WITH_OUTPUT_OF_openssl_rand_hex_32
 
 # ─── Reading encryption (required before startup in every environment) ─────
 # Generate a unique 32-byte key with: openssl rand -base64 32
@@ -227,6 +228,10 @@ openssl rand -hex 32
 # Paste it directly into the server-only .env; do not commit or share it.
 openssl rand -base64 32
 ```
+
+Keep `SESSION_SECRET` at least 32 characters and unchanged across every SSO
+instance and deployment while rotated sessions are active. Production startup
+rejects a missing, short, or obvious placeholder value.
 
 ### 5. Configure and Rotate the Reading Encryption Key
 

@@ -15,11 +15,23 @@ function makeRequest(headers: Record<string, string>): TestRequest {
   return { headers } as unknown as TestRequest;
 }
 
-function makeContext(request: TestRequest): ExecutionContext {
+function makeContext(
+  request: TestRequest,
+  response = { cookie: jest.fn() },
+): ExecutionContext {
   return {
-    switchToHttp: () => ({ getRequest: () => request }),
+    switchToHttp: () => ({
+      getRequest: () => request,
+      getResponse: () => response,
+    }),
   } as unknown as ExecutionContext;
 }
+
+const configService = {
+  get: jest.fn((key: string) =>
+    key === 'NODE_ENV' ? 'development' : undefined,
+  ),
+} as any;
 
 describe('shared SSO authentication', () => {
   it('prefers Bearer credentials and parses cookie values containing equals', () => {
@@ -49,34 +61,68 @@ describe('shared SSO authentication', () => {
 
   it('attaches the resolved user for the CurrentUser decorator', async () => {
     const user = { id: 'user-1', role: 'user' } as unknown as User;
-    const ssoService = { resolveSession: jest.fn().mockResolvedValue(user) };
+    const ssoService = {
+      resolveSessionForRequest: jest.fn().mockResolvedValue({ user }),
+    };
     const request = makeRequest({ authorization: 'Bearer token' });
 
     await expect(
-      new SsoAuthGuard(ssoService as unknown as SsoService).canActivate(
-        makeContext(request),
-      ),
+      new SsoAuthGuard(
+        ssoService as unknown as SsoService,
+        configService,
+      ).canActivate(makeContext(request)),
     ).resolves.toBe(true);
     expect(request).toHaveProperty('user', user);
-    expect(ssoService.resolveSession).toHaveBeenCalledWith('token');
+    expect(ssoService.resolveSessionForRequest).toHaveBeenCalledWith('token');
   });
 
   it('keeps optional guest auth permissive and rejects required invalid sessions', async () => {
-    const ssoService = { resolveSession: jest.fn().mockResolvedValue(null) };
+    const ssoService = {
+      resolveSessionForRequest: jest.fn().mockResolvedValue(null),
+    };
     const context = makeContext(
       makeRequest({ cookie: 'sso_token=expired-token' }),
     );
 
     await expect(
-      new OptionalSsoAuthGuard(ssoService as unknown as SsoService).canActivate(
-        context,
-      ),
+      new OptionalSsoAuthGuard(
+        ssoService as unknown as SsoService,
+        configService,
+      ).canActivate(context),
     ).resolves.toBe(true);
     await expect(
-      new SsoAuthGuard(ssoService as unknown as SsoService).canActivate(
-        context,
-      ),
+      new SsoAuthGuard(
+        ssoService as unknown as SsoService,
+        configService,
+      ).canActivate(context),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('sets only the deterministic replacement token in the HttpOnly cookie', async () => {
+    const user = { id: 'user-1', role: 'user' } as unknown as User;
+    const ssoService = {
+      resolveSessionForRequest: jest
+        .fn()
+        .mockResolvedValue({ user, rotatedToken: 'replacement-token' }),
+    };
+    const response = { cookie: jest.fn() };
+    const context = makeContext(
+      makeRequest({ cookie: 'sso_token=old-token' }),
+      response,
+    );
+
+    await expect(
+      new OptionalSsoAuthGuard(
+        ssoService as unknown as SsoService,
+        configService,
+      ).canActivate(context),
+    ).resolves.toBe(true);
+
+    expect(response.cookie).toHaveBeenCalledWith(
+      'sso_token',
+      'replacement-token',
+      expect.objectContaining({ httpOnly: true, sameSite: 'lax' }),
+    );
   });
 
   it('checks role metadata centrally and returns forbidden for a non-admin', () => {

@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UsersService } from '../users/users.service';
+import type { ResolvedSession } from '../users/users.service';
 import { User } from '../users/user.entity';
 import { AuditLog } from '../users/audit-log.entity';
 
@@ -135,6 +136,13 @@ export class SsoService {
   async resolveSession(rawToken: string | undefined): Promise<User | null> {
     if (!rawToken) return null;
     return this.usersService.resolveSessionByToken(rawToken);
+  }
+
+  async resolveSessionForRequest(
+    rawToken: string | undefined,
+  ): Promise<ResolvedSession | null> {
+    if (!rawToken) return null;
+    return this.usersService.resolveSessionForRequest(rawToken);
   }
 
   // ─── Logout ───────────────────────────────────────────────────────────────

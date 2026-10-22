@@ -222,7 +222,8 @@ DATABASE_PASSWORD=YOUR_SECURE_PASSWORD
 
 # JWT
 JWT_SECRET=GENERATE_WITH: openssl rand -hex 32
-SESSION_SECRET=GENERATE_WITH: openssl rand -hex 32
+# Keep stable across SSO instances and deployments while rotated sessions are active.
+SESSION_SECRET=REPLACE_WITH_OUTPUT_OF_openssl_rand_hex_32
 
 # Email (using local Postfix)
 MAIL_HOST=localhost
