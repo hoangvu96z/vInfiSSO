@@ -34,6 +34,9 @@ jobs:
         env:
           NODE_ENV: production
 
+      - name: Verify compiled runtime and migration entry points
+        run: test -f dist/src/main.js && test -f dist/scripts/encrypt-readings.js
+
       # Check the runtime used by the existing app before copying any artifacts.
       - name: Preflight VPS Node.js runtime
         uses: appleboy/ssh-action@v1.0.3
@@ -85,17 +88,36 @@ jobs:
           script: |
             set -e
             cd /var/www/sso.vunph.click
+            export NODE_ENV=production
             echo "📦 Cài đặt production dependencies nếu có thay đổi..."
             npm install --omit=dev --no-audit --no-fund
-            echo "🔄 Restart PM2 vinfi-sso..."
+            APP_SCRIPT="$PWD/dist/src/main.js"
+            if [ ! -f "$APP_SCRIPT" ]; then
+              echo "Deploy failed: compiled entry point is missing: $APP_SCRIPT"
+              exit 1
+            fi
+            echo "🔄 Restart PM2 vinfi-sso from $APP_SCRIPT..."
             if pm2 describe vinfi-sso > /dev/null 2>&1; then
-              pm2 restart vinfi-sso --update-env
+              CURRENT_SCRIPT="$(pm2 jlist | node -e 'let s=""; process.stdin.on("data", (x) => s += x).on("end", () => { const p = JSON.parse(s).find((item) => item.name === "vinfi-sso"); process.stdout.write(p?.pm2_env?.pm_exec_path || ""); });')"
+              if [ "$CURRENT_SCRIPT" = "$APP_SCRIPT" ]; then
+                pm2 restart vinfi-sso --update-env
+              else
+                pm2 delete vinfi-sso
+                if ! pm2 start "$APP_SCRIPT" --name vinfi-sso --env production --max-memory-restart 300M; then
+                  if [ -f dist/main.js ]; then
+                    pm2 start dist/main.js --name vinfi-sso --env production --max-memory-restart 300M
+                    pm2 save
+                  fi
+                  exit 1
+                fi
+                pm2 save
+              fi
             else
-              pm2 start dist/main.js --name vinfi-sso --env production --max-memory-restart 300M
+              pm2 start "$APP_SCRIPT" --name vinfi-sso --env production --max-memory-restart 300M
               pm2 save
             fi
             echo "✅ Deploy thành công!"
-            pm2 show vinfi-sso | grep -E "status|pid|uptime"
+            pm2 show vinfi-sso | grep -E "status|pid|uptime|script path"
 
       # ── 6. Health check ──────────────────────────────────────────────────────
       - name: Health check
@@ -103,4 +125,5 @@ jobs:
           sleep 5
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://sso.vunph.click/ui/sso || echo "000")
           echo "SSO Service Health: $STATUS"
-          [ "$STATUS" = "200" ] && echo "✅ SSO Service đang hoạt động tốt!" || echo "⚠️ Cảnh báo: HTTP status $STATUS"
+          [ "$STATUS" = "200" ] || exit 1
+          echo "✅ SSO Service đang hoạt động tốt!"

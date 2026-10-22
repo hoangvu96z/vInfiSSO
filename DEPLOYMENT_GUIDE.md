@@ -259,7 +259,7 @@ module.exports = {
   apps: [
     {
       name: 'vinfisso',
-      script: './dist/main.js',
+      script: './dist/src/main.js',
       instances: 'max',
       exec_mode: 'cluster',
       watch: false,
