@@ -100,18 +100,25 @@ git clone https://github.com/hoangvu96z/vInfiSSO.git .
 
 ### Apply pending database migrations before rollout
 
-Production migrations use the explicit TypeORM CLI. From the checkout of the
-release being prepared, take and verify the encrypted database backup first,
-then review and apply migrations before triggering the deployment:
+Production migrations use the explicit TypeORM CLI. Take and verify the
+encrypted database backup first. On the VPS, stage the exact release's compiled
+artifacts in the production deployment directory before reviewing migrations;
+defer the PM2 restart and dependent application rollout until the reviewed
+migrations have been applied:
 
 ```bash
-cd /opt/vinfisso
-npm ci
-npm run build
+cd /var/www/sso.vunph.click
 NODE_ENV=production npm run migration:show
 NODE_ENV=production npm run migration:run
 NODE_ENV=production npm run migration:show
 ```
+
+The live PM2 working directory is `/var/www/sso.vunph.click`. Run the commands
+there so the compiled DataSource uses that release's `dist/` and loads the
+existing `.env` and `.env.production` from the same directory. Do not copy or
+print those files. The deploy workflow uploads artifacts to this path and then
+restarts PM2; a release with pending schema changes needs an operator-controlled
+staging and review step before that restart.
 
 Review the pending list before running it. If the runtime database role cannot
 create schema objects, supply `MIGRATION_DATABASE_*` overrides through the
@@ -126,7 +133,9 @@ dropping the table would discard coupon-use history.
 
 The Nest application keeps `synchronize` and `migrationsRun` disabled, and
 GitHub Actions does not apply schema DDL. The required order is verified
-encrypted backup → `migration:show` → `migration:run` → deployment.
+encrypted backup → stage the intended release → `migration:show` and operator
+review → `migration:run` → confirm with `migration:show` → deployment and PM2
+restart.
 
 ### 1. Install Dependencies
 ```bash

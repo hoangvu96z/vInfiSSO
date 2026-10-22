@@ -40,14 +40,16 @@ npm run build
 ```
 
 Before rolling out code that depends on a database schema change, follow this
-order from the release checkout in `/opt/vinfisso`:
+order on the VPS from the production PM2 working directory,
+`/var/www/sso.vunph.click`. The compiled files in `dist/` must belong to the
+exact release being prepared. Stage that release's compiled artifacts in the
+deployment directory before running the CLI, and defer the PM2 restart until
+the migration has been reviewed and applied.
 
 ```bash
 # 1. Take and verify the encrypted database backup, including its offsite copy.
-# 2. Build the exact release so the compiled DataSource and migrations exist.
-cd /opt/vinfisso
-npm ci
-npm run build
+# 2. Use the VPS deployment directory with the exact release artifacts staged.
+cd /var/www/sso.vunph.click
 
 # 3. Review the pending migration list. Stop if it differs from the release plan.
 NODE_ENV=production npm run migration:show
@@ -60,6 +62,12 @@ NODE_ENV=production npm run migration:show
 ```
 
 The TypeORM CLI uses `DATABASE_*` settings from the server environment files.
+Run it from `/var/www/sso.vunph.click`; the compiled DataSource loads `.env` and
+`.env.production` from that working directory without printing their contents.
+The workflow installs production dependencies and uploads compiled artifacts
+to this directory. It restarts PM2 after upload, so for a release with a pending
+migration, stage the matching release artifacts and complete this operator
+review before allowing that restart.
 If the runtime database role cannot create schema objects, provide the
 `MIGRATION_DATABASE_*` overrides only in the operator's secure shell environment;
 do not store those elevated credentials in the repository or application `.env`.
