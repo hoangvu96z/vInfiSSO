@@ -1,7 +1,9 @@
 import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import {
+  buildReadingPayloadAAD,
   decryptLegacyClientTree,
   decryptLegacyClientValue,
+  getReadingEnvelopeVersion,
   LEGACY_CLIENT_SALT,
   ReadingEncryption,
   validateReadingEncryptionEnvironment,
@@ -24,6 +26,34 @@ function makeLegacyValue(value: unknown, userId: string): string {
   return `enc_v1::${iv.toString('base64')}:${ciphertext.toString('base64')}`;
 }
 
+function makeV2Envelope(
+  value: unknown,
+  userId: string,
+  keyId: string,
+  encodedKey: string,
+): { _enc: string } {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv(
+    'aes-256-gcm',
+    Buffer.from(encodedKey, 'base64'),
+    iv,
+  );
+  cipher.setAAD(Buffer.from(`reading:${userId}`, 'utf8'));
+  const ciphertext = Buffer.concat([
+    cipher.update(JSON.stringify(value), 'utf8'),
+    cipher.final(),
+  ]);
+  return {
+    _enc: [
+      'v2',
+      keyId,
+      iv.toString('base64url'),
+      cipher.getAuthTag().toString('base64url'),
+      ciphertext.toString('base64url'),
+    ].join(':'),
+  };
+}
+
 describe('reading server-side encryption', () => {
   const key1 = randomBytes(32).toString('base64');
   const key2 = randomBytes(32).toString('base64');
@@ -34,25 +64,55 @@ describe('reading server-side encryption', () => {
     data: { result: { value: 42 }, aiConversation: [{ text: 'Private' }] },
   };
 
-  it('round-trips a v2 envelope bound to the reading owner', () => {
+  it('round-trips a v3 envelope bound to user, reading ID, and payload field', () => {
     const encryption = new ReadingEncryption(`k1:${key1}`, 'k1', true);
-    const encrypted = encryption.encryptPayload(payload, userId);
+    const readingId = 'reading-a';
+    const encrypted = encryption.encryptPayload(payload, userId, readingId);
 
-    expect(encrypted._enc.startsWith('v2:k1:')).toBe(true);
+    expect(encrypted._enc.startsWith('v3:k1:')).toBe(true);
     expect(JSON.stringify(encrypted)).not.toContain(payload.question);
-    expect(encryption.decryptEnvelope(encrypted, userId)).toEqual(payload);
-    expect(() => encryption.decryptEnvelope(encrypted, 'user-b')).toThrow();
+    expect(getReadingEnvelopeVersion(encrypted)).toBe('v3');
+    expect(buildReadingPayloadAAD(userId, readingId)).toEqual(
+      Buffer.from(
+        JSON.stringify(['reading', userId, readingId, 'payload']),
+        'utf8',
+      ),
+    );
+    expect(encryption.decryptEnvelope(encrypted, userId, readingId)).toEqual(
+      payload,
+    );
+    expect(() =>
+      encryption.decryptEnvelope(encrypted, 'user-b', readingId),
+    ).toThrow();
+    expect(() =>
+      encryption.decryptEnvelope(encrypted, userId, 'reading-b'),
+    ).toThrow();
+  });
+
+  it('continues to decrypt existing v2 envelopes with their original AAD', () => {
+    const encryption = new ReadingEncryption(`k1:${key1}`, 'k1', true);
+    const legacyEnvelope = makeV2Envelope(payload, userId, 'k1', key1);
+
+    expect(getReadingEnvelopeVersion(legacyEnvelope)).toBe('v2');
+    expect(
+      encryption.decryptEnvelope(legacyEnvelope, userId, 'historical-row'),
+    ).toEqual(payload);
   });
 
   it('decrypts old key IDs while encrypting with the active rotation key', () => {
     const oldKeyReader = new ReadingEncryption(`k1:${key1}`, 'k1', true);
-    const oldEnvelope = oldKeyReader.encryptPayload(payload, userId);
+    const readingId = 'reading-key-rotation';
+    const oldEnvelope = oldKeyReader.encryptPayload(payload, userId, readingId);
     const rotating = new ReadingEncryption(`k1:${key1},k2:${key2}`, 'k2', true);
-    const newEnvelope = rotating.encryptPayload(payload, userId);
+    const newEnvelope = rotating.encryptPayload(payload, userId, readingId);
 
-    expect(newEnvelope._enc).toMatch(/^v2:k2:/);
-    expect(rotating.decryptEnvelope(oldEnvelope, userId)).toEqual(payload);
-    expect(rotating.decryptEnvelope(newEnvelope, userId)).toEqual(payload);
+    expect(newEnvelope._enc).toMatch(/^v3:k2:/);
+    expect(rotating.decryptEnvelope(oldEnvelope, userId, readingId)).toEqual(
+      payload,
+    );
+    expect(rotating.decryptEnvelope(newEnvelope, userId, readingId)).toEqual(
+      payload,
+    );
   });
 
   it('rejects missing, malformed, duplicate, or inactive production keys', () => {

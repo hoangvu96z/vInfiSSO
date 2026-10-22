@@ -5,6 +5,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Repository } from 'typeorm';
 import { Reading } from './reading.entity';
@@ -83,13 +84,15 @@ export class ReadingsService {
       title: dto.title,
       data: dto.data,
     };
+    const readingId = randomUUID();
     const reading = this.readingsRepo.create({
+      id: readingId,
       userId,
       app: dto.app,
       type: dto.type,
       question: null,
       title: safeTitle,
-      data: this.readingEncryption.encryptPayload(payload, userId),
+      data: this.readingEncryption.encryptPayload(payload, userId, readingId),
     });
     const saved = await this.readingsRepo.save(reading);
 
@@ -141,6 +144,7 @@ export class ReadingsService {
         data: mergedData,
       },
       userId,
+      reading.id,
     );
     const saved = await this.readingsRepo.save(reading);
 
@@ -197,6 +201,7 @@ export class ReadingsService {
       const payload = this.readingEncryption.decryptEnvelope(
         reading.data,
         reading.userId,
+        reading.id,
       );
       return {
         ...reading,

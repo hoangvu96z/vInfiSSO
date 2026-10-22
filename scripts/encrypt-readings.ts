@@ -4,6 +4,7 @@ import { getEnvFiles } from '../src/config/env-files';
 import { Reading } from '../src/readings/reading.entity';
 import {
   decryptLegacyClientTree,
+  getReadingEnvelopeVersion,
   ReadingEncryption,
   ReadingPayload,
   validateReadingEncryptionEnvironment,
@@ -18,6 +19,7 @@ const DEFAULT_BATCH_SIZE = 200;
 interface MigrationOptions {
   apply: boolean;
   reencrypt: boolean;
+  rollbackToV2: boolean;
   skipUnreadableLegacy: boolean;
   batchSize: number;
 }
@@ -27,6 +29,7 @@ interface BatchResult {
   eligible: number;
   alreadyCurrent: number;
   legacyDecryptionFailed: number;
+  legacyPreserved: number;
 }
 
 interface MigrationSummary {
@@ -34,6 +37,7 @@ interface MigrationSummary {
   eligible: number;
   alreadyCurrent: number;
   legacyDecryptionFailed: number;
+  legacyPreserved: number;
   updated: number;
 }
 
@@ -42,6 +46,7 @@ export function parseOptions(args: string[]): MigrationOptions {
     '--apply',
     '--dry-run',
     '--reencrypt',
+    '--rollback-to-v2',
     '--skip-unreadable-legacy',
   ]);
   for (const arg of args) {
@@ -51,6 +56,7 @@ export function parseOptions(args: string[]): MigrationOptions {
   const apply = args.includes('--apply');
   const dryRun = args.includes('--dry-run');
   const reencrypt = args.includes('--reencrypt');
+  const rollbackToV2 = args.includes('--rollback-to-v2');
   const skipUnreadableLegacy = args.includes('--skip-unreadable-legacy');
   if (apply && dryRun) throw new Error('Choose either --apply or --dry-run');
   if (reencrypt && !apply) {
@@ -58,6 +64,12 @@ export function parseOptions(args: string[]): MigrationOptions {
   }
   if (skipUnreadableLegacy && !apply) {
     throw new Error('--skip-unreadable-legacy requires --apply');
+  }
+  if (rollbackToV2 && reencrypt) {
+    throw new Error('--rollback-to-v2 cannot be combined with --reencrypt');
+  }
+  if (rollbackToV2 && skipUnreadableLegacy) {
+    throw new Error('--rollback-to-v2 cannot be combined with --skip-unreadable-legacy');
   }
 
   const batchArg = args.find((arg) => arg.startsWith('--batch-size='));
@@ -77,19 +89,10 @@ export function parseOptions(args: string[]): MigrationOptions {
   return {
     apply: apply && !dryRun,
     reencrypt,
+    rollbackToV2,
     skipUnreadableLegacy,
     batchSize,
   };
-}
-
-function isV2ReadingData(value: unknown): boolean {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    typeof (value as Record<string, unknown>)._enc === 'string' &&
-    ((value as Record<string, unknown>)._enc as string).startsWith('v2:')
-  );
 }
 
 function hasReadingEnvelope(value: unknown): boolean {
@@ -190,24 +193,54 @@ export async function processBatch(
   const batch = await loadBatch(repo, cursor, options.batchSize, options.apply);
   let alreadyCurrent = 0;
   let legacyDecryptionFailed = 0;
+  let legacyPreserved = 0;
   const pending: Reading[] = [];
 
   for (const reading of batch) {
-    if (hasReadingEnvelope(reading.data) && !isV2ReadingData(reading.data)) {
+    const envelopeVersion = getReadingEnvelopeVersion(reading.data);
+    if (hasReadingEnvelope(reading.data) && !envelopeVersion) {
       throw new Error('Unsupported encrypted reading envelope');
     }
-    const encrypted = isV2ReadingData(reading.data);
-    if (encrypted && !options.reencrypt) {
-      // Validate that all referenced keys are available, even in dry-run mode.
-      encryption.decryptEnvelope(reading.data, reading.userId);
+    if (options.rollbackToV2) {
+      if (envelopeVersion === 'v3') {
+        const payload = encryption.decryptEnvelope(
+          reading.data,
+          reading.userId,
+          reading.id,
+        );
+        pending.push({
+          ...reading,
+          data: encryption.encryptPayloadV2ForRollback(
+            payload,
+            reading.userId,
+          ),
+        });
+      } else if (envelopeVersion === 'v2') {
+        // Validate existing V2 ciphertext before declaring it rollback-ready.
+        encryption.decryptEnvelope(reading.data, reading.userId, reading.id);
+        alreadyCurrent += 1;
+      } else {
+        // V2 applications still understand historical client-encrypted rows.
+        legacyPreserved += 1;
+      }
+      continue;
+    }
+    if (envelopeVersion === 'v3' && !options.reencrypt) {
+      // Validate that all referenced keys and row-bound AAD are available,
+      // even in dry-run mode.
+      encryption.decryptEnvelope(reading.data, reading.userId, reading.id);
       alreadyCurrent += 1;
       continue;
     }
 
     let payload: ReadingPayload;
-    if (encrypted) {
-      // V2 authentication and key errors remain fatal in every mode.
-      payload = encryption.decryptEnvelope(reading.data, reading.userId);
+    if (envelopeVersion) {
+      // Both V2 and V3 authentication/key errors remain fatal in every mode.
+      payload = encryption.decryptEnvelope(
+        reading.data,
+        reading.userId,
+        reading.id,
+      );
     } else {
       try {
         payload = decryptLegacyPayload(reading);
@@ -221,7 +254,11 @@ export async function processBatch(
     }
     reading.question = null;
     reading.title = getStorageTitle(reading.app, reading.type);
-    reading.data = encryption.encryptPayload(payload, reading.userId);
+    reading.data = encryption.encryptPayload(
+      payload,
+      reading.userId,
+      reading.id,
+    );
     pending.push(reading);
   }
 
@@ -231,6 +268,7 @@ export async function processBatch(
     eligible: pending.length,
     alreadyCurrent,
     legacyDecryptionFailed,
+    legacyPreserved,
   };
 }
 
@@ -246,6 +284,7 @@ export async function runPass(
     eligible: 0,
     alreadyCurrent: 0,
     legacyDecryptionFailed: 0,
+    legacyPreserved: 0,
     updated: 0,
   };
 
@@ -266,6 +305,7 @@ export async function runPass(
     summary.eligible += result.eligible;
     summary.alreadyCurrent += result.alreadyCurrent;
     summary.legacyDecryptionFailed += result.legacyDecryptionFailed;
+    summary.legacyPreserved += result.legacyPreserved;
     if (options.apply) summary.updated += result.eligible;
   }
   return summary;
@@ -280,6 +320,7 @@ function reportSummary(
       mode: options.apply ? 'apply' : 'dry-run',
       batchSize: options.batchSize,
       reencrypt: options.reencrypt,
+      rollbackToV2: options.rollbackToV2,
       skipUnreadableLegacy: options.skipUnreadableLegacy,
       ...summary,
     }),

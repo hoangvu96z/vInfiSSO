@@ -25,6 +25,30 @@ function makeLegacyValue(value: unknown, userId: string): string {
   return `enc_v1::${iv.toString('base64')}:${ciphertext.toString('base64')}`;
 }
 
+function makeV2Envelope(
+  value: unknown,
+  userId: string,
+  keyId: string,
+  key: Buffer,
+): { _enc: string } {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  cipher.setAAD(Buffer.from(`reading:${userId}`, 'utf8'));
+  const ciphertext = Buffer.concat([
+    cipher.update(JSON.stringify(value), 'utf8'),
+    cipher.final(),
+  ]);
+  return {
+    _enc: [
+      'v2',
+      keyId,
+      iv.toString('base64url'),
+      cipher.getAuthTag().toString('base64url'),
+      ciphertext.toString('base64url'),
+    ].join(':'),
+  };
+}
+
 function makeReading(id: string, userId = 'user-a'): Reading {
   return {
     id,
@@ -63,6 +87,7 @@ function makeRepository(readings: Reading[]): {
 
 describe('reading encryption migration failure handling', () => {
   const key = randomBytes(32).toString('base64');
+  const keyBuffer = Buffer.from(key, 'base64');
   const encryption = new ReadingEncryption(`active:${key}`, 'active', true);
 
   function makeMixedReadings(): { valid: Reading; unreadable: Reading } {
@@ -160,7 +185,9 @@ describe('reading encryption migration failure handling', () => {
     expect(save).toHaveBeenCalledWith([valid]);
     expect(valid.question).toBeNull();
     expect(valid.title).toBe('iching:luc-hao');
-    expect(encryption.decryptEnvelope(valid.data, valid.userId)).toEqual({
+    expect(
+      encryption.decryptEnvelope(valid.data, valid.userId, valid.id),
+    ).toEqual({
       question: 'Private question',
       title: 'Private title',
       data: { result: { value: 42 } },
@@ -187,17 +214,87 @@ describe('reading encryption migration failure handling', () => {
     ).toThrow('--skip-unreadable-legacy requires --apply');
   });
 
+  it('accepts rollback dry-run by default and rejects conflicting modes', () => {
+    expect(parseOptions(['--rollback-to-v2'])).toMatchObject({
+      apply: false,
+      rollbackToV2: true,
+    });
+    expect(() =>
+      parseOptions(['--rollback-to-v2', '--apply', '--reencrypt']),
+    ).toThrow('--rollback-to-v2 cannot be combined with --reencrypt');
+    expect(() =>
+      parseOptions([
+        '--rollback-to-v2',
+        '--apply',
+        '--skip-unreadable-legacy',
+      ]),
+    ).toThrow(
+      '--rollback-to-v2 cannot be combined with --skip-unreadable-legacy',
+    );
+  });
+
+  it('migrates v2 records to row-bound v3 during the default apply pass', async () => {
+    const reading = makeReading('reading-v2');
+    const payload = {
+      question: 'Question',
+      title: 'Title',
+      data: { result: { value: 7 } },
+    };
+    reading.question = null;
+    reading.title = 'iching:luc-hao';
+    reading.data = makeV2Envelope(payload, reading.userId, 'active', keyBuffer);
+    const { repository, save } = makeRepository([reading]);
+
+    const result = await processBatch(
+      repository,
+      null,
+      parseOptions(['--apply']),
+      encryption,
+    );
+
+    expect(result.eligible).toBe(1);
+    expect(result.alreadyCurrent).toBe(0);
+    expect(save).toHaveBeenCalledWith([reading]);
+    expect(reading.data._enc).toMatch(/^v3:active:/);
+    expect(
+      encryption.decryptEnvelope(reading.data, reading.userId, reading.id),
+    ).toEqual(payload);
+  });
+
+  it('counts v2 records for dry-run without saving them', async () => {
+    const reading = makeReading('reading-v2-dry-run');
+    reading.question = null;
+    reading.title = 'iching:luc-hao';
+    reading.data = makeV2Envelope(
+      { question: 'Question', title: 'Title', data: { result: 7 } },
+      reading.userId,
+      'active',
+      keyBuffer,
+    );
+    const { repository, save } = makeRepository([reading]);
+
+    const result = await processBatch(
+      repository,
+      null,
+      parseOptions(['--dry-run']),
+      encryption,
+    );
+
+    expect(result.eligible).toBe(1);
+    expect(result.alreadyCurrent).toBe(0);
+    expect(save).not.toHaveBeenCalled();
+  });
+
   it('keeps V2 decryption and key failures fatal even with legacy skip enabled', async () => {
     const wrongKey = randomBytes(32).toString('base64');
-    const wrongEncryption = new ReadingEncryption(
-      `wrong:${wrongKey}`,
-      'wrong',
-      true,
-    );
     const reading = makeReading('reading-v2');
-    reading.data = wrongEncryption.encryptPayload(
+    reading.question = null;
+    reading.title = 'iching:luc-hao';
+    reading.data = makeV2Envelope(
       { question: 'Q', title: 'T', data: { result: true } },
       reading.userId,
+      'wrong',
+      Buffer.from(wrongKey, 'base64'),
     );
     const { repository, save } = makeRepository([reading]);
 
@@ -211,5 +308,112 @@ describe('reading encryption migration failure handling', () => {
     ).rejects.toThrow('Reading encryption key is unavailable');
 
     expect(save).not.toHaveBeenCalled();
+  });
+
+  it('dry-runs V3 to V2 rollback without mutating or saving rows', async () => {
+    const reading = makeReading('reading-rollback-dry-run');
+    const payload = {
+      question: 'Question',
+      title: 'Title',
+      data: { result: { value: 9 } },
+    };
+    reading.question = null;
+    reading.title = 'iching:luc-hao';
+    reading.data = encryption.encryptPayload(
+      payload,
+      reading.userId,
+      reading.id,
+    );
+    const before = structuredClone(reading);
+    const { repository, save } = makeRepository([reading]);
+
+    const result = await processBatch(
+      repository,
+      null,
+      parseOptions(['--rollback-to-v2', '--dry-run']),
+      encryption,
+    );
+
+    expect(result.eligible).toBe(1);
+    expect(result.alreadyCurrent).toBe(0);
+    expect(result.legacyPreserved).toBe(0);
+    expect(save).not.toHaveBeenCalled();
+    expect(reading).toEqual(before);
+  });
+
+  it('transactionally converts V3 rows to V2 for a lossless app rollback', async () => {
+    const reading = makeReading('reading-rollback-apply');
+    const payload = {
+      question: 'Question',
+      title: 'Title',
+      data: { result: { value: 10 } },
+    };
+    reading.question = null;
+    reading.title = 'iching:luc-hao';
+    reading.data = encryption.encryptPayload(
+      payload,
+      reading.userId,
+      reading.id,
+    );
+    const queryBuilder = {
+      orderBy: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      setLock: jest.fn().mockReturnThis(),
+      getMany: jest
+        .fn()
+        .mockResolvedValueOnce([reading])
+        .mockResolvedValueOnce([]),
+    };
+    const save = jest.fn().mockResolvedValue(undefined);
+    const repository = {
+      createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
+      save,
+    } as unknown as Repository<Reading>;
+    const dataSource = {
+      transaction: jest.fn(
+        async <T>(work: (manager: { getRepository: () => Repository<Reading> }) => Promise<T>) =>
+          work({ getRepository: () => repository }),
+      ),
+    } as unknown as Parameters<typeof runPass>[3];
+
+    const summary = await runPass(
+      repository,
+      parseOptions(['--rollback-to-v2', '--apply']),
+      encryption,
+      dataSource,
+    );
+
+    expect(summary.updated).toBe(1);
+    expect(summary.eligible).toBe(1);
+    expect(dataSource.transaction).toHaveBeenCalledTimes(2);
+    const savedRows = save.mock.calls[0][0] as Reading[];
+    expect(savedRows[0].data._enc).toMatch(/^v2:active:/);
+    expect(
+      encryption.decryptEnvelope(
+        savedRows[0].data,
+        reading.userId,
+        reading.id,
+      ),
+    ).toEqual(payload);
+    expect(reading.data._enc).toMatch(/^v3:active:/);
+  });
+
+  it('preserves legacy client-encrypted rows during a V2 rollback', async () => {
+    const reading = makeReading('reading-rollback-legacy');
+    const before = structuredClone(reading);
+    const { repository, save } = makeRepository([reading]);
+
+    const result = await processBatch(
+      repository,
+      null,
+      parseOptions(['--rollback-to-v2', '--dry-run']),
+      encryption,
+    );
+
+    expect(result.eligible).toBe(0);
+    expect(result.legacyPreserved).toBe(1);
+    expect(save).not.toHaveBeenCalled();
+    expect(reading).toEqual(before);
   });
 });

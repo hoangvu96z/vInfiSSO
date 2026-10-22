@@ -114,6 +114,75 @@ changes: expand with backward-compatible schema first, move application use in
 a later release, and remove old schema only in a subsequent release after no
 deployed code depends on it.
 
+### Reading envelope migration (v1/v2 to v3)
+
+New readings are stored as v3 envelopes authenticated with the user ID, reading
+UUID, and the explicit `payload` field name. The API continues to read existing
+v2 envelopes with their original user-only AAD and legacy client-encrypted
+records. This migration rewrites encrypted `readings.data` values only; it does
+not change the database schema. The CLI reports counts only and never exports
+decrypted reading content.
+
+Before a production apply, follow `RUNBOOK_RESTORE.md` and complete a restore
+drill from an encrypted offsite backup, including reading decryption. A
+checksum or successful upload alone is not enough. Deploy the v3-capable API
+first. The build emits `dist/scripts/encrypt-readings.js`; the deploy workflow
+checks for and uploads that compiled entry point with the release. The CLI runs
+with Node and production dependencies only; it does not require the TypeScript
+source or `ts-node` on the VPS. Verify the deployed artifact exists before
+running it. New v3 writes are readable alongside existing v2/legacy rows, so
+the API may serve traffic during the migration dry-run. The dry-run must finish
+with zero `legacyDecryptionFailed` and be reviewed before any write:
+
+```bash
+cd /var/www/sso.vunph.click
+NODE_ENV=production npm run encrypt:readings -- --dry-run
+```
+
+If the dry-run is clean, stop `vinfi-sso` to prevent concurrent reading writes,
+then apply the migration. The command validates all records before its first
+batch and commits bounded batches of at most 200 records. If it stops midway,
+the deployed API can read the resulting mix of v2 and v3; rerun the dry-run,
+review its counts, then resume with `--apply` before restarting the API.
+
+```bash
+pm2 stop vinfi-sso
+NODE_ENV=production npm run encrypt:readings -- --apply
+NODE_ENV=production npm run encrypt:readings -- --dry-run
+pm2 restart vinfi-sso --update-env
+```
+
+After apply, the dry-run must report `eligible: 0`, `legacyDecryptionFailed: 0`,
+and all migrated records as `alreadyCurrent` (legacy rows, if any, are reported
+as `legacyPreserved`). Verify the API and a reading can be fetched and decrypted
+before accepting the release. Keep the verified pre-migration backup until
+acceptance.
+
+For an application rollback to a v2-only release, use the deployed migration
+CLI to downgrade every v3 envelope to v2 while preserving the current database
+rows. A v2-only release cannot read v3 rows, including v3 rows created before
+the backfill finishes. Run a dry-run, stop `vinfi-sso`, run the dry-run again,
+then apply and run the dry-run once more. Only deploy/resume the old application
+after the final report shows `eligible: 0` and `legacyDecryptionFailed: 0`.
+V2/legacy reads remain compatible with the current release throughout this
+step. This preserves readings created by the v3 release, including records
+written before or during the v2-to-v3 backfill. Keep the service stopped until
+the v2-only release takes over, so no new v3 rows are written. Do not restore
+the old pre-migration database for an application-only rollback, since that
+would discard newer readings. Use the full verified backup only for database
+recovery, and never manually edit envelopes or use `--reencrypt` as a rollback.
+
+```bash
+cd /var/www/sso.vunph.click
+NODE_ENV=production npm run encrypt:readings -- --rollback-to-v2 --dry-run
+pm2 stop vinfi-sso
+NODE_ENV=production npm run encrypt:readings -- --rollback-to-v2 --dry-run
+NODE_ENV=production npm run encrypt:readings -- --rollback-to-v2 --apply
+NODE_ENV=production npm run encrypt:readings -- --rollback-to-v2 --dry-run
+# Now deploy/revert the application to the v2-only release and let its deploy
+# restart PM2. Do not restart the v3 release between conversion and rollback.
+```
+
 ### Phase 6: Configure Environment
 ```bash
 # Copy production .env

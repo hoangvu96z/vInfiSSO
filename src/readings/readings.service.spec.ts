@@ -58,7 +58,7 @@ describe('ReadingsService encryption at rest', () => {
     repo = {
       create: jest.fn((value: Partial<Reading>) => ({
         ...value,
-        id: 'reading-1',
+        id: value.id ?? 'reading-1',
         createdAt,
       })),
       delete: jest.fn(),
@@ -109,6 +109,7 @@ describe('ReadingsService encryption at rest', () => {
     const encrypted = encryption.encryptPayload(
       { question: 'Question', title: 'Display title', data: { result: 42 } },
       userId,
+      'reading-2',
     );
     const row = {
       id: 'reading-2',
@@ -158,6 +159,7 @@ describe('ReadingsService encryption at rest', () => {
         data: { result: 42, aiConversation: [{ text: 'Old' }] },
       },
       userId,
+      'reading-3',
     );
     const row = {
       id: 'reading-3',

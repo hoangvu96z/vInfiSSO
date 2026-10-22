@@ -7,11 +7,44 @@ import {
   randomBytes,
 } from 'node:crypto';
 
-const ENVELOPE_VERSION = 'v2';
+const ENVELOPE_VERSION = 'v3';
+const LEGACY_ENVELOPE_VERSION = 'v2';
 const AES_KEY_BYTES = 32;
 const GCM_IV_BYTES = 12;
 const GCM_TAG_BYTES = 16;
 const LEGACY_PREFIX = 'enc_v1::';
+const READING_PAYLOAD_FIELD = 'payload';
+
+export type ReadingEnvelopeVersion = 'v2' | 'v3';
+
+/**
+ * V3 authenticates the owner, immutable row ID, and encrypted payload field.
+ * JSON tuple encoding avoids ambiguity if identifiers contain `:`.
+ */
+export function buildReadingPayloadAAD(
+  userId: string,
+  readingId: string,
+): Buffer {
+  if (!userId || !readingId) {
+    throw new Error('A user ID and reading ID are required');
+  }
+  return Buffer.from(
+    JSON.stringify(['reading', userId, readingId, READING_PAYLOAD_FIELD]),
+    'utf8',
+  );
+}
+
+export function getReadingEnvelopeVersion(
+  data: unknown,
+): ReadingEnvelopeVersion | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const envelope = (data as Record<string, unknown>)._enc;
+  if (typeof envelope !== 'string') return null;
+  const version = envelope.split(':', 1)[0];
+  return version === LEGACY_ENVELOPE_VERSION || version === ENVELOPE_VERSION
+    ? version
+    : null;
+}
 
 // This value is public in the historical frontend and is used only to migrate
 // its legacy ciphertext. It is not used for new encryption.
@@ -112,7 +145,35 @@ export class ReadingEncryption {
     this.activeKeyId = parsed.activeKeyId;
   }
 
-  encryptPayload(payload: ReadingPayload, userId: string): { _enc: string } {
+  encryptPayload(
+    payload: ReadingPayload,
+    userId: string,
+    readingId: string,
+  ): { _enc: string } {
+    return this.encryptPayloadWithAAD(
+      payload,
+      ENVELOPE_VERSION,
+      buildReadingPayloadAAD(userId, readingId),
+    );
+  }
+
+  /** Rewrap V3 data in the historical format before rolling the app back. */
+  encryptPayloadV2ForRollback(
+    payload: ReadingPayload,
+    userId: string,
+  ): { _enc: string } {
+    return this.encryptPayloadWithAAD(
+      payload,
+      LEGACY_ENVELOPE_VERSION,
+      Buffer.from(`reading:${userId}`, 'utf8'),
+    );
+  }
+
+  private encryptPayloadWithAAD(
+    payload: ReadingPayload,
+    version: ReadingEnvelopeVersion,
+    aad: Buffer,
+  ): { _enc: string } {
     if (!this.activeKeyId) {
       throw new Error('Reading encryption is not configured');
     }
@@ -121,7 +182,7 @@ export class ReadingEncryption {
 
     const iv = randomBytes(GCM_IV_BYTES);
     const cipher = createCipheriv('aes-256-gcm', key, iv);
-    cipher.setAAD(Buffer.from(`reading:${userId}`, 'utf8'));
+    cipher.setAAD(aad);
     const ciphertext = Buffer.concat([
       cipher.update(JSON.stringify(payload), 'utf8'),
       cipher.final(),
@@ -130,7 +191,7 @@ export class ReadingEncryption {
 
     return {
       _enc: [
-        ENVELOPE_VERSION,
+        version,
         this.activeKeyId,
         iv.toString('base64url'),
         tag.toString('base64url'),
@@ -139,7 +200,11 @@ export class ReadingEncryption {
     };
   }
 
-  decryptEnvelope(data: unknown, userId: string): ReadingPayload {
+  decryptEnvelope(
+    data: unknown,
+    userId: string,
+    readingId: string,
+  ): ReadingPayload {
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
       throw new Error('Invalid encrypted reading');
     }
@@ -150,7 +215,7 @@ export class ReadingEncryption {
     const [version, keyId, ivText, tagText, ciphertextText, ...rest] =
       envelope.split(':');
     if (
-      version !== ENVELOPE_VERSION ||
+      (version !== ENVELOPE_VERSION && version !== LEGACY_ENVELOPE_VERSION) ||
       !keyId ||
       !ivText ||
       !tagText ||
@@ -170,7 +235,13 @@ export class ReadingEncryption {
     }
 
     const decipher = createDecipheriv('aes-256-gcm', key, iv);
-    decipher.setAAD(Buffer.from(`reading:${userId}`, 'utf8'));
+    // Keep V2's original user-only AAD so historical ciphertext remains
+    // readable. New V3 rows bind the user, row identity, and payload field.
+    decipher.setAAD(
+      version === LEGACY_ENVELOPE_VERSION
+        ? Buffer.from(`reading:${userId}`, 'utf8')
+        : buildReadingPayloadAAD(userId, readingId),
+    );
     decipher.setAuthTag(tag);
     const plaintext = Buffer.concat([
       decipher.update(ciphertext),
