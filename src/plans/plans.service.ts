@@ -13,6 +13,7 @@ import { Coupon } from './coupon.entity';
 import { CouponRedemption } from './coupon-redemption.entity';
 import { User } from '../users/user.entity';
 import { normalizeQuotaAppName } from './quota-app.util';
+import { parseAdminDateRange } from '../common/admin-date-range.util';
 
 @Injectable()
 export class PlansService {
@@ -630,6 +631,48 @@ export class PlansService {
 
   async getAllCoupons(): Promise<Coupon[]> {
     return this.couponRepo.find({ order: { createdAt: 'DESC' } });
+  }
+
+  async getCoupons(
+    page = 1,
+    limit = 20,
+    search = '',
+    dateFrom?: string,
+    dateTo?: string,
+  ) {
+    const safePage = Math.max(1, page);
+    const safeLimit = Math.min(100, Math.max(1, limit));
+    const { start, end } = parseAdminDateRange(dateFrom, dateTo);
+    const query = this.couponRepo
+      .createQueryBuilder('coupon')
+      .orderBy('coupon.createdAt', 'DESC')
+      .addOrderBy('coupon.id', 'ASC');
+
+    if (search.trim()) {
+      query.andWhere(
+        '(coupon.code ILIKE :search OR coupon.description ILIKE :search OR coupon.planName ILIKE :search)',
+        { search: `%${search.trim()}%` },
+      );
+    }
+    if (start) {
+      query.andWhere('coupon.createdAt >= :dateFrom', { dateFrom: start });
+    }
+    if (end) {
+      query.andWhere('coupon.createdAt < :dateTo', { dateTo: end });
+    }
+
+    const [coupons, total] = await query
+      .skip((safePage - 1) * safeLimit)
+      .take(safeLimit)
+      .getManyAndCount();
+
+    return {
+      coupons,
+      total,
+      page: safePage,
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit),
+    };
   }
 
   async createCoupon(data: Partial<Coupon>): Promise<Coupon> {

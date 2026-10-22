@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  Card, Space, Tag, Input, Select, Button, Modal, message
+  Card, Space, Tag, Input, Select, Button, DatePicker, message
 } from 'antd';
 import {
   ReloadOutlined, PoweroffOutlined, CheckCircleOutlined,
@@ -10,24 +10,35 @@ import ModernDataTable from '../ModernDataTable';
 import GrantPlanModal from './modals/GrantPlanModal';
 import ConfirmActionButton from './ConfirmActionButton';
 import { authFetch, getResponseErrorMessage } from '../../utils/api';
-import { downloadCsv } from '../../utils/csv';
+import { collectPaginatedRows, downloadCsv } from '../../utils/csv';
+import { createLatestRequestGate } from '../../utils/requestGate';
 
 const { Option } = Select;
+const { RangePicker } = DatePicker;
+const USERS_PAGE_SIZE = 20;
 
 export default function UsersView({ isDarkMode }) {
   const [users, setUsers] = useState([]);
   const [usersTotal, setUsersTotal] = useState(0);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersPage, setUsersPage] = useState(1);
-  const usersLimit = 20;
+  const usersLimit = USERS_PAGE_SIZE;
   const [userSearch, setUserSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
+  const [userDateRange, setUserDateRange] = useState(null);
+  const [exportingUsers, setExportingUsers] = useState(false);
 
   const [selectedUserRows, setSelectedUserRows] = useState([]);
   const [clearUserSelected, setClearUserSelected] = useState(false);
   const [grantModalUser, setGrantModalUser] = useState(null);
+  const usersRequestGate = useRef(null);
+  if (!usersRequestGate.current) usersRequestGate.current = createLatestRequestGate();
+  const usersMounted = useRef(false);
 
   const loadUsers = useCallback(async () => {
+    if (!usersMounted.current) return;
+    const requestGate = usersRequestGate.current;
+    const requestId = requestGate.begin();
     setUsersLoading(true);
     try {
       const query = new URLSearchParams();
@@ -35,51 +46,84 @@ export default function UsersView({ isDarkMode }) {
       query.set('limit', String(usersLimit));
       if (userSearch) query.set('search', userSearch);
       if (roleFilter) query.set('role', roleFilter);
+      if (userDateRange?.[0]) query.set('dateFrom', userDateRange[0].startOf('day').toISOString());
+      if (userDateRange?.[1]) query.set('dateTo', userDateRange[1].add(1, 'day').startOf('day').toISOString());
       const res = await authFetch(`/admin/users?${query.toString()}`);
+      if (!requestGate.isCurrent(requestId)) return;
       if (!res) return;
       if (!res.ok) {
-        message.error(await getResponseErrorMessage(res, 'Không thể tải danh sách người dùng'));
+        const errorMessage = await getResponseErrorMessage(res, 'Không thể tải danh sách người dùng');
+        if (requestGate.isCurrent(requestId)) message.error(errorMessage);
         return;
       }
       const data = await res.json();
+      if (!requestGate.isCurrent(requestId)) return;
       setUsers(data.users || data.data || []);
       setUsersTotal(data.total || 0);
     } catch {
-      message.error('Không thể tải danh sách người dùng. Vui lòng thử lại.');
+      if (requestGate.isCurrent(requestId)) message.error('Không thể tải danh sách người dùng. Vui lòng thử lại.');
     } finally {
-      setUsersLoading(false);
+      if (requestGate.isCurrent(requestId)) setUsersLoading(false);
     }
-  }, [userSearch, roleFilter, usersPage]);
+  }, [userSearch, roleFilter, usersPage, userDateRange, usersLimit]);
 
   useEffect(() => {
+    usersMounted.current = true;
     loadUsers();
+    return () => {
+      usersMounted.current = false;
+      usersRequestGate.current?.invalidate();
+    };
   }, [loadUsers]);
 
+  const exportUsers = async () => {
+    setExportingUsers(true);
+    try {
+      const rows = await collectPaginatedRows(async (page, limit) => {
+        const query = new URLSearchParams({ page: String(page), limit: String(limit) });
+        if (userSearch) query.set('search', userSearch);
+        if (roleFilter) query.set('role', roleFilter);
+        if (userDateRange?.[0]) query.set('dateFrom', userDateRange[0].startOf('day').toISOString());
+        if (userDateRange?.[1]) query.set('dateTo', userDateRange[1].add(1, 'day').startOf('day').toISOString());
+        const res = await authFetch(`/admin/users?${query.toString()}`);
+        if (!res) throw new Error('Phiên đăng nhập đã hết hạn.');
+        if (!res.ok) throw new Error(await getResponseErrorMessage(res, 'Không thể xuất danh sách người dùng'));
+        const data = await res.json();
+        return { rows: data.users || data.data || [], total: Number(data.total) || 0 };
+      }, usersLimit);
+      if (!downloadCsv(rows, [
+        { label: 'Email', value: (user) => user.email },
+        { label: 'Tên', value: (user) => user.fullName || user.displayName || user.username },
+        { label: 'Vai trò', value: (user) => user.role },
+        { label: 'Gói', value: (user) => user.planName },
+        { label: 'Ngày tạo', value: (user) => user.createdAt },
+      ], 'users-filtered')) message.info('Không có người dùng phù hợp bộ lọc.');
+    } catch (error) {
+      message.error(error.message || 'Không thể xuất danh sách người dùng.');
+    } finally {
+      setExportingUsers(false);
+    }
+  };
+
   const handleUpdateRole = useCallback(async (userId, newRole) => {
-    Modal.confirm({
-      title: `Xác nhận đổi role?`,
-      content: `Đổi role của người dùng thành ${newRole}?`,
-      onOk: async () => {
-        try {
-          const res = await authFetch(`/admin/users/${userId}/role`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ role: newRole }),
-          });
-          if (!res) return;
-          if (!res.ok) {
-            message.error(await getResponseErrorMessage(res, 'Không thể cập nhật role người dùng'));
-            throw new Error('Role update failed');
-          }
-          message.success(`Đã cập nhật role thành ${newRole} thành công! ✅`);
-          loadUsers();
-        } catch (error) {
-          if (error.message === 'Role update failed') throw error;
-          message.error('Không thể cập nhật role người dùng. Vui lòng thử lại.');
-          throw error;
-        }
-      },
-    });
+    try {
+      const res = await authFetch(`/admin/users/${userId}/role`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole }),
+      });
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể cập nhật role người dùng'));
+        throw new Error('Role update failed');
+      }
+      message.success(`Đã cập nhật role thành ${newRole} thành công! ✅`);
+      loadUsers();
+    } catch (error) {
+      if (error.message === 'Role update failed') throw error;
+      message.error('Không thể cập nhật role người dùng. Vui lòng thử lại.');
+      throw error;
+    }
   }, [loadUsers]);
 
   const handleRevokeSessions = useCallback(async (userId) => {
@@ -177,9 +221,15 @@ export default function UsersView({ isDarkMode }) {
       minWidth: '280px',
       cell: (r) => (
         <Space wrap>
-          <Button size="small" onClick={() => handleUpdateRole(r.id, r.role === 'admin' ? 'user' : 'admin')}>
+          <ConfirmActionButton
+            title="Xác nhận thay đổi role?"
+            description={`Đổi role của người dùng thành ${r.role === 'admin' ? 'user' : 'admin'}?`}
+            confirmText="Đổi role"
+            onConfirm={() => handleUpdateRole(r.id, r.role === 'admin' ? 'user' : 'admin')}
+            buttonProps={{ size: 'small' }}
+          >
             Role: {r.role === 'admin' ? 'User' : 'Admin'}
-          </Button>
+          </ConfirmActionButton>
           <Button size="small" type="primary" icon={<GiftOutlined />} onClick={() => setGrantModalUser(r)}>
             Tặng Gói
           </Button>
@@ -239,16 +289,17 @@ export default function UsersView({ isDarkMode }) {
               <Option value="admin">Admin</Option>
               <Option value="vip">VIP</Option>
             </Select>
+            <RangePicker
+              allowClear
+              value={userDateRange}
+              onChange={(value) => { setUsersPage(1); setUserDateRange(value); }}
+              placeholder={['Tạo từ ngày', 'Đến ngày']}
+            />
             <Button
-              disabled={!users.length}
-              onClick={() => downloadCsv(users, [
-                { label: 'Email', value: (user) => user.email },
-                { label: 'Tên', value: (user) => user.fullName || user.displayName || user.username },
-                { label: 'Vai trò', value: (user) => user.role },
-                { label: 'Gói', value: (user) => user.planName },
-                { label: 'Ngày tạo', value: (user) => user.createdAt },
-              ], `users-page-${usersPage}`)}
-            >Xuất CSV trang này</Button>
+              disabled={!usersTotal}
+              loading={exportingUsers}
+              onClick={exportUsers}
+            >Xuất CSV kết quả lọc</Button>
             <Button icon={<ReloadOutlined />} onClick={loadUsers}>Làm mới</Button>
           </Space>
         }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Card, Row, Col, Space, Button, Typography, Tag, Select, Input,
   Progress, Statistic, message
@@ -9,7 +9,8 @@ import ModernDataTable from '../ModernDataTable';
 import { authFetch, getResponseErrorMessage, safeArr } from '../../utils/api';
 import { formatTimeWithZone, getTimezoneLabel } from '../../utils/dateUtils';
 import ConfirmActionButton from './ConfirmActionButton';
-import { downloadCsv } from '../../utils/csv';
+import { collectPaginatedRows, downloadCsv } from '../../utils/csv';
+import { createLatestRequestGate } from '../../utils/requestGate';
 
 const { Text } = Typography;
 const { Option } = Select;
@@ -23,40 +24,91 @@ export default function TrafficView({ isDarkMode, timezone, isMobile }) {
   const [trafficApp, setTrafficApp] = useState('all');
   const [trafficSearch, setTrafficSearch] = useState('');
   const [trafficPage, setTrafficPage] = useState(1);
+  const [exportingTraffic, setExportingTraffic] = useState(false);
+  const trafficRequestGate = useRef(null);
+  if (!trafficRequestGate.current) trafficRequestGate.current = createLatestRequestGate();
+  const trafficMounted = useRef(false);
 
   const [selectedTrafficRows, setSelectedTrafficRows] = useState([]);
   const [clearTrafficSelected, setClearTrafficSelected] = useState(false);
 
   const loadTraffic = useCallback(async () => {
+    if (!trafficMounted.current) return;
+    const requestGate = trafficRequestGate.current;
+    const requestId = requestGate.begin();
     setTrafficLoading(true);
     try {
       const [resStats, resLogs] = await Promise.all([
         authFetch(`/analytics/admin/stats?days=${trafficDays}&app=${trafficApp}`),
         authFetch(`/analytics/admin/logs?page=${trafficPage}&limit=20&app=${trafficApp}&search=${encodeURIComponent(trafficSearch || '')}&days=${trafficDays}`),
       ]);
+      if (!requestGate.isCurrent(requestId)) return;
       if (resStats?.ok) {
         const data = await resStats.json();
-        setTrafficStats(data);
+        if (requestGate.isCurrent(requestId)) setTrafficStats(data);
       } else if (resStats) {
-        message.error(await getResponseErrorMessage(resStats, 'Không thể tải thống kê truy cập'));
+        const errorMessage = await getResponseErrorMessage(resStats, 'Không thể tải thống kê truy cập');
+        if (requestGate.isCurrent(requestId)) message.error(errorMessage);
       }
       if (resLogs?.ok) {
         const data = await resLogs.json();
-        setTrafficLogs(data.logs || []);
-        setTrafficTotal(data.total || 0);
+        if (requestGate.isCurrent(requestId)) {
+          setTrafficLogs(data.logs || []);
+          setTrafficTotal(data.total || 0);
+        }
       } else if (resLogs) {
-        message.error(await getResponseErrorMessage(resLogs, 'Không thể tải danh sách lượt truy cập'));
+        const errorMessage = await getResponseErrorMessage(resLogs, 'Không thể tải danh sách lượt truy cập');
+        if (requestGate.isCurrent(requestId)) message.error(errorMessage);
       }
     } catch {
-      message.error('Không thể tải dữ liệu truy cập. Vui lòng thử lại.');
+      if (requestGate.isCurrent(requestId)) message.error('Không thể tải dữ liệu truy cập. Vui lòng thử lại.');
     } finally {
-      setTrafficLoading(false);
+      if (requestGate.isCurrent(requestId)) setTrafficLoading(false);
     }
   }, [trafficDays, trafficApp, trafficPage, trafficSearch]);
 
   useEffect(() => {
+    trafficMounted.current = true;
     loadTraffic();
+    return () => {
+      trafficMounted.current = false;
+      trafficRequestGate.current?.invalidate();
+    };
   }, [loadTraffic]);
+
+  const exportTrafficLogs = async () => {
+    setExportingTraffic(true);
+    try {
+      const rows = await collectPaginatedRows(async (page, limit) => {
+        const query = new URLSearchParams({
+          page: String(page),
+          limit: String(limit),
+          app: trafficApp,
+          search: trafficSearch || '',
+          days: String(trafficDays),
+        });
+        const res = await authFetch(`/analytics/admin/logs?${query.toString()}`);
+        if (!res) throw new Error('Phiên đăng nhập đã hết hạn.');
+        if (!res.ok) throw new Error(await getResponseErrorMessage(res, 'Không thể xuất dữ liệu truy cập'));
+        const data = await res.json();
+        return { rows: data.logs || [], total: Number(data.total) || 0 };
+      }, 100);
+      if (!downloadCsv(rows, [
+        { label: 'Thời gian', value: (log) => log.createdAt },
+        { label: 'Ứng dụng', value: (log) => log.app },
+        { label: 'IP', value: (log) => log.ipAddress },
+        { label: 'Địa điểm', value: (log) => log.location },
+        { label: 'Thiết bị', value: (log) => log.device },
+        { label: 'Trình duyệt', value: (log) => log.browser },
+        { label: 'Đường dẫn', value: (log) => log.path },
+        { label: 'Nguồn', value: (log) => log.referrer },
+      ], 'traffic-logs-filtered')) message.info('Không có lượt truy cập phù hợp bộ lọc.');
+    } catch (error) {
+      message.error(error.message || 'Không thể xuất dữ liệu truy cập.');
+    } finally {
+      setExportingTraffic(false);
+    }
+  };
 
   const handleBatchDeleteTrafficLogs = useCallback(async (ids) => {
     if (!ids || ids.length === 0) return;
@@ -563,18 +615,10 @@ export default function TrafficView({ isDarkMode, timezone, isMobile }) {
               style={{ width: isMobile ? 180 : 280 }}
             />
             <Button
-              disabled={!trafficLogs.length}
-              onClick={() => downloadCsv(trafficLogs, [
-                { label: 'Thời gian', value: (log) => log.createdAt },
-                { label: 'Ứng dụng', value: (log) => log.app },
-                { label: 'IP', value: (log) => log.ipAddress },
-                { label: 'Địa điểm', value: (log) => log.location },
-                { label: 'Thiết bị', value: (log) => log.device },
-                { label: 'Trình duyệt', value: (log) => log.browser },
-                { label: 'Đường dẫn', value: (log) => log.path },
-                { label: 'Nguồn', value: (log) => log.referrer },
-              ], `traffic-logs-page-${trafficPage}`)}
-            >Xuất CSV trang này</Button>
+              disabled={!trafficTotal}
+              loading={exportingTraffic}
+              onClick={exportTrafficLogs}
+            >Xuất CSV kết quả lọc</Button>
             <Button icon={<ReloadOutlined />} onClick={loadTraffic} title="Làm mới">
               {!isMobile && 'Làm mới'}
             </Button>

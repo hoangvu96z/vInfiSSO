@@ -14,6 +14,7 @@ import { PaymentOrder } from './payment-order.entity';
 import { PaymentSettings } from './payment-settings.entity';
 import { createVietQrQuickLink } from './vietqr-link.util';
 import type { UpdatePaymentSettingsDto } from './dto/update-payment-settings.dto';
+import { parseAdminDateRange } from '../common/admin-date-range.util';
 
 const PURCHASE_DURATION_DAYS = 30;
 const ORDER_VALIDITY_HOURS = 24;
@@ -205,7 +206,73 @@ export class PaymentsService {
   }
 
   async getAdminOrders() {
-    const rows = await this.dataSource
+    const rows = await this.createAdminOrdersQuery()
+      .take(100)
+      .getRawMany<AdminPaymentOrderRow>();
+
+    return this.mapAdminOrderRows(rows);
+  }
+
+  async getAdminOrdersPage(
+    page = 1,
+    limit = 20,
+    status = '',
+    search = '',
+    dateFrom?: string,
+    dateTo?: string,
+  ) {
+    const safePage = Math.max(1, page);
+    const safeLimit = Math.min(100, Math.max(1, limit));
+    const { start, end } = parseAdminDateRange(dateFrom, dateTo);
+    const query = this.createAdminOrdersQuery();
+
+    if (status === 'paid') {
+      query.andWhere('paymentOrder.status = :status', { status: 'paid' });
+    } else if (status === 'pending') {
+      query
+        .andWhere('paymentOrder.status = :status', { status: 'pending' })
+        .andWhere('paymentOrder.expiresAt > :now', { now: new Date() });
+    } else if (status === 'expired') {
+      query
+        .andWhere('paymentOrder.status = :status', { status: 'pending' })
+        .andWhere('paymentOrder.expiresAt <= :now', { now: new Date() });
+    }
+
+    if (search.trim()) {
+      query.andWhere(
+        '(paymentUser.email ILIKE :search OR paymentOrder.reference ILIKE :search)',
+        { search: `%${search.trim()}%` },
+      );
+    }
+    if (start) {
+      query.andWhere('paymentOrder.createdAt >= :dateFrom', {
+        dateFrom: start,
+      });
+    }
+    if (end) {
+      query.andWhere('paymentOrder.createdAt < :dateTo', { dateTo: end });
+    }
+
+    const [rows, total] = await Promise.all([
+      query
+        .clone()
+        .skip((safePage - 1) * safeLimit)
+        .take(safeLimit)
+        .getRawMany<AdminPaymentOrderRow>(),
+      query.clone().getCount(),
+    ]);
+
+    return {
+      orders: this.mapAdminOrderRows(rows),
+      total,
+      page: safePage,
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit),
+    };
+  }
+
+  private createAdminOrdersQuery() {
+    return this.dataSource
       .getRepository(PaymentOrder)
       .createQueryBuilder('paymentOrder')
       .innerJoin(User, 'paymentUser', 'paymentUser.id = paymentOrder.userId')
@@ -224,8 +291,10 @@ export class PaymentsService {
       .addSelect('paymentOrder.reviewedBy', 'reviewedBy')
       .addSelect('paymentOrder.createdAt', 'createdAt')
       .orderBy('paymentOrder.createdAt', 'DESC')
-      .take(100)
-      .getRawMany<AdminPaymentOrderRow>();
+      .addOrderBy('paymentOrder.id', 'ASC');
+  }
+
+  private mapAdminOrderRows(rows: AdminPaymentOrderRow[]) {
 
     const now = new Date();
     return rows.map((row) => ({

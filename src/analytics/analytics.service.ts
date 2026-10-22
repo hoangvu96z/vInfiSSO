@@ -282,6 +282,7 @@ export class AnalyticsService {
     const qb = this.visitRepo.createQueryBuilder('v')
       .where('v.isBot = :isBot', { isBot: false })
       .orderBy('v.createdAt', 'DESC')
+      .addOrderBy('v.id', 'ASC')
       .skip(skip)
       .take(safeLimit);
 

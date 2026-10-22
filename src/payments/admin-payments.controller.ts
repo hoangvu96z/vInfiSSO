@@ -5,7 +5,10 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Query,
   ParseUUIDPipe,
+  ParseIntPipe,
+  DefaultValuePipe,
   Patch,
   Post,
   Req,
@@ -47,6 +50,25 @@ export class AdminPaymentsController {
   @Get('payment-orders')
   getPaymentOrders() {
     return this.paymentsService.getAdminOrders();
+  }
+
+  @Get('payment-orders/list')
+  getPaymentOrdersPage(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.paymentsService.getAdminOrdersPage(
+      page,
+      limit,
+      status,
+      search,
+      dateFrom,
+      dateTo,
+    );
   }
 
   @Post('payment-orders/:id/mark-paid')

@@ -14,6 +14,7 @@ describe('AnalyticsService traffic log filters', () => {
     const query = {
       where: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
@@ -30,6 +31,7 @@ describe('AnalyticsService traffic log filters', () => {
 
     expect(query.skip).toHaveBeenCalledWith(20);
     expect(query.take).toHaveBeenCalledWith(20);
+    expect(query.addOrderBy).toHaveBeenCalledWith('v.id', 'ASC');
     expect(query.andWhere).toHaveBeenCalledWith(
       'v.createdAt >= :since',
       expect.objectContaining({ since: expect.any(Date) }),

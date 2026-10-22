@@ -36,6 +36,91 @@ function configuredSettings() {
 }
 
 describe('PaymentsService', () => {
+  it('server-paginates, searches, and date-filters admin orders', async () => {
+    const pageQuery = {
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getRawMany: jest.fn().mockResolvedValue([
+        {
+          id: 'order-1',
+          userId: 'user-1',
+          email: 'member@example.test',
+          displayName: 'Member',
+          planName: 'premium',
+          planLabel: 'Premium',
+          amount: '99000',
+          currency: 'VND',
+          reference: 'VINF123',
+          status: 'pending',
+          expiresAt: new Date(Date.now() + 60_000),
+          paidAt: null,
+          reviewedBy: null,
+          createdAt: new Date('2026-10-05T12:00:00Z'),
+        },
+      ]),
+    };
+    const countQuery = { getCount: jest.fn().mockResolvedValue(31) };
+    const query: any = {
+      innerJoin: jest.fn(),
+      select: jest.fn(),
+      addSelect: jest.fn(),
+      orderBy: jest.fn(),
+      addOrderBy: jest.fn(),
+      andWhere: jest.fn(),
+      clone: jest.fn()
+        .mockReturnValueOnce(pageQuery)
+        .mockReturnValueOnce(countQuery),
+    };
+    for (const method of ['innerJoin', 'select', 'addSelect', 'orderBy', 'addOrderBy', 'andWhere']) {
+      query[method].mockReturnValue(query);
+    }
+    const orderRepo = { createQueryBuilder: jest.fn().mockReturnValue(query) };
+    const dataSource = {
+      getRepository: jest.fn().mockReturnValue(orderRepo),
+    };
+
+    const result = await new PaymentsService(dataSource as any).getAdminOrdersPage(
+      3,
+      10,
+      'pending',
+      'member',
+      '2026-10-01',
+      '2026-10-10',
+    );
+
+    expect(pageQuery.skip).toHaveBeenCalledWith(20);
+    expect(pageQuery.take).toHaveBeenCalledWith(10);
+    expect(query.addOrderBy).toHaveBeenCalledWith('paymentOrder.id', 'ASC');
+    expect(countQuery.getCount).toHaveBeenCalledTimes(1);
+    expect(query.andWhere).toHaveBeenCalledWith(
+      'paymentOrder.status = :status',
+      { status: 'pending' },
+    );
+    expect(query.andWhere).toHaveBeenCalledWith(
+      'paymentOrder.expiresAt > :now',
+      { now: expect.any(Date) },
+    );
+    expect(query.andWhere).toHaveBeenCalledWith(
+      '(paymentUser.email ILIKE :search OR paymentOrder.reference ILIKE :search)',
+      { search: '%member%' },
+    );
+    expect(query.andWhere).toHaveBeenCalledWith(
+      'paymentOrder.createdAt >= :dateFrom',
+      { dateFrom: new Date('2026-10-01T00:00:00.000Z') },
+    );
+    expect(query.andWhere).toHaveBeenCalledWith(
+      'paymentOrder.createdAt < :dateTo',
+      { dateTo: new Date('2026-10-11T00:00:00.000Z') },
+    );
+    expect(result).toMatchObject({
+      total: 31,
+      page: 3,
+      limit: 10,
+      totalPages: 4,
+      orders: [{ id: 'order-1', amount: 99000, status: 'pending' }],
+    });
+  });
+
   it('creates a pending order using the active server plan price and configured bank snapshot', async () => {
     const plan = {
       name: 'premium',

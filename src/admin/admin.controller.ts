@@ -49,8 +49,17 @@ export class AdminController {
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
     @Query('search') search?: string,
     @Query('role') role?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
-    return this.adminService.getUsers(page, limit, search, role);
+    return this.adminService.getUsers(
+      page,
+      limit,
+      search,
+      role,
+      dateFrom,
+      dateTo,
+    );
   }
 
   // PATCH /admin/users/:id/role — Update User Role
@@ -117,6 +126,24 @@ export class AdminController {
     return this.adminService.getAiUsageStats();
   }
 
+  // GET /admin/ai-usage/page — Server-paginated AI usage for the admin UI
+  @Get('ai-usage/page')
+  async getAiUsagePage(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('search') search?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.adminService.getAiUsageStats(
+      page,
+      limit,
+      search,
+      dateFrom,
+      dateTo,
+    );
+  }
+
   // GET /admin/analytics — Time Series & Geo/App Distribution Analytics Charts
   @Get('analytics')
   async getAnalytics() {
@@ -149,6 +176,24 @@ export class AdminController {
   async getCoupons() {
     const coupons = await this.plansService.getAllCoupons();
     return { coupons };
+  }
+
+  // GET /admin/coupons/page — Server-paginated coupons for the admin UI
+  @Get('coupons/page')
+  async getCouponsPage(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('search') search?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.plansService.getCoupons(
+      page,
+      limit,
+      search,
+      dateFrom,
+      dateTo,
+    );
   }
 
   // POST /admin/coupons — Tạo coupon mới

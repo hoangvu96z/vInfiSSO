@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Card, Space, Tag, Input, Button, DatePicker, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import ModernDataTable from '../ModernDataTable';
 import { authFetch, getResponseErrorMessage } from '../../utils/api';
 import { formatTimeWithZone } from '../../utils/dateUtils';
-import { downloadCsv } from '../../utils/csv';
+import { collectPaginatedRows, downloadCsv } from '../../utils/csv';
+import { createLatestRequestGate } from '../../utils/requestGate';
 
 const { RangePicker } = DatePicker;
 const AUDIT_PAGE_SIZE = 30;
@@ -16,8 +17,15 @@ export default function AuditLogsView({ isDarkMode, timezone }) {
   const [auditPage, setAuditPage] = useState(1);
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditDateRange, setAuditDateRange] = useState(null);
+  const [exportingAudit, setExportingAudit] = useState(false);
+  const auditRequestGate = useRef(null);
+  if (!auditRequestGate.current) auditRequestGate.current = createLatestRequestGate();
+  const auditMounted = useRef(false);
 
   const loadAudit = useCallback(async () => {
+    if (!auditMounted.current) return;
+    const requestGate = auditRequestGate.current;
+    const requestId = requestGate.begin();
     setAuditLoading(true);
     try {
       const query = new URLSearchParams();
@@ -27,24 +35,60 @@ export default function AuditLogsView({ isDarkMode, timezone }) {
       if (auditDateRange?.[0]) query.set('dateFrom', auditDateRange[0].startOf('day').toISOString());
       if (auditDateRange?.[1]) query.set('dateTo', auditDateRange[1].add(1, 'day').startOf('day').toISOString());
       const res = await authFetch(`/admin/audit-logs?${query.toString()}`);
+      if (!requestGate.isCurrent(requestId)) return;
       if (!res) return;
       if (!res.ok) {
-        message.error(await getResponseErrorMessage(res, 'Không thể tải nhật ký quản trị'));
+        const errorMessage = await getResponseErrorMessage(res, 'Không thể tải nhật ký quản trị');
+        if (requestGate.isCurrent(requestId)) message.error(errorMessage);
         return;
       }
       const data = await res.json();
+      if (!requestGate.isCurrent(requestId)) return;
       setAuditLogs(data.logs || data.data || []);
       setAuditTotal(data.total || 0);
     } catch {
-      message.error('Không thể tải nhật ký quản trị. Vui lòng thử lại.');
+      if (requestGate.isCurrent(requestId)) message.error('Không thể tải nhật ký quản trị. Vui lòng thử lại.');
     } finally {
-      setAuditLoading(false);
+      if (requestGate.isCurrent(requestId)) setAuditLoading(false);
     }
   }, [auditSearch, auditPage, auditDateRange]);
 
   useEffect(() => {
+    auditMounted.current = true;
     loadAudit();
+    return () => {
+      auditMounted.current = false;
+      auditRequestGate.current?.invalidate();
+    };
   }, [loadAudit]);
+
+  const exportAudit = async () => {
+    setExportingAudit(true);
+    try {
+      const rows = await collectPaginatedRows(async (page, limit) => {
+        const query = new URLSearchParams({ page: String(page), limit: String(limit) });
+        if (auditSearch) query.set('search', auditSearch);
+        if (auditDateRange?.[0]) query.set('dateFrom', auditDateRange[0].startOf('day').toISOString());
+        if (auditDateRange?.[1]) query.set('dateTo', auditDateRange[1].add(1, 'day').startOf('day').toISOString());
+        const res = await authFetch(`/admin/audit-logs?${query.toString()}`);
+        if (!res) throw new Error('Phiên đăng nhập đã hết hạn.');
+        if (!res.ok) throw new Error(await getResponseErrorMessage(res, 'Không thể xuất nhật ký quản trị'));
+        const data = await res.json();
+        return { rows: data.logs || [], total: Number(data.total) || 0 };
+      }, 100);
+      if (!downloadCsv(rows, [
+        { label: 'Thời gian', value: (log) => log.createdAt },
+        { label: 'Hành động', value: (log) => log.action },
+        { label: 'Email', value: (log) => log.user?.email || log.userEmail },
+        { label: 'IP', value: (log) => log.ipAddress },
+        { label: 'Ứng dụng', value: (log) => log.app },
+      ], 'audit-logs-filtered')) message.info('Không có nhật ký phù hợp bộ lọc.');
+    } catch (error) {
+      message.error(error.message || 'Không thể xuất nhật ký quản trị.');
+    } finally {
+      setExportingAudit(false);
+    }
+  };
 
   const auditColumns = useMemo(() => [
     {
@@ -115,15 +159,10 @@ export default function AuditLogsView({ isDarkMode, timezone }) {
             placeholder={['Từ ngày', 'Đến ngày']}
           />
           <Button
-            disabled={!auditLogs.length}
-            onClick={() => downloadCsv(auditLogs, [
-              { label: 'Thời gian', value: (log) => log.createdAt },
-              { label: 'Hành động', value: (log) => log.action },
-              { label: 'Email', value: (log) => log.user?.email || log.userEmail },
-              { label: 'IP', value: (log) => log.ipAddress },
-              { label: 'Ứng dụng', value: (log) => log.app },
-            ], `audit-logs-page-${auditPage}`)}
-          >Xuất CSV trang này</Button>
+            disabled={!auditTotal}
+            loading={exportingAudit}
+            onClick={exportAudit}
+          >Xuất CSV kết quả lọc</Button>
           <Button icon={<ReloadOutlined />} onClick={loadAudit}>Làm mới</Button>
         </Space>
       }

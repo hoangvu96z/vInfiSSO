@@ -1,11 +1,12 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Button,
   Card,
+  DatePicker,
   Form,
   Input,
-  Popconfirm,
+  Select,
   Space,
   Table,
   Tag,
@@ -13,9 +14,14 @@ import {
   message,
 } from 'antd';
 import { CheckOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons';
-import { authFetch, getResponseErrorMessage, safeArr } from '../../utils/api';
+import { authFetch, getResponseErrorMessage } from '../../utils/api';
+import { collectPaginatedRows, downloadCsv } from '../../utils/csv';
+import ConfirmActionButton from './ConfirmActionButton';
+import { createLatestRequestGate } from '../../utils/requestGate';
 
 const { Text, Title } = Typography;
+const { RangePicker } = DatePicker;
+const PAYMENT_PAGE_SIZE = 20;
 
 function formatVnd(amount) {
   const value = Number(amount);
@@ -42,9 +48,17 @@ export default function PaymentsView() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [configured, setConfigured] = useState(false);
   const [orders, setOrders] = useState([]);
+  const [ordersTotal, setOrdersTotal] = useState(0);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [reviewingId, setReviewingId] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [ordersPage, setOrdersPage] = useState(1);
+  const [ordersStatus, setOrdersStatus] = useState('');
+  const [ordersSearch, setOrdersSearch] = useState('');
+  const [ordersDateRange, setOrdersDateRange] = useState(null);
+  const [exportingOrders, setExportingOrders] = useState(false);
+  const ordersRequestGate = useRef(null);
+  if (!ordersRequestGate.current) ordersRequestGate.current = createLatestRequestGate();
 
   const loadSettings = useCallback(async () => {
     setSettingsLoading(true);
@@ -69,26 +83,75 @@ export default function PaymentsView() {
   }, [form]);
 
   const loadOrders = useCallback(async () => {
+    const requestGate = ordersRequestGate.current;
+    const requestId = requestGate.begin();
     setOrdersLoading(true);
     try {
-      const response = await authFetch('/admin/payment-orders');
+      const query = new URLSearchParams({ page: String(ordersPage), limit: String(PAYMENT_PAGE_SIZE) });
+      if (ordersStatus) query.set('status', ordersStatus);
+      if (ordersSearch) query.set('search', ordersSearch);
+      if (ordersDateRange?.[0]) query.set('dateFrom', ordersDateRange[0].startOf('day').toISOString());
+      if (ordersDateRange?.[1]) query.set('dateTo', ordersDateRange[1].add(1, 'day').startOf('day').toISOString());
+      const response = await authFetch(`/admin/payment-orders/list?${query.toString()}`);
+      if (!requestGate.isCurrent(requestId)) return;
       if (!response) return;
       if (!response.ok) {
-        message.error(await getResponseErrorMessage(response, 'Không thể tải đơn thanh toán'));
+        const errorMessage = await getResponseErrorMessage(response, 'Không thể tải đơn thanh toán');
+        if (requestGate.isCurrent(requestId)) message.error(errorMessage);
         return;
       }
-      setOrders(safeArr(await response.json()));
+      const data = await response.json();
+      if (!requestGate.isCurrent(requestId)) return;
+      setOrders(data.orders || []);
+      setOrdersTotal(Number(data.total) || 0);
     } catch {
-      message.error('Không thể tải đơn thanh toán. Vui lòng thử lại.');
+      if (requestGate.isCurrent(requestId)) message.error('Không thể tải đơn thanh toán. Vui lòng thử lại.');
     } finally {
-      setOrdersLoading(false);
+      if (requestGate.isCurrent(requestId)) setOrdersLoading(false);
     }
-  }, []);
+  }, [ordersPage, ordersStatus, ordersSearch, ordersDateRange]);
 
   useEffect(() => {
     loadSettings();
+  }, [loadSettings]);
+
+  useEffect(() => {
     loadOrders();
-  }, [loadSettings, loadOrders]);
+    return () => ordersRequestGate.current?.invalidate();
+  }, [loadOrders]);
+
+  const exportOrders = async () => {
+    setExportingOrders(true);
+    try {
+      const rows = await collectPaginatedRows(async (page, limit) => {
+        const query = new URLSearchParams({ page: String(page), limit: String(limit) });
+        if (ordersStatus) query.set('status', ordersStatus);
+        if (ordersSearch) query.set('search', ordersSearch);
+        if (ordersDateRange?.[0]) query.set('dateFrom', ordersDateRange[0].startOf('day').toISOString());
+        if (ordersDateRange?.[1]) query.set('dateTo', ordersDateRange[1].add(1, 'day').startOf('day').toISOString());
+        const response = await authFetch(`/admin/payment-orders/list?${query.toString()}`);
+        if (!response) throw new Error('Phiên đăng nhập đã hết hạn.');
+        if (!response.ok) throw new Error(await getResponseErrorMessage(response, 'Không thể xuất đơn thanh toán'));
+        const data = await response.json();
+        return { rows: data.orders || [], total: Number(data.total) || 0 };
+      }, PAYMENT_PAGE_SIZE);
+      if (!downloadCsv(rows, [
+        { label: 'Email', value: (row) => row.email },
+        { label: 'Gói', value: (row) => row.planLabel },
+        { label: 'Số tiền', value: (row) => row.amount },
+        { label: 'Tiền tệ', value: (row) => row.currency },
+        { label: 'Nội dung', value: (row) => row.reference },
+        { label: 'Trạng thái', value: (row) => row.status },
+        { label: 'Ngày tạo', value: (row) => row.createdAt },
+        { label: 'Hết hạn', value: (row) => row.expiresAt },
+        { label: 'Ngày xác nhận', value: (row) => row.paidAt },
+      ], 'payment-orders-filtered')) message.info('Không có đơn phù hợp bộ lọc.');
+    } catch (error) {
+      message.error(error.message || 'Không thể xuất đơn thanh toán.');
+    } finally {
+      setExportingOrders(false);
+    }
+  };
 
   const saveSettings = async (values) => {
     setSavingSettings(true);
@@ -178,17 +241,17 @@ export default function PaymentsView() {
       render: (_, order) => order.status === 'paid' ? (
         <Text type="secondary">Đã duyệt</Text>
       ) : (
-        <Popconfirm
+        <ConfirmActionButton
           title="Xác nhận đã nhận tiền?"
           description={`Chỉ xác nhận sau khi đối chiếu đúng số tiền ${formatVnd(order.amount)} và nội dung ${order.reference} trên sao kê ngân hàng.`}
-          okText="Đã đối chiếu"
+          confirmText="Đã đối chiếu"
           cancelText="Hủy"
           onConfirm={() => markPaid(order.id)}
+          danger={false}
+          buttonProps={{ type: 'primary', size: 'small', icon: <CheckOutlined />, loading: reviewingId === order.id }}
         >
-          <Button type="primary" size="small" icon={<CheckOutlined />} loading={reviewingId === order.id}>
-            Xác nhận đã nhận tiền
-          </Button>
-        </Popconfirm>
+          Xác nhận đã nhận tiền
+        </ConfirmActionButton>
       ),
     },
   ];
@@ -242,8 +305,38 @@ export default function PaymentsView() {
       </Card>
 
       <Card
-        title={<Title level={4} style={{ margin: 0 }}>Đơn thanh toán chờ đối chiếu</Title>}
-        extra={<Button icon={<ReloadOutlined />} onClick={loadOrders} loading={ordersLoading}>Tải lại</Button>}
+        title={<Title level={4} style={{ margin: 0 }}>Đơn thanh toán chờ đối chiếu ({ordersTotal})</Title>}
+        extra={(
+          <Space wrap>
+            <Input.Search
+              allowClear
+              placeholder="Tìm email hoặc mã giao dịch"
+              value={ordersSearch}
+              onChange={(event) => { setOrdersPage(1); setOrdersSearch(event.target.value); }}
+              style={{ width: 230 }}
+            />
+            <Select
+              allowClear
+              placeholder="Trạng thái"
+              value={ordersStatus || undefined}
+              onChange={(value) => { setOrdersPage(1); setOrdersStatus(value || ''); }}
+              options={[
+                { value: 'pending', label: 'Đang chờ' },
+                { value: 'paid', label: 'Đã xác nhận' },
+                { value: 'expired', label: 'Hết hạn' },
+              ]}
+              style={{ width: 150 }}
+            />
+            <RangePicker
+              allowClear
+              value={ordersDateRange}
+              onChange={(value) => { setOrdersPage(1); setOrdersDateRange(value); }}
+              placeholder={['Tạo từ ngày', 'Đến ngày']}
+            />
+            <Button disabled={!ordersTotal} loading={exportingOrders} onClick={exportOrders}>Xuất CSV kết quả lọc</Button>
+            <Button icon={<ReloadOutlined />} onClick={loadOrders} loading={ordersLoading}>Tải lại</Button>
+          </Space>
+        )}
       >
         <Alert
           type="warning"
@@ -257,7 +350,13 @@ export default function PaymentsView() {
           loading={ordersLoading}
           columns={columns}
           dataSource={orders}
-          pagination={{ pageSize: 10, showSizeChanger: false }}
+          pagination={{
+            current: ordersPage,
+            pageSize: PAYMENT_PAGE_SIZE,
+            total: ordersTotal,
+            showSizeChanger: false,
+            onChange: setOrdersPage,
+          }}
           scroll={{ x: 1100 }}
           locale={{ emptyText: 'Chưa có đơn thanh toán.' }}
         />

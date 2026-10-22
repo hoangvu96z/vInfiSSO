@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  Card, Space, Tag, Input, Button, Switch, message
+  Card, Space, Tag, Input, Button, Switch, DatePicker, message
 } from 'antd';
 import {
   ReloadOutlined, TagOutlined, CopyOutlined, DeleteOutlined
@@ -8,37 +8,59 @@ import {
 import ModernDataTable from '../ModernDataTable';
 import CreateCouponModal from './modals/CreateCouponModal';
 import ConfirmActionButton from './ConfirmActionButton';
-import { authFetch, getResponseErrorMessage, safeArr } from '../../utils/api';
+import { authFetch, getResponseErrorMessage } from '../../utils/api';
+import { collectPaginatedRows, downloadCsv } from '../../utils/csv';
+import { createLatestRequestGate } from '../../utils/requestGate';
+
+const { RangePicker } = DatePicker;
+const COUPONS_PAGE_SIZE = 20;
 
 export default function CouponsView({ isDarkMode }) {
   const [coupons, setCoupons] = useState([]);
+  const [couponsTotal, setCouponsTotal] = useState(0);
   const [couponsLoading, setCouponsLoading] = useState(false);
   const [couponSearch, setCouponSearch] = useState('');
+  const [couponDateRange, setCouponDateRange] = useState(null);
+  const [couponPage, setCouponPage] = useState(1);
+  const [exportingCoupons, setExportingCoupons] = useState(false);
   const [isCouponModalOpen, setIsCouponModalOpen] = useState(false);
+  const couponRequestGate = useRef(null);
+  if (!couponRequestGate.current) couponRequestGate.current = createLatestRequestGate();
 
   const [selectedCouponRows, setSelectedCouponRows] = useState([]);
   const [clearCouponSelected, setClearCouponSelected] = useState(false);
 
   const loadCoupons = useCallback(async () => {
+    const requestGate = couponRequestGate.current;
+    const requestId = requestGate.begin();
     setCouponsLoading(true);
     try {
-      const res = await authFetch('/admin/coupons');
+      const query = new URLSearchParams({ page: String(couponPage), limit: String(COUPONS_PAGE_SIZE) });
+      if (couponSearch) query.set('search', couponSearch);
+      if (couponDateRange?.[0]) query.set('dateFrom', couponDateRange[0].startOf('day').toISOString());
+      if (couponDateRange?.[1]) query.set('dateTo', couponDateRange[1].add(1, 'day').startOf('day').toISOString());
+      const res = await authFetch(`/admin/coupons/page?${query.toString()}`);
+      if (!requestGate.isCurrent(requestId)) return;
       if (!res) return;
       if (!res.ok) {
-        message.error(await getResponseErrorMessage(res, 'Không thể tải mã khuyến mãi'));
+        const errorMessage = await getResponseErrorMessage(res, 'Không thể tải mã khuyến mãi');
+        if (requestGate.isCurrent(requestId)) message.error(errorMessage);
         return;
       }
       const data = await res.json();
+      if (!requestGate.isCurrent(requestId)) return;
       setCoupons(data.coupons || []);
+      setCouponsTotal(Number(data.total) || 0);
     } catch {
-      message.error('Không thể tải mã khuyến mãi. Vui lòng thử lại.');
+      if (requestGate.isCurrent(requestId)) message.error('Không thể tải mã khuyến mãi. Vui lòng thử lại.');
     } finally {
-      setCouponsLoading(false);
+      if (requestGate.isCurrent(requestId)) setCouponsLoading(false);
     }
-  }, []);
+  }, [couponPage, couponSearch, couponDateRange]);
 
   useEffect(() => {
     loadCoupons();
+    return () => couponRequestGate.current?.invalidate();
   }, [loadCoupons]);
 
   const handleToggleCoupon = useCallback(async (id, isActive) => {
@@ -99,56 +121,73 @@ export default function CouponsView({ isDarkMode }) {
     }
   }, [loadCoupons]);
 
-  const filteredCoupons = useMemo(() => {
-    if (!couponSearch) return safeArr(coupons);
-    const q = couponSearch.toLowerCase();
-    return safeArr(coupons).filter((c) =>
-      (c.code && c.code.toLowerCase().includes(q)) ||
-      (c.description && c.description.toLowerCase().includes(q)) ||
-      (c.planName && c.planName.toLowerCase().includes(q))
-    );
-  }, [coupons, couponSearch]);
+  const exportCoupons = async () => {
+    setExportingCoupons(true);
+    try {
+      const rows = await collectPaginatedRows(async (page, limit) => {
+        const query = new URLSearchParams({ page: String(page), limit: String(limit) });
+        if (couponSearch) query.set('search', couponSearch);
+        if (couponDateRange?.[0]) query.set('dateFrom', couponDateRange[0].startOf('day').toISOString());
+        if (couponDateRange?.[1]) query.set('dateTo', couponDateRange[1].add(1, 'day').startOf('day').toISOString());
+        const res = await authFetch(`/admin/coupons/page?${query.toString()}`);
+        if (!res) throw new Error('Phiên đăng nhập đã hết hạn.');
+        if (!res.ok) throw new Error(await getResponseErrorMessage(res, 'Không thể xuất mã khuyến mãi'));
+        const data = await res.json();
+        return { rows: data.coupons || [], total: Number(data.total) || 0 };
+      }, COUPONS_PAGE_SIZE);
+      if (!downloadCsv(rows, [
+        { label: 'Mã', value: (row) => row.code },
+        { label: 'Mô tả', value: (row) => row.description },
+        { label: 'Loại', value: (row) => row.type },
+        { label: 'Gói', value: (row) => row.planName },
+        { label: 'Số ngày', value: (row) => row.durationDays },
+        { label: 'Đã dùng', value: (row) => row.usedCount },
+        { label: 'Tối đa', value: (row) => row.maxUses },
+        { label: 'Hoạt động', value: (row) => row.isActive },
+        { label: 'Hết hạn', value: (row) => row.expiresAt },
+        { label: 'Ngày tạo', value: (row) => row.createdAt },
+      ], 'coupons-filtered')) message.info('Không có mã phù hợp bộ lọc.');
+    } catch (error) {
+      message.error(error.message || 'Không thể xuất mã khuyến mãi.');
+    } finally {
+      setExportingCoupons(false);
+    }
+  };
 
   const couponColumns = useMemo(() => [
     {
       name: 'Mã Code',
       selector: (r) => r.code,
-      sortable: true,
       minWidth: '150px',
       cell: (r) => <Tag color="blue" style={{ fontSize: '0.9rem', fontWeight: 700 }}>{r.code}</Tag>,
     },
     {
       name: 'Mô Tả',
       selector: (r) => r.description || '',
-      sortable: true,
       minWidth: '180px',
       cell: (r) => r.description || '-',
     },
     {
       name: 'Loại',
       selector: (r) => r.type || '',
-      sortable: true,
       width: '130px',
       cell: (r) => (r.type === 'grant_plan' ? '🎁 Tặng Gói' : '📅 Tặng Ngày'),
     },
     {
       name: 'Gói/Ngày',
       selector: (r) => r.planName || `${r.durationDays || 0}`,
-      sortable: true,
       width: '120px',
       cell: (r) => (r.planName ? <Tag color="gold">{r.planName}</Tag> : `${r.durationDays}d`),
     },
     {
       name: 'Đã Dùng',
       selector: (r) => Number(r.usedCount) || 0,
-      sortable: true,
       width: '120px',
       cell: (r) => `${r.usedCount} / ${r.maxUses === -1 ? '∞' : r.maxUses}`,
     },
     {
       name: 'Trạng Thái',
       selector: (r) => (r.isActive ? 1 : 0),
-      sortable: true,
       width: '120px',
       cell: (r) => <Switch checked={r.isActive} onChange={(c) => handleToggleCoupon(r.id, c)} />,
     },
@@ -206,7 +245,7 @@ export default function CouponsView({ isDarkMode }) {
         title={
           <Space align="center">
             <span>🎟️ Quản Lý Mã Khuyến Mãi</span>
-            <Tag color="cyan">{coupons.length} mã</Tag>
+            <Tag color="cyan">{couponsTotal} mã</Tag>
           </Space>
         }
         extra={
@@ -214,9 +253,16 @@ export default function CouponsView({ isDarkMode }) {
             <Input.Search
               placeholder="Tìm mã code, mô tả..."
               allowClear
-              onChange={(e) => setCouponSearch(e.target.value)}
+              onChange={(e) => { setCouponPage(1); setCouponSearch(e.target.value); }}
               style={{ width: 220 }}
             />
+            <RangePicker
+              allowClear
+              value={couponDateRange}
+              onChange={(value) => { setCouponPage(1); setCouponDateRange(value); }}
+              placeholder={['Tạo từ ngày', 'Đến ngày']}
+            />
+            <Button disabled={!couponsTotal} loading={exportingCoupons} onClick={exportCoupons}>Xuất CSV kết quả lọc</Button>
             <Button type="primary" icon={<TagOutlined />} onClick={() => setIsCouponModalOpen(true)}>
               + Tạo Mã Mới
             </Button>
@@ -226,7 +272,7 @@ export default function CouponsView({ isDarkMode }) {
       >
         <ModernDataTable
           columns={couponColumns}
-          data={filteredCoupons}
+          data={coupons}
           loading={couponsLoading}
           isDarkMode={isDarkMode}
           keyField="id"
@@ -234,7 +280,11 @@ export default function CouponsView({ isDarkMode }) {
           onSelectedRowsChange={({ selectedRows }) => setSelectedCouponRows(selectedRows)}
           clearSelectedRows={clearCouponSelected}
           contextActions={couponContextActions}
-          paginationPerPage={15}
+          paginationPerPage={COUPONS_PAGE_SIZE}
+          paginationServer
+          paginationTotalRows={couponsTotal}
+          paginationPage={couponPage}
+          onChangePage={setCouponPage}
         />
       </Card>
 

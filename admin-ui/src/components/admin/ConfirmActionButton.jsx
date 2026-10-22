@@ -10,6 +10,7 @@ export default function ConfirmActionButton({
   children,
   buttonProps = {},
   disabled = false,
+  danger = true,
 }) {
   const openConfirmation = (event) => {
     event.stopPropagation();
@@ -19,7 +20,7 @@ export default function ConfirmActionButton({
       content: description,
       okText: confirmText,
       cancelText,
-      okButtonProps: { danger: true },
+      okButtonProps: { danger },
       maskClosable: false,
       onOk: onConfirm,
     });

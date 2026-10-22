@@ -95,6 +95,7 @@ describe('ContactService admin message filters', () => {
   it('applies server pagination, status, search, and date filters', async () => {
     const query = {
       orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
@@ -128,9 +129,47 @@ describe('ContactService admin message filters', () => {
       'message.createdAt >= :dateFrom',
       { dateFrom: new Date('2026-10-01T00:00:00.000Z') },
     );
+    expect(query.andWhere).toHaveBeenCalledWith(
+      'message.createdAt < :dateTo',
+      { dateTo: new Date('2026-11-01T00:00:00.000Z') },
+    );
     expect(query.skip).toHaveBeenCalledWith(25);
     expect(query.take).toHaveBeenCalledWith(25);
+    expect(query.addOrderBy).toHaveBeenCalledWith('message.id', 'ASC');
     expect(query.getManyAndCount).toHaveBeenCalled();
+  });
+
+  it('includes the full date-only end day for contact message filters', async () => {
+    const query = {
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+    };
+    const repository = {
+      createQueryBuilder: jest.fn().mockReturnValue(query),
+    };
+    const service = new ContactService(
+      repository as unknown as Repository<ContactMessage>,
+      {} as unknown as MailService,
+      {} as unknown as ConfigService,
+    );
+
+    await service.getAllMessages(1, 25, {
+      dateFrom: '2026-10-31',
+      dateTo: '2026-10-31',
+    });
+
+    expect(query.andWhere).toHaveBeenCalledWith(
+      'message.createdAt >= :dateFrom',
+      { dateFrom: new Date('2026-10-31T00:00:00.000Z') },
+    );
+    expect(query.andWhere).toHaveBeenCalledWith(
+      'message.createdAt < :dateTo',
+      { dateTo: new Date('2026-11-01T00:00:00.000Z') },
+    );
   });
 
   it('rejects an invalid date range before querying', async () => {

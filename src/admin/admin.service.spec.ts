@@ -115,15 +115,31 @@ describe('AdminService role changes', () => {
 
     const result = await service.getAiUsageStats();
 
-    expect(dataSource.query.mock.calls[0][0]).toContain('SUM("monthlyCount")');
+    expect(dataSource.query.mock.calls[0][0]).toContain(
+      'THEN usage."monthlyCount" ELSE usage."dailyCount"',
+    );
+    expect(dataSource.query.mock.calls[0][0]).toContain(
+      'ORDER BY "totalAiQuestions" DESC, email ASC, "userId" ASC',
+    );
+    expect(dataSource.query.mock.calls[0][0]).not.toContain('LIMIT $6 OFFSET $7');
+    expect(dataSource.query).toHaveBeenCalledTimes(1);
     expect(dataSource.query.mock.calls[0][0]).not.toContain('r.data');
     expect(result.userAiStats[0].totalAiQuestions).toBe(6);
+    expect(result.summary).toEqual({
+      totalUsersWithReadings: 1,
+      totalIchingReadings: 2,
+      totalTarotReadings: 1,
+      totalTuviReadings: 0,
+      totalAiQuestions: 6,
+    });
+    expect(result).not.toHaveProperty('page');
   });
 
   it('applies audit date filters alongside server pagination', async () => {
     const query = {
       leftJoinAndSelect: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
@@ -148,12 +164,36 @@ describe('AdminService role changes', () => {
     expect(query.andWhere).toHaveBeenCalledWith('log.createdAt < :dateTo', {
       dateTo: new Date('2026-11-01T00:00:00.000Z'),
     });
+    expect(query.addOrderBy).toHaveBeenCalledWith('log.id', 'ASC');
+  });
+
+  it('includes the full date-only end day for audit log filters', async () => {
+    const query = {
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+    };
+    injectedAuditRepo.createQueryBuilder.mockReturnValue(query);
+
+    await service.getAuditLogs(1, 30, '', '', '2026-10-31', '2026-10-31');
+
+    expect(query.andWhere).toHaveBeenCalledWith('log.createdAt >= :dateFrom', {
+      dateFrom: new Date('2026-10-31T00:00:00.000Z'),
+    });
+    expect(query.andWhere).toHaveBeenCalledWith('log.createdAt < :dateTo', {
+      dateTo: new Date('2026-11-01T00:00:00.000Z'),
+    });
   });
 
   it('rejects an invalid audit date range', async () => {
     injectedAuditRepo.createQueryBuilder.mockReturnValue({
       leftJoinAndSelect: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
     });
     await expect(
@@ -280,6 +320,7 @@ describe('AdminService dashboard and user listing', () => {
     const query = {
       select: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
@@ -317,6 +358,7 @@ describe('AdminService dashboard and user listing', () => {
       'user.createdAt',
     ]);
     expect(query.select.mock.calls[0][0]).not.toContain('user.avatar');
+    expect(query.addOrderBy).toHaveBeenCalledWith('user.id', 'ASC');
     expect(sessionRepo.find).not.toHaveBeenCalled();
     expect(dataSource.query).toHaveBeenCalledTimes(3);
     expect(dataSource.query.mock.calls[0][0]).toContain('FROM sessions');
@@ -326,6 +368,116 @@ describe('AdminService dashboard and user listing', () => {
     expect(dataSource.query.mock.calls[0][0]).toContain('COUNT(*)::int');
     expect(dataSource.query.mock.calls[0][0]).toContain('expires_at > NOW()');
     expect(dataSource.query.mock.calls[0][1]).toEqual([['user-1']]);
+  });
+
+  it('applies the user creation date range before paginating', async () => {
+    const query = {
+      select: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+    };
+    userRepo.createQueryBuilder.mockReturnValue(query);
+
+    const result = await service.getUsers(
+      2,
+      10,
+      '',
+      '',
+      '2026-10-01',
+      '2026-10-10',
+    );
+
+    expect(query.andWhere).toHaveBeenCalledWith(
+      'user.createdAt >= :dateFrom',
+      { dateFrom: new Date('2026-10-01T00:00:00.000Z') },
+    );
+    expect(query.andWhere).toHaveBeenCalledWith(
+      'user.createdAt < :dateTo',
+      { dateTo: new Date('2026-10-11T00:00:00.000Z') },
+    );
+    expect(query.skip).toHaveBeenCalledWith(10);
+    expect(result).toMatchObject({ total: 0, page: 2, limit: 10 });
+  });
+
+  it('server-paginates AI usage and applies search and date filters in SQL', async () => {
+    dataSource.query
+      .mockResolvedValueOnce([
+        {
+          userId: 'user-1',
+          email: 'member@example.test',
+          displayName: 'Member',
+          role: 'user',
+          ichingReadings: '2',
+          tarotReadings: '1',
+          tuviReadings: '0',
+          totalAiQuestions: '6',
+          lastActive: new Date('2026-10-05T12:00:00Z'),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          total: '1',
+          totalIchingReadings: '2',
+          totalTarotReadings: '1',
+          totalTuviReadings: '0',
+          totalAiQuestions: '6',
+        },
+      ]);
+
+    const result = await service.getAiUsageStats(
+      2,
+      10,
+      'member',
+      '2026-10-01',
+      '2026-10-10',
+    );
+
+    const [pageSql, pageParameters] = dataSource.query.mock.calls[0];
+    expect(pageSql).toContain('LIMIT $6 OFFSET $7');
+    expect(pageSql).toContain('usage.date >= $3::text');
+    expect(pageSql).toContain('reading.created_at < $2::timestamptz');
+    expect(pageSql).toContain('ORDER BY "totalAiQuestions" DESC, email ASC, "userId" ASC');
+    expect(pageParameters).toEqual([
+      '2026-10-01T00:00:00.000Z',
+      '2026-10-11T00:00:00.000Z',
+      '2026-10-01',
+      '2026-10-11',
+      '%member%',
+      10,
+      10,
+    ]);
+    expect(result).toMatchObject({
+      total: 1,
+      page: 2,
+      limit: 10,
+      totalPages: 1,
+      userAiStats: [{ totalAiQuestions: 6, ichingReadings: 2 }],
+    });
+  });
+
+  it('includes the last UTC usage day touched by an exclusive local timestamp bound', async () => {
+    dataSource.query
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: 0 }]);
+
+    await service.getAiUsageStats(
+      1,
+      20,
+      '',
+      '2026-10-10T00:00:00+07:00',
+      '2026-10-11T00:00:00+07:00',
+    );
+
+    const [, parameters] = dataSource.query.mock.calls[0];
+    expect(parameters[0]).toBe('2026-10-09T17:00:00.000Z');
+    expect(parameters[1]).toBe('2026-10-10T17:00:00.000Z');
+    expect(parameters[2]).toBe('2026-10-09');
+    expect(parameters[3]).toBe('2026-10-11');
+    expect('2026-10-10' < parameters[3]).toBe(true);
   });
 
   it('aggregates analytics app distribution without loading reading rows', async () => {

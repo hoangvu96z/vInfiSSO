@@ -10,6 +10,18 @@ import { Session } from '../users/session.entity';
 import { AuditLog } from '../users/audit-log.entity';
 import { Reading } from '../readings/reading.entity';
 import { AiUsage } from '../plans/ai-usage.entity';
+import { parseAdminDateRange } from '../common/admin-date-range.util';
+
+function getExclusiveUtcDay(date?: Date): string | null {
+  if (!date) return null;
+
+  const dayStart = new Date(date);
+  dayStart.setUTCHours(0, 0, 0, 0);
+  if (date.getTime() > dayStart.getTime()) {
+    dayStart.setUTCDate(dayStart.getUTCDate() + 1);
+  }
+  return dayStart.toISOString().slice(0, 10);
+}
 
 @Injectable()
 export class AdminService {
@@ -116,9 +128,17 @@ export class AdminService {
     };
   }
 
-  async getUsers(page = 1, limit = 20, search = '', role = '') {
+  async getUsers(
+    page = 1,
+    limit = 20,
+    search = '',
+    role = '',
+    dateFrom?: string,
+    dateTo?: string,
+  ) {
     const safePage = Math.max(1, page);
     const safeLimit = Math.min(100, Math.max(1, limit));
+    const { start, end } = parseAdminDateRange(dateFrom, dateTo);
     const query = this.userRepo
       .createQueryBuilder('user')
       .select([
@@ -131,7 +151,8 @@ export class AdminService {
         'user.isVerified',
         'user.createdAt',
       ])
-      .orderBy('user.createdAt', 'DESC');
+      .orderBy('user.createdAt', 'DESC')
+      .addOrderBy('user.id', 'ASC');
 
     if (search) {
       query.andWhere(
@@ -144,6 +165,13 @@ export class AdminService {
 
     if (role) {
       query.andWhere('user.role = :role', { role });
+    }
+
+    if (start) {
+      query.andWhere('user.createdAt >= :dateFrom', { dateFrom: start });
+    }
+    if (end) {
+      query.andWhere('user.createdAt < :dateTo', { dateTo: end });
     }
 
     const [users, total] = await query
@@ -346,10 +374,12 @@ export class AdminService {
   ) {
     const safePage = Math.max(1, page);
     const safeLimit = Math.min(100, Math.max(1, limit));
+    const { start, end } = parseAdminDateRange(dateFrom, dateTo);
     const query = this.auditLogRepo
       .createQueryBuilder('log')
       .leftJoinAndSelect('log.user', 'user')
-      .orderBy('log.createdAt', 'DESC');
+      .orderBy('log.createdAt', 'DESC')
+      .addOrderBy('log.id', 'ASC');
 
     if (action) {
       query.andWhere('log.action = :action', { action });
@@ -364,20 +394,9 @@ export class AdminService {
       );
     }
 
-    if (dateFrom || dateTo) {
-      const start = dateFrom ? new Date(dateFrom) : undefined;
-      const end = dateTo ? new Date(dateTo) : undefined;
-      if (
-        (start && Number.isNaN(start.getTime())) ||
-        (end && Number.isNaN(end.getTime())) ||
-        (start && end && start > end)
-      ) {
-        throw new BadRequestException('Invalid audit log date range');
-      }
-      if (start)
-        query.andWhere('log.createdAt >= :dateFrom', { dateFrom: start });
-      if (end) query.andWhere('log.createdAt < :dateTo', { dateTo: end });
-    }
+    if (start)
+      query.andWhere('log.createdAt >= :dateFrom', { dateFrom: start });
+    if (end) query.andWhere('log.createdAt < :dateTo', { dateTo: end });
 
     const [logs, total] = await query
       .skip((safePage - 1) * safeLimit)
@@ -411,77 +430,159 @@ export class AdminService {
     };
   }
 
-  async getAiUsageStats() {
-    const rows = (await this.dataSource.query(
-      `SELECT u.id AS "userId", u.email AS email,
-        COALESCE(u."displayName", u.username, 'User') AS "displayName", COALESCE(u.role, 'user') AS role,
+  async getAiUsageStats(
+    page?: number,
+    limit?: number,
+    search = '',
+    dateFrom?: string,
+    dateTo?: string,
+  ) {
+    const isPaginated = page !== undefined || limit !== undefined;
+    const safePage = Math.max(1, page ?? 1);
+    const safeLimit = Math.min(100, Math.max(1, limit ?? 20));
+    const { start, end } = parseAdminDateRange(dateFrom, dateTo);
+    const startDay = start?.toISOString().slice(0, 10) ?? null;
+    const endDay = getExclusiveUtcDay(end);
+    const parameters = [
+      start?.toISOString() ?? null,
+      end?.toISOString() ?? null,
+      startDay,
+      endDay,
+      search.trim() ? `%${search.trim()}%` : null,
+    ];
+    const filteredStatsSql = `
+      WITH reading_stats AS (
+        SELECT reading.user_id,
+          COUNT(*) FILTER (WHERE lower(reading.app) = 'iching')::int AS "ichingReadings",
+          COUNT(*) FILTER (WHERE lower(reading.app) = 'tarot')::int AS "tarotReadings",
+          COUNT(*) FILTER (WHERE lower(reading.app) LIKE '%tuvi%')::int AS "tuviReadings",
+          MAX(reading.created_at) AS "lastActive"
+        FROM readings reading
+        WHERE ($1::timestamptz IS NULL OR reading.created_at >= $1::timestamptz)
+          AND ($2::timestamptz IS NULL OR reading.created_at < $2::timestamptz)
+        GROUP BY reading.user_id
+      ), ai_stats AS (
+        SELECT usage."userId",
+          SUM(CASE WHEN $3::text IS NULL AND $4::text IS NULL
+            THEN usage."monthlyCount" ELSE usage."dailyCount" END)::int AS "totalAiQuestions",
+          MAX(usage."updatedAt") AS "lastAiActive"
+        FROM ai_usage usage
+        WHERE ($3::text IS NULL OR usage.date >= $3::text)
+          AND ($4::text IS NULL OR usage.date < $4::text)
+        GROUP BY usage."userId"
+      )
+      SELECT u.id AS "userId", u.email AS email,
+        COALESCE(u."displayName", u.username, 'User') AS "displayName",
+        COALESCE(u.role, 'user') AS role,
         COALESCE(r."ichingReadings", 0)::int AS "ichingReadings",
         COALESCE(r."tarotReadings", 0)::int AS "tarotReadings",
         COALESCE(r."tuviReadings", 0)::int AS "tuviReadings",
         COALESCE(ai."totalAiQuestions", 0)::int AS "totalAiQuestions",
         COALESCE(r."lastActive", ai."lastAiActive") AS "lastActive"
-       FROM users u
-       LEFT JOIN (
-         SELECT user_id,
-           COUNT(*) FILTER (WHERE lower(app) = 'iching')::int AS "ichingReadings",
-           COUNT(*) FILTER (WHERE lower(app) = 'tarot')::int AS "tarotReadings",
-           COUNT(*) FILTER (WHERE lower(app) LIKE '%tuvi%')::int AS "tuviReadings",
-           MAX(created_at) AS "lastActive"
-         FROM readings GROUP BY user_id
-       ) r ON r.user_id = u.id
-       LEFT JOIN (
-         SELECT "userId", SUM("monthlyCount")::int AS "totalAiQuestions", MAX("updatedAt") AS "lastAiActive"
-         FROM ai_usage GROUP BY "userId"
-       ) ai ON ai."userId" = u.id
-       WHERE r.user_id IS NOT NULL OR ai."userId" IS NOT NULL`,
-    )) as Array<{
-      userId: string;
-      email: string;
-      displayName: string;
-      role: string;
-      ichingReadings: number;
-      tarotReadings: number;
-      tuviReadings: number;
-      totalAiQuestions: number;
-      lastActive: Date | null;
-    }>;
-    const list = rows
-      .map((row) => ({
-        ...row,
-        ichingReadings: Number(row.ichingReadings),
-        tarotReadings: Number(row.tarotReadings),
-        tuviReadings: Number(row.tuviReadings),
-        totalAiQuestions: Number(row.totalAiQuestions),
-      }))
-      .sort((a, b) => b.totalAiQuestions - a.totalAiQuestions);
+      FROM users u
+      LEFT JOIN reading_stats r ON r.user_id = u.id
+      LEFT JOIN ai_stats ai ON ai."userId" = u.id
+      WHERE (r.user_id IS NOT NULL OR ai."userId" IS NOT NULL)
+        AND ($5::text IS NULL OR u.email ILIKE $5::text
+          OR COALESCE(u."displayName", u.username, 'User') ILIKE $5::text)
+    `;
+    const pageParameters = [
+      ...parameters,
+      safeLimit,
+      (safePage - 1) * safeLimit,
+    ];
+    const orderSql = `${filteredStatsSql}
+      ORDER BY "totalAiQuestions" DESC, email ASC, "userId" ASC`;
+    const rowQuery = this.dataSource.query(
+      isPaginated ? `${orderSql}\nLIMIT $6 OFFSET $7` : orderSql,
+      isPaginated ? pageParameters : parameters,
+    ) as Promise<
+      Array<{
+        userId: string;
+        email: string;
+        displayName: string;
+        role: string;
+        ichingReadings: number | string;
+        tarotReadings: number | string;
+        tuviReadings: number | string;
+        totalAiQuestions: number | string;
+        lastActive: Date | null;
+      }>
+    >;
+    const aggregatesQuery = isPaginated
+      ? (this.dataSource.query(
+          `SELECT COUNT(*)::int AS total,
+            COALESCE(SUM("ichingReadings"), 0)::int AS "totalIchingReadings",
+            COALESCE(SUM("tarotReadings"), 0)::int AS "totalTarotReadings",
+            COALESCE(SUM("tuviReadings"), 0)::int AS "totalTuviReadings",
+            COALESCE(SUM("totalAiQuestions"), 0)::int AS "totalAiQuestions"
+           FROM (${filteredStatsSql}) filtered_stats`,
+          parameters,
+        ) as Promise<
+          Array<{
+            total: number | string;
+            totalIchingReadings: number | string;
+            totalTarotReadings: number | string;
+            totalTuviReadings: number | string;
+            totalAiQuestions: number | string;
+          }>
+        >)
+      : Promise.resolve([]);
+    const [rows, aggregates] = await Promise.all([rowQuery, aggregatesQuery]);
+    const aggregate = aggregates[0] || {};
+    const list = rows.map((row) => ({
+      ...row,
+      ichingReadings: Number(row.ichingReadings),
+      tarotReadings: Number(row.tarotReadings),
+      tuviReadings: Number(row.tuviReadings),
+      totalAiQuestions: Number(row.totalAiQuestions),
+    }));
+    const total = isPaginated ? Number(aggregate.total ?? 0) : list.length;
+    const fullListTotals = isPaginated
+      ? null
+      : list.reduce(
+          (totals, row) => ({
+            totalIchingReadings: totals.totalIchingReadings + row.ichingReadings,
+            totalTarotReadings: totals.totalTarotReadings + row.tarotReadings,
+            totalTuviReadings: totals.totalTuviReadings + row.tuviReadings,
+            totalAiQuestions: totals.totalAiQuestions + row.totalAiQuestions,
+          }),
+          {
+            totalIchingReadings: 0,
+            totalTarotReadings: 0,
+            totalTuviReadings: 0,
+            totalAiQuestions: 0,
+          },
+        );
 
-    const totalIchingReadings = list.reduce(
-      (acc, curr) => acc + curr.ichingReadings,
-      0,
-    );
-    const totalTarotReadings = list.reduce(
-      (acc, curr) => acc + curr.tarotReadings,
-      0,
-    );
-    const totalTuviReadings = list.reduce(
-      (acc, curr) => acc + curr.tuviReadings,
-      0,
-    );
-    const totalAiQuestions = list.reduce(
-      (acc, curr) => acc + curr.totalAiQuestions,
-      0,
-    );
-
-    return {
+    const response = {
       summary: {
-        totalUsersWithReadings: list.length,
-        totalIchingReadings,
-        totalTarotReadings,
-        totalTuviReadings,
-        totalAiQuestions,
+        totalUsersWithReadings: total,
+        totalIchingReadings: isPaginated
+          ? Number(aggregate.totalIchingReadings ?? 0)
+          : fullListTotals!.totalIchingReadings,
+        totalTarotReadings: isPaginated
+          ? Number(aggregate.totalTarotReadings ?? 0)
+          : fullListTotals!.totalTarotReadings,
+        totalTuviReadings: isPaginated
+          ? Number(aggregate.totalTuviReadings ?? 0)
+          : fullListTotals!.totalTuviReadings,
+        totalAiQuestions: isPaginated
+          ? Number(aggregate.totalAiQuestions ?? 0)
+          : fullListTotals!.totalAiQuestions,
       },
       userAiStats: list,
     };
+
+    return isPaginated
+      ? {
+          ...response,
+          total,
+          page: safePage,
+          limit: safeLimit,
+          totalPages: Math.ceil(total / safeLimit),
+        }
+      : response;
   }
 
   async getAnalyticsData() {

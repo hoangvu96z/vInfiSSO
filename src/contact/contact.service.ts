@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { ContactMessage, AttachedImage } from './contact-message.entity';
@@ -6,6 +6,7 @@ import { MailService } from '../mail/mail.service';
 import { ConfigService } from '@nestjs/config';
 import { parseUserAgent, lookupIpLocation } from './device-detector.util';
 import * as crypto from 'node:crypto';
+import { parseAdminDateRange } from '../common/admin-date-range.util';
 
 @Injectable()
 export class ContactService {
@@ -165,19 +166,12 @@ export class ContactService {
   ): Promise<{ messages: ContactMessage[]; total: number }> {
     const safePage = Math.max(1, page);
     const safeLimit = Math.min(100, Math.max(1, limit));
-    const start = filters.dateFrom ? new Date(filters.dateFrom) : undefined;
-    const end = filters.dateTo ? new Date(filters.dateTo) : undefined;
-    if (
-      (start && Number.isNaN(start.getTime())) ||
-      (end && Number.isNaN(end.getTime())) ||
-      (start && end && start > end)
-    ) {
-      throw new BadRequestException('Invalid contact message date range');
-    }
+    const { start, end } = parseAdminDateRange(filters.dateFrom, filters.dateTo);
 
     const query = this.messageRepo
       .createQueryBuilder('message')
-      .orderBy('message.createdAt', 'DESC');
+      .orderBy('message.createdAt', 'DESC')
+      .addOrderBy('message.id', 'ASC');
 
     if (filters.status === 'read' || filters.status === 'unread') {
       query.andWhere('message.isRead = :isRead', {
