@@ -7,22 +7,32 @@ import {
   Req,
   Body,
   Param,
-  Query,
   UploadedFile,
   UseInterceptors,
   BadRequestException,
-  NotFoundException,
-  ForbiddenException,
   ParseIntPipe,
+  Res,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { NotesService } from './notes.service';
-import type { CreateNoteDto, UpdateNoteDto, ShareSettingsDto } from './notes.service';
-import { SsoService } from '../sso/sso.service';
+import {
+  CreateNoteDto,
+  UpdateNoteDto,
+  ShareSettingsDto,
+  CreateNoteInviteDto,
+} from './dto/note-write.dto';
+import {
+  ForbiddenSsoAuthGuard,
+  OptionalSsoAuthGuard,
+} from '../auth/auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
+import type { AuthenticatedRequest } from '../auth/auth.types';
+import { User } from '../users/user.entity';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 
-const COOKIE_NAME = 'sso_token';
 const GUEST_TOKEN_HEADER = 'x-guest-token';
 
 const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -30,27 +40,9 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB raw (will be compressed to 720p)
 
 @Controller('notes')
 export class NotesController {
-  constructor(
-    private readonly notesService: NotesService,
-    private readonly ssoService: SsoService,
-  ) {}
+  constructor(private readonly notesService: NotesService) {}
 
   // ─── Auth Helpers ──────────────────────────────────────────────────────────
-
-  private getSsoToken(req: Request): string | undefined {
-    const authHeader = req.headers.authorization;
-    if (authHeader?.toLowerCase().startsWith('bearer ')) {
-      return authHeader.substring(7).trim();
-    }
-    const raw = req.headers.cookie ?? '';
-    const entry = raw
-      .split(';')
-      .map((s) => s.trim())
-      .find((s) => s.startsWith(`${COOKIE_NAME}=`));
-    if (!entry) return undefined;
-    const [, val] = entry.split('=');
-    return val ? decodeURIComponent(val) : undefined;
-  }
 
   private getGuestToken(req: Request): string | undefined {
     const raw = req.headers[GUEST_TOKEN_HEADER];
@@ -59,41 +51,44 @@ export class NotesController {
   }
 
   /** Returns userId if logged in, or guestToken from header */
-  private async resolveIdentity(req: Request): Promise<{ userId?: string; guestToken?: string }> {
-    const ssoToken = this.getSsoToken(req);
-    if (ssoToken) {
-      const user = await this.ssoService.resolveSession(ssoToken);
-      if (user) return { userId: user.id };
-    }
+  private resolveIdentity(req: Request): {
+    userId?: string;
+    guestToken?: string;
+  } {
+    const user = (req as Request & AuthenticatedRequest).user;
+    if (user) return { userId: user.id };
     const guestToken = this.getGuestToken(req);
     if (guestToken) return { guestToken };
     return {};
   }
 
-  private async requireUser(req: Request) {
-    const ssoToken = this.getSsoToken(req);
-    const user = await this.ssoService.resolveSession(ssoToken);
-    if (!user) throw new ForbiddenException('Vui lòng đăng nhập để thực hiện thao tác này');
-    return user;
+  private sendNoteImage(response: Response, image: Buffer): void {
+    response.setHeader('Content-Type', 'image/webp');
+    response.setHeader('Content-Length', image.length);
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    response.send(image);
   }
 
   // ─── List / Get ───────────────────────────────────────────────────────────
 
   // GET /notes  — list all notes for current user/guest
   @Get()
+  @UseGuards(OptionalSsoAuthGuard)
   async list(@Req() req: Request) {
-    const { userId, guestToken } = await this.resolveIdentity(req);
+    const { userId, guestToken } = this.resolveIdentity(req);
     return this.notesService.listNotes(userId, guestToken);
   }
 
   // GET /notes/share/:shareToken  — view a shared note
   @Get('share/:shareToken')
+  @UseGuards(OptionalSsoAuthGuard)
   async getByShareToken(
     @Req() req: Request,
     @Param('shareToken') shareToken: string,
   ) {
-    const { userId, guestToken } = await this.resolveIdentity(req);
-    return this.notesService.getNoteByShareToken(shareToken, userId, guestToken);
+    const { userId } = this.resolveIdentity(req);
+    return this.notesService.getNoteByShareToken(shareToken, userId);
   }
 
   // PATCH /notes/share/:shareToken — update note via share link
@@ -107,16 +102,17 @@ export class NotesController {
 
   // POST /notes/claim — transfer guest notes to logged in user
   @Post('claim')
-  async claimGuestNotes(@Req() req: Request) {
-    const user = await this.requireUser(req);
+  @UseGuards(ForbiddenSsoAuthGuard)
+  async claimGuestNotes(@Req() req: Request, @CurrentUser() user: User) {
     const guestToken = this.getGuestToken(req);
     return this.notesService.claimGuestNotes(user.id, guestToken);
   }
 
   // GET /notes/:id
   @Get(':id')
+  @UseGuards(OptionalSsoAuthGuard)
   async getOne(@Req() req: Request, @Param('id') id: string) {
-    const { userId, guestToken } = await this.resolveIdentity(req);
+    const { userId, guestToken } = this.resolveIdentity(req);
     return this.notesService.getNoteById(id, userId, guestToken);
   }
 
@@ -124,8 +120,9 @@ export class NotesController {
 
   // POST /notes
   @Post()
+  @UseGuards(OptionalSsoAuthGuard)
   async create(@Req() req: Request, @Body() body: CreateNoteDto) {
-    const { userId, guestToken } = await this.resolveIdentity(req);
+    const { userId, guestToken } = this.resolveIdentity(req);
     if (!userId && !guestToken) {
       throw new BadRequestException('Cần đăng nhập hoặc cung cấp guest token');
     }
@@ -134,19 +131,21 @@ export class NotesController {
 
   // PATCH /notes/:id
   @Patch(':id')
+  @UseGuards(OptionalSsoAuthGuard)
   async update(
     @Req() req: Request,
     @Param('id') id: string,
     @Body() body: UpdateNoteDto,
   ) {
-    const { userId, guestToken } = await this.resolveIdentity(req);
+    const { userId, guestToken } = this.resolveIdentity(req);
     return this.notesService.updateNote(id, body, userId, guestToken);
   }
 
   // DELETE /notes/:id
   @Delete(':id')
+  @UseGuards(OptionalSsoAuthGuard)
   async delete(@Req() req: Request, @Param('id') id: string) {
-    const { userId, guestToken } = await this.resolveIdentity(req);
+    const { userId, guestToken } = this.resolveIdentity(req);
     await this.notesService.deleteNote(id, userId, guestToken);
     return { success: true };
   }
@@ -155,24 +154,26 @@ export class NotesController {
 
   // POST /notes/:id/share  — update share mode (none/view/edit)
   @Post(':id/share')
+  @UseGuards(OptionalSsoAuthGuard)
   async updateShare(
     @Req() req: Request,
     @Param('id') id: string,
     @Body() body: ShareSettingsDto,
   ) {
-    const { userId, guestToken } = await this.resolveIdentity(req);
+    const { userId, guestToken } = this.resolveIdentity(req);
     return this.notesService.updateShareSettings(id, body, userId, guestToken);
   }
 
   // POST /notes/:id/share/invite  — invite SSO user by email
   @Post(':id/share/invite')
+  @UseGuards(ForbiddenSsoAuthGuard)
   async sendInvite(
-    @Req() req: Request,
     @Param('id') id: string,
-    @Body() body: { email: string; permission?: 'view' | 'edit' },
+    @Body() body: CreateNoteInviteDto,
+    @CurrentUser() user: User,
   ) {
-    if (!body.email) throw new BadRequestException('Cần cung cấp email người được mời');
-    const user = await this.requireUser(req);
+    if (!body.email)
+      throw new BadRequestException('Cần cung cấp email người được mời');
     return this.notesService.sendShareInvite(
       id,
       user.id,
@@ -183,26 +184,64 @@ export class NotesController {
 
   // POST /notes/invite/accept/:token  — accept an invite
   @Post('invite/accept/:token')
-  async acceptInvite(@Req() req: Request, @Param('token') token: string) {
-    const user = await this.requireUser(req);
+  @UseGuards(ForbiddenSsoAuthGuard)
+  async acceptInvite(@Param('token') token: string, @CurrentUser() user: User) {
     return this.notesService.acceptInvite(token, user.id);
   }
 
   // DELETE /notes/:id/share/user/:userId  — remove shared user
   @Delete(':id/share/user/:targetUserId')
+  @UseGuards(ForbiddenSsoAuthGuard)
   async removeSharedUser(
-    @Req() req: Request,
     @Param('id') id: string,
     @Param('targetUserId') targetUserId: string,
+    @CurrentUser() user: User,
   ) {
-    const user = await this.requireUser(req);
     return this.notesService.removeSharedUser(id, targetUserId, user.id);
   }
 
   // ─── Images ───────────────────────────────────────────────────────────────
 
+  // GET /notes/share/:shareToken/images/:filename — image from active share
+  @Get('share/:shareToken/images/:filename')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  async getImageByShareToken(
+    @Param('shareToken') shareToken: string,
+    @Param('filename') filename: string,
+    @Res() response: Response,
+  ) {
+    const image = await this.notesService.getImageByShareToken(
+      shareToken,
+      filename,
+    );
+    this.sendNoteImage(response, image);
+  }
+
+  // GET /notes/:id/images/:filename — image for owner, guest, or invitee
+  @Get(':id/images/:filename')
+  @UseGuards(ThrottlerGuard, OptionalSsoAuthGuard)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  async getImage(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Param('filename') filename: string,
+    @Res() response: Response,
+  ) {
+    const { userId, guestToken } = this.resolveIdentity(req);
+    const image = await this.notesService.getImage(
+      id,
+      filename,
+      userId,
+      guestToken,
+    );
+    this.sendNoteImage(response, image);
+  }
+
   // POST /notes/share/:shareToken/images — upload image via editable share link
   @Post('share/:shareToken/images')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @UseInterceptors(
     FileInterceptor('image', {
       storage: memoryStorage(),
@@ -211,7 +250,10 @@ export class NotesController {
         if (ALLOWED_MIME.includes(file.mimetype)) {
           cb(null, true);
         } else {
-          cb(new BadRequestException('Chỉ hỗ trợ ảnh JPEG, PNG, WebP, GIF'), false);
+          cb(
+            new BadRequestException('Chỉ hỗ trợ ảnh JPEG, PNG, WebP, GIF'),
+            false,
+          );
         }
       },
     }),
@@ -235,6 +277,8 @@ export class NotesController {
 
   // POST /notes/:id/images  — upload image
   @Post(':id/images')
+  @UseGuards(ThrottlerGuard, OptionalSsoAuthGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @UseInterceptors(
     FileInterceptor('image', {
       storage: memoryStorage(),
@@ -243,7 +287,10 @@ export class NotesController {
         if (ALLOWED_MIME.includes(file.mimetype)) {
           cb(null, true);
         } else {
-          cb(new BadRequestException('Chỉ hỗ trợ ảnh JPEG, PNG, WebP, GIF'), false);
+          cb(
+            new BadRequestException('Chỉ hỗ trợ ảnh JPEG, PNG, WebP, GIF'),
+            false,
+          );
         }
       },
     }),
@@ -254,18 +301,19 @@ export class NotesController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException('Không có file ảnh được gửi lên');
-    const { userId, guestToken } = await this.resolveIdentity(req);
+    const { userId, guestToken } = this.resolveIdentity(req);
     return this.notesService.uploadImage(id, file, userId, guestToken);
   }
 
   // DELETE /notes/:id/images/:index  — delete image
   @Delete(':id/images/:index')
+  @UseGuards(OptionalSsoAuthGuard)
   async deleteImage(
     @Req() req: Request,
     @Param('id') id: string,
     @Param('index', ParseIntPipe) index: number,
   ) {
-    const { userId, guestToken } = await this.resolveIdentity(req);
+    const { userId, guestToken } = this.resolveIdentity(req);
     return this.notesService.deleteImage(id, index, userId, guestToken);
   }
 }

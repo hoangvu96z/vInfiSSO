@@ -4,60 +4,33 @@ import {
   Post,
   Patch,
   Delete,
-  Req,
   Body,
   Param,
   Query,
-  UnauthorizedException,
   BadRequestException,
+  UseGuards,
 } from '@nestjs/common';
-import type { Request } from 'express';
 import { ReadingsService } from './readings.service';
-import { SsoService } from '../sso/sso.service';
-
-const COOKIE_NAME = 'sso_token';
+import { SsoAuthGuard } from '../auth/auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { User } from '../users/user.entity';
+import { CreateReadingDto, UpdateReadingDto } from './dto/reading-write.dto';
 
 @Controller('readings')
+@UseGuards(SsoAuthGuard)
 export class ReadingsController {
-  constructor(
-    private readonly readingsService: ReadingsService,
-    private readonly ssoService: SsoService,
-  ) {}
-
-  private getToken(req: Request): string | undefined {
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
-      return authHeader.substring(7).trim();
-    }
-    const raw = req.headers.cookie ?? '';
-    const entry = raw
-      .split(';')
-      .map((s) => s.trim())
-      .find((s) => s.startsWith(`${COOKIE_NAME}=`));
-    if (!entry) return undefined;
-    const [, val] = entry.split('=');
-    return val ? decodeURIComponent(val) : undefined;
-  }
-
-  private async requireUser(req: Request) {
-    const token = this.getToken(req);
-    const user = await this.ssoService.resolveSession(token);
-    if (!user) throw new UnauthorizedException('Vui lòng đăng nhập');
-    return user;
-  }
+  constructor(private readonly readingsService: ReadingsService) {}
 
   // GET /readings?app=iching
   @Get()
-  async list(@Req() req: Request, @Query('app') app?: string) {
-    const user = await this.requireUser(req);
+  async list(@CurrentUser() user: User, @Query('app') app?: string) {
     const readings = await this.readingsService.getReadings(user.id, app);
     return { readings };
   }
 
   // GET /readings/:id
   @Get(':id')
-  async getOne(@Req() req: Request, @Param('id') id: string) {
-    const user = await this.requireUser(req);
+  async getOne(@CurrentUser() user: User, @Param('id') id: string) {
     const reading = await this.readingsService.getReadingById(user.id, id);
     return { reading };
   }
@@ -65,19 +38,12 @@ export class ReadingsController {
   // POST /readings
   @Post()
   async create(
-    @Req() req: Request,
-    @Body() body: {
-      app: string;
-      type: string;
-      question?: string;
-      title: string;
-      data: Record<string, any>;
-    },
+    @CurrentUser() user: User,
+    @Body() body: CreateReadingDto,
   ) {
     if (!body.app || !body.type || !body.title || !body.data) {
       throw new BadRequestException('Thiếu trường bắt buộc: app, type, title, data');
     }
-    const user = await this.requireUser(req);
     const reading = await this.readingsService.createReading(user.id, body);
     return { reading };
   }
@@ -85,30 +51,27 @@ export class ReadingsController {
   // PATCH /readings/:id  (cập nhật data — dùng để lưu AI conversation)
   @Patch(':id')
   async updateData(
-    @Req() req: Request,
+    @CurrentUser() user: User,
     @Param('id') id: string,
-    @Body() body: { data: Record<string, any> },
+    @Body() body: UpdateReadingDto,
   ) {
     if (!body.data) {
       throw new BadRequestException('Thiếu trường bắt buộc: data');
     }
-    const user = await this.requireUser(req);
     const reading = await this.readingsService.updateReadingData(user.id, id, body.data);
     return { reading };
   }
 
   // DELETE /readings/all?app=iching  (xoá hết)
   @Delete('all')
-  async deleteAll(@Req() req: Request, @Query('app') app?: string) {
-    const user = await this.requireUser(req);
+  async deleteAll(@CurrentUser() user: User, @Query('app') app?: string) {
     await this.readingsService.deleteAllReadings(user.id, app);
     return { success: true };
   }
 
   // DELETE /readings/:id  (xoá 1)
   @Delete(':id')
-  async deleteOne(@Req() req: Request, @Param('id') id: string) {
-    const user = await this.requireUser(req);
+  async deleteOne(@CurrentUser() user: User, @Param('id') id: string) {
     await this.readingsService.deleteReading(user.id, id);
     return { success: true };
   }

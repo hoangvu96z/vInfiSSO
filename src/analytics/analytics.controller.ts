@@ -5,7 +5,6 @@ import {
   Body,
   Req,
   Query,
-  UseGuards,
   ParseIntPipe,
   DefaultValuePipe,
   BadRequestException,
@@ -13,7 +12,8 @@ import {
 import type { Request } from 'express';
 import { AnalyticsService } from './analytics.service';
 import { RecordVisitDto } from './dto/record-visit.dto';
-import { AdminGuard } from '../auth/admin.guard';
+import { AdminOnly } from '../auth/roles.decorator';
+import { BatchIdsDto } from '../admin/dto/admin-write.dto';
 
 @Controller('analytics')
 export class AnalyticsController {
@@ -33,7 +33,7 @@ export class AnalyticsController {
    * GET /analytics/admin/stats?days=30&app=talkwithme
    */
   @Get('admin/stats')
-  @UseGuards(AdminGuard)
+  @AdminOnly()
   async getTrafficStats(
     @Query('days', new DefaultValuePipe(30), ParseIntPipe) days: number,
     @Query('app') app?: string,
@@ -46,14 +46,15 @@ export class AnalyticsController {
    * GET /analytics/admin/logs?page=1&limit=50&app=talkwithme&search=...
    */
   @Get('admin/logs')
-  @UseGuards(AdminGuard)
+  @AdminOnly()
   async getTrafficLogs(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
     @Query('app') app?: string,
     @Query('search') search?: string,
+    @Query('days', new DefaultValuePipe(30), ParseIntPipe) days = 30,
   ) {
-    return this.analyticsService.getTrafficLogs(page, limit, app, search);
+    return this.analyticsService.getTrafficLogs(page, limit, app, search, days);
   }
 
   /**
@@ -61,8 +62,8 @@ export class AnalyticsController {
    * POST /analytics/admin/logs/batch-delete
    */
   @Post('admin/logs/batch-delete')
-  @UseGuards(AdminGuard)
-  async deleteTrafficLogs(@Body() body: { ids: string[] }) {
+  @AdminOnly()
+  async deleteTrafficLogs(@Body() body: BatchIdsDto) {
     if (!Array.isArray(body?.ids) || body.ids.length === 0) {
       throw new BadRequestException('ids must be a non-empty array');
     }

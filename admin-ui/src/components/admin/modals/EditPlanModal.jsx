@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Modal, Form, Input, InputNumber, Switch, Row, Col, message } from 'antd';
-import { authFetch } from '../../../utils/api';
+import { authFetch, getResponseErrorMessage } from '../../../utils/api';
 
 export default function EditPlanModal({ plan, open, onCancel, onSaveSuccess }) {
   const [form] = Form.useForm();
@@ -13,17 +13,22 @@ export default function EditPlanModal({ plan, open, onCancel, onSaveSuccess }) {
 
   const handleFinish = async (values) => {
     if (!plan) return;
-    const res = await authFetch(`/admin/plans/${plan.name}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(values),
-    });
-    if (res && res.ok) {
+    try {
+      const res = await authFetch(`/admin/plans/${plan.name}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      });
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể lưu thay đổi gói dịch vụ'));
+        return;
+      }
       message.success(`💎 Đã lưu thay đổi gói "${plan.label}" thành công!`);
       onSaveSuccess?.();
       onCancel();
-    } else {
-      message.error('❌ Lưu thất bại! Vui lòng thử lại.');
+    } catch {
+      message.error('Không thể lưu thay đổi gói dịch vụ. Vui lòng thử lại.');
     }
   };
 

@@ -17,42 +17,41 @@ export class AppController {
 
   @Get(['login', 'sso/login', 'ui/login'])
   redirectToLogin(@Req() req: Request, @Res() res: Response) {
-    const query = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+    const query = req.url.includes('?')
+      ? req.url.substring(req.url.indexOf('?'))
+      : '';
     return res.redirect(`/ui/sso${query}`);
   }
 
   @Get(['register', 'sso/register_page'])
   redirectToRegister(@Req() req: Request, @Res() res: Response) {
-    const query = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+    const query = req.url.includes('?')
+      ? req.url.substring(req.url.indexOf('?'))
+      : '';
     return res.redirect(`/ui/register${query}`);
   }
 
   @Get(['ui/sso', 'ui/admin', 'ui/register', 'ui/profile', 'ui/payment'])
   getReactApp(@Res() res: Response) {
-    try {
-      const reactIndex = join(__dirname, '..', 'admin-ui', 'dist', 'index.html');
-      if (existsSync(reactIndex)) {
-        const html = readFileSync(reactIndex, 'utf8');
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        return res.send(html);
-      }
-    } catch (e) {}
-    // Fallback to static HTML
-    const html = readFileSync(join(HTML_DIR, 'admin-page.html'), 'utf8');
+    const reactIndex = join(__dirname, '..', 'admin-ui', 'dist', 'index.html');
+    if (!existsSync(reactIndex)) {
+      return res.status(503).type('text/plain').send('Web UI is not built');
+    }
+
+    const html = readFileSync(reactIndex, 'utf8');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
+    return res.send(html);
   }
 
   @Get(['assets/:file', 'ui/assets/:file'])
   getReactAsset(@Param('file') file: string, @Res() res: Response) {
-    try {
-      const assetPath = join(__dirname, '..', 'admin-ui', 'dist', 'assets', file);
-      if (existsSync(assetPath)) {
-        if (file.endsWith('.js')) res.setHeader('Content-Type', 'application/javascript');
-        else if (file.endsWith('.css')) res.setHeader('Content-Type', 'text/css');
-        return res.sendFile(assetPath);
-      }
-    } catch (e) {}
+    const assetPath = join(__dirname, '..', 'admin-ui', 'dist', 'assets', file);
+    if (existsSync(assetPath)) {
+      if (file.endsWith('.js'))
+        res.setHeader('Content-Type', 'application/javascript');
+      else if (file.endsWith('.css')) res.setHeader('Content-Type', 'text/css');
+      return res.sendFile(assetPath);
+    }
     return res.status(404).send('Not found');
   }
 
@@ -78,10 +77,17 @@ export class AppController {
     }
   }
 
-  @Get(['vlnfi_sso_favicon_option_1.svg', 'vinfi_sso_favicon_option_1.svg', 'favicon.ico'])
+  @Get([
+    'vlnfi_sso_favicon_option_1.svg',
+    'vinfi_sso_favicon_option_1.svg',
+    'favicon.ico',
+  ])
   getFavicon(@Res() res: Response) {
     try {
-      const svg = readFileSync(join(HTML_DIR, 'vlnfi_sso_favicon_option_1.svg'), 'utf8');
+      const svg = readFileSync(
+        join(HTML_DIR, 'vlnfi_sso_favicon_option_1.svg'),
+        'utf8',
+      );
       res.setHeader('Content-Type', 'image/svg+xml');
       res.setHeader('Cache-Control', 'public, max-age=86400');
       res.send(svg);

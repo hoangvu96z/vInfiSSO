@@ -1,0 +1,228 @@
+import { UnauthorizedException } from '@nestjs/common';
+import type { Request, Response } from 'express';
+import { SsoController } from './sso.controller';
+
+describe('SsoController session response', () => {
+  it('does not return the raw bearer token from GET /sso/me', async () => {
+    const user = { id: 'user-1', email: 'member@example.test' };
+    const ssoService = {
+      resolveSession: jest.fn().mockResolvedValue(user),
+      sanitizeUser: jest.fn().mockReturnValue(user),
+    };
+    const controller = new SsoController(
+      ssoService as any,
+      { get: jest.fn() } as any,
+    );
+    const req = {
+      headers: { authorization: 'Bearer sensitive-session-token' },
+      socket: { remoteAddress: '127.0.0.1' },
+    } as unknown as Request;
+
+    const response = await controller.me(req);
+
+    expect(response).toEqual({ user });
+    expect(response).not.toHaveProperty('token');
+    expect(ssoService.resolveSession).toHaveBeenCalledWith(
+      'sensitive-session-token',
+    );
+  });
+
+  it('exchanges an allowed-origin single-use code into an SSO session', async () => {
+    const user = { id: 'user-1', email: 'member@example.test' };
+    const ssoService = {
+      consumeOAuthLoginCode: jest.fn().mockResolvedValue(user),
+      createSessionForUser: jest.fn().mockResolvedValue('new-session-token'),
+      sanitizeUser: jest.fn().mockReturnValue(user),
+    };
+    const configService = {
+      get: jest.fn((key: string, fallback: string) =>
+        key === 'ALLOWED_REDIRECT_ORIGINS'
+          ? 'https://app.example.test,http://localhost:5173'
+          : fallback,
+      ),
+    };
+    const controller = new SsoController(
+      ssoService as any,
+      configService as any,
+    );
+    const req = {
+      headers: { origin: 'http://localhost:5173' },
+    } as unknown as Request;
+    const cookie = jest.fn();
+    const response = { cookie } as unknown as Response;
+
+    const result = await controller.exchangeOAuthCode(
+      { code: 'one-time-code' },
+      req,
+      response,
+    );
+
+    expect(result).toEqual({ success: true, token: 'new-session-token', user });
+    expect(ssoService.consumeOAuthLoginCode).toHaveBeenCalledWith(
+      'one-time-code',
+      'http://localhost:5173',
+    );
+    expect(ssoService.createSessionForUser).toHaveBeenCalledWith(
+      'user-1',
+      'http://localhost:5173',
+    );
+    expect(cookie).toHaveBeenCalledWith(
+      'sso_token',
+      'new-session-token',
+      expect.objectContaining({ httpOnly: true }),
+    );
+  });
+
+  it('rejects code exchange when the Origin header is missing or not allowlisted', async () => {
+    const ssoService = { consumeOAuthLoginCode: jest.fn() };
+    const configService = {
+      get: jest.fn((_key: string, fallback: string) => fallback),
+    };
+    const controller = new SsoController(
+      ssoService as any,
+      configService as any,
+    );
+    const response = { cookie: jest.fn() } as unknown as Response;
+
+    await expect(
+      controller.exchangeOAuthCode(
+        { code: 'one-time-code' },
+        { headers: { origin: 'https://evil.example.test' } } as any,
+        response,
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ssoService.consumeOAuthLoginCode).not.toHaveBeenCalled();
+  });
+
+  it('rejects localhost exchange in production unless it is explicitly configured', async () => {
+    const ssoService = {
+      consumeOAuthLoginCode: jest.fn().mockResolvedValue({ id: 'user-1' }),
+      createSessionForUser: jest.fn().mockResolvedValue('session-token'),
+      sanitizeUser: jest.fn().mockReturnValue({ id: 'user-1' }),
+    };
+    const response = { cookie: jest.fn() } as unknown as Response;
+    const productionConfig = {
+      get: jest.fn((key: string) =>
+        key === 'NODE_ENV' ? 'production' : undefined,
+      ),
+    };
+    const productionController = new SsoController(
+      ssoService as any,
+      productionConfig as any,
+    );
+
+    await expect(
+      productionController.exchangeOAuthCode(
+        { code: 'one-time-code' },
+        { headers: { origin: 'http://localhost:5173' } } as unknown as Request,
+        response,
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ssoService.consumeOAuthLoginCode).not.toHaveBeenCalled();
+
+    const explicitlyConfiguredController = new SsoController(
+      ssoService as any,
+      {
+        get: jest.fn((key: string) => {
+          if (key === 'NODE_ENV') return 'production';
+          if (key === 'ALLOWED_REDIRECT_ORIGINS') {
+            return 'http://localhost:5173';
+          }
+          return undefined;
+        }),
+      } as any,
+    );
+    await expect(
+      explicitlyConfiguredController.exchangeOAuthCode(
+        { code: 'one-time-code' },
+        { headers: { origin: 'http://localhost:5173' } } as unknown as Request,
+        response,
+      ),
+    ).resolves.toEqual({
+      success: true,
+      token: 'session-token',
+      user: { id: 'user-1' },
+    });
+  });
+
+  it('does not issue a production OAuth redirect code for a default localhost target', async () => {
+    const ssoService = {
+      oauthLogin: jest
+        .fn()
+        .mockResolvedValue({ token: 'session-token', user: { id: 'user-1' } }),
+      createOAuthLoginCode: jest.fn(),
+    };
+    const controller = new SsoController(
+      ssoService as any,
+      {
+        get: jest.fn((key: string) => {
+          if (key === 'NODE_ENV') return 'production';
+          if (key === 'SSO_BASE_URL') return 'https://sso.vunph.click';
+          return undefined;
+        }),
+      } as any,
+    );
+    const req = {
+      user: { providerId: 'provider-user' },
+      query: { redirect: 'http://localhost:5173/callback' },
+      headers: {},
+      ip: '127.0.0.1',
+      socket: { remoteAddress: '127.0.0.1' },
+    } as unknown as Parameters<typeof controller.googleCallback>[0];
+    const redirect = jest.fn((location: string | URL) => location);
+    const response = { cookie: jest.fn(), redirect } as unknown as Response;
+
+    await controller.googleCallback(req, response);
+
+    expect(ssoService.createOAuthLoginCode).not.toHaveBeenCalled();
+    expect(redirect).toHaveBeenCalledWith('https://sso.vunph.click/ui/sso');
+  });
+
+  it('redirects OAuth callbacks with a one-time code instead of the bearer token', async () => {
+    const user = { id: 'user-1', email: 'member@example.test' };
+    const ssoService = {
+      oauthLogin: jest
+        .fn()
+        .mockResolvedValue({ token: 'raw-session-token', user }),
+      createOAuthLoginCode: jest.fn().mockResolvedValue('opaque-one-time-code'),
+    };
+    const configService = {
+      get: jest.fn((key: string, fallback: string) =>
+        key === 'ALLOWED_REDIRECT_ORIGINS'
+          ? 'https://app.example.test'
+          : fallback,
+      ),
+    };
+    const controller = new SsoController(
+      ssoService as any,
+      configService as any,
+    );
+    const req = {
+      user: { providerId: 'provider-user' },
+      query: {
+        redirect: 'https://app.example.test/callback?sso_token=old-value',
+      },
+      headers: {},
+      ip: '127.0.0.1',
+      socket: { remoteAddress: '127.0.0.1' },
+    } as unknown as Parameters<typeof controller.googleCallback>[0];
+    const redirect = jest.fn((location: string | URL) => location);
+    const response = {
+      cookie: jest.fn(),
+      redirect,
+    } as unknown as Response;
+
+    await controller.googleCallback(req, response);
+
+    expect(ssoService.createOAuthLoginCode).toHaveBeenCalledWith(
+      'user-1',
+      'https://app.example.test',
+    );
+    const redirectUrl = new URL(redirect.mock.calls[0][0]);
+    expect(redirectUrl.searchParams.get('sso_code')).toBe(
+      'opaque-one-time-code',
+    );
+    expect(redirectUrl.searchParams.has('sso_token')).toBe(false);
+    expect(redirect).toHaveBeenCalledTimes(1);
+  });
+});

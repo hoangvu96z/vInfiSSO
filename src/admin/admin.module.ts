@@ -7,7 +7,6 @@ import { Reading } from '../readings/reading.entity';
 import { AiUsage } from '../plans/ai-usage.entity';
 import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
-import { AdminGuard } from '../auth/admin.guard';
 import { SsoModule } from '../sso/sso.module';
 import { PlansModule } from '../plans/plans.module';
 
@@ -17,7 +16,7 @@ import { PlansModule } from '../plans/plans.module';
     SsoModule,
     PlansModule,
   ],
-  providers: [AdminService, AdminGuard],
+  providers: [AdminService],
   controllers: [AdminController],
   exports: [AdminService],
 })

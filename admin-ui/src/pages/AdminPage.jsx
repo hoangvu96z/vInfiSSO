@@ -20,7 +20,7 @@ import ContactMessagesView from '../components/admin/ContactMessagesView';
 
 // Utilities
 import { DEFAULT_TIMEZONE, TIMEZONE_OPTIONS, getTimezoneLabel } from '../utils/dateUtils';
-import { authFetch } from '../utils/api';
+import { authFetch, getResponseErrorMessage } from '../utils/api';
 
 const { Header, Sider, Content } = Layout;
 const { Title } = Typography;
@@ -64,10 +64,17 @@ export default function AdminPage({ user, onLogout }) {
   // Fetch initial unread count for sidebar badge
   useEffect(() => {
     async function fetchUnread() {
-      const res = await authFetch('/contact/admin/unread-count');
-      if (res) {
+      try {
+        const res = await authFetch('/contact/admin/unread-count');
+        if (!res) return;
+        if (!res.ok) {
+          message.error(await getResponseErrorMessage(res, 'Không thể tải số tin nhắn chưa đọc'));
+          return;
+        }
         const data = await res.json();
         setUnreadCount(data.count || 0);
+      } catch {
+        message.error('Không thể tải số tin nhắn chưa đọc. Vui lòng thử lại.');
       }
     }
     fetchUnread();

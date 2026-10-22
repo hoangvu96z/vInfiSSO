@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, Form, Input, Button, Tabs, Alert, notification, Typography, Tag, Avatar, Space } from 'antd';
-import { UserOutlined, LockOutlined, MailOutlined, SmileOutlined, CheckCircleOutlined, LogoutOutlined, CrownOutlined } from '@ant-design/icons';
+import { UserOutlined, LockOutlined, MailOutlined, SmileOutlined, LogoutOutlined, CrownOutlined } from '@ant-design/icons';
 
 const { Title, Text, Link } = Typography;
 
@@ -23,17 +23,50 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
   const initialTab = window.location.pathname.includes('register') ? 'register' : 'login';
   const [activeTab, setActiveTab] = useState(initialTab);
   const [loading, setLoading] = useState(false);
+  const [isRedirecting, setRedirecting] = useState(false);
   const [alertInfo, setAlertInfo] = useState(null);
   const [formLogin] = Form.useForm();
   const [formRegister] = Form.useForm();
   const [formForgot] = Form.useForm();
+  const redirectStartedRef = useRef(false);
+  const onLoginSuccessRef = useRef(onLoginSuccess);
+  onLoginSuccessRef.current = onLoginSuccess;
 
-  const setAuthToken = (token) => {
+  const setAuthToken = useCallback((token) => {
     if (token) localStorage.setItem('sso_token', token);
     else localStorage.removeItem('sso_token');
+  }, []);
+
+  const requestRedirectUrl = useCallback(async (redirectUri, token = localStorage.getItem('sso_token')) => {
+    const res = await fetch('/sso/issue-code', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: 'include',
+      body: JSON.stringify({ redirectUri }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.redirectUrl) {
+      throw new Error(data.message || 'Không thể tạo phiên đăng nhập an toàn.');
+    }
+    return data.redirectUrl;
+  }, []);
+
+  const navigateToApp = async (redirectUri) => {
+    setLoading(true);
+    setAlertInfo(null);
+    try {
+      window.location.href = await requestRedirectUrl(redirectUri);
+    } catch (error) {
+      setAlertInfo({ type: 'error', message: error.message || 'Không thể mở ứng dụng.' });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const getRedirectTargetUrl = () => {
+  const getRedirectTargetUrl = useCallback(() => {
     const queryParams = new URLSearchParams(window.location.search);
     let rawTarget =
       queryParams.get('redirect_uri') ||
@@ -50,7 +83,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
       if (rawTarget.includes('%3A') || rawTarget.includes('%2F')) {
         try {
           rawTarget = decodeURIComponent(rawTarget);
-        } catch (e) {}
+        } catch {}
       }
       const targetUrl = new URL(rawTarget.startsWith('http') ? rawTarget : `https://${rawTarget}`);
       return targetUrl;
@@ -58,11 +91,65 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
       console.error('Invalid redirect URL:', rawTarget, err);
       return null;
     }
-  };
+  }, []);
 
-  // 🔄 CASE B: Nếu user ĐÃ ĐĂNG NHẬP sẵn ở SSO & URL có redirect_uri -> Tự động quay lại App ngay lập tức!
+  // Exchange short-lived callback codes, and use a new code when returning to another app.
   useEffect(() => {
     const queryParams = new URLSearchParams(window.location.search);
+    const callbackCode = queryParams.get('sso_code');
+    if (callbackCode) {
+      queryParams.delete('sso_code');
+      queryParams.delete('sso_token');
+      const cleanSearch = queryParams.toString();
+      window.history.replaceState(
+        {},
+        '',
+        window.location.pathname + (cleanSearch ? `?${cleanSearch}` : '') + window.location.hash,
+      );
+      setRedirecting(true);
+      fetch('/sso/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ code: callbackCode }),
+      })
+        .then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.token || !data.user) {
+            throw new Error(data.message || 'Mã đăng nhập không hợp lệ hoặc đã hết hạn.');
+          }
+          setAuthToken(data.token);
+          const redirectTarget = getRedirectTargetUrl();
+          if (redirectTarget && redirectTarget.origin !== window.location.origin) {
+            window.location.href = await requestRedirectUrl(redirectTarget.toString(), data.token);
+            return;
+          }
+          if (redirectTarget && redirectTarget.pathname !== window.location.pathname) {
+            redirectTarget.searchParams.delete('sso_token');
+            redirectTarget.searchParams.delete('sso_code');
+            window.location.href = redirectTarget.toString();
+            return;
+          }
+          setRedirecting(false);
+          if (onLoginSuccessRef.current) onLoginSuccessRef.current(data.user);
+        })
+        .catch((error) => {
+          setRedirecting(false);
+          setAlertInfo({ type: 'error', message: error.message || 'Không thể hoàn tất đăng nhập.' });
+        });
+      return;
+    }
+
+    if (queryParams.has('sso_token')) {
+      queryParams.delete('sso_token');
+      const cleanSearch = queryParams.toString();
+      window.history.replaceState(
+        {},
+        '',
+        window.location.pathname + (cleanSearch ? `?${cleanSearch}` : '') + window.location.hash,
+      );
+    }
+
     const isLoggedOut = queryParams.get('logged_out') === 'true';
     const justLoggedOut = sessionStorage.getItem('just_logged_out') === '1';
 
@@ -83,15 +170,26 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
 
     // Only auto-redirect if user is authenticated AND there's a redirect target AND we didn't just log out
     const redirectTarget = getRedirectTargetUrl();
-    const token = localStorage.getItem('sso_token');
-    if (user && token && redirectTarget) {
-      redirectTarget.searchParams.set('sso_token', token);
-      console.log('User already authenticated at SSO. Auto-redirecting to:', redirectTarget.toString());
-      window.location.href = redirectTarget.toString();
+    if (user && redirectTarget && !redirectStartedRef.current) {
+      if (redirectTarget.origin === window.location.origin) {
+        redirectTarget.searchParams.delete('sso_token');
+        redirectTarget.searchParams.delete('sso_code');
+        if (redirectTarget.pathname === window.location.pathname) return;
+        window.location.href = redirectTarget.toString();
+        return;
+      }
+      redirectStartedRef.current = true;
+      setRedirecting(true);
+      requestRedirectUrl(redirectTarget.toString())
+        .then((url) => { window.location.href = url; })
+        .catch((error) => {
+          setRedirecting(false);
+          setAlertInfo({ type: 'error', message: error.message || 'Không thể quay lại ứng dụng.' });
+        });
     }
-  }, [user]);
+  }, [user, getRedirectTargetUrl, requestRedirectUrl, setAuthToken]);
 
-  // 🔄 CASE A: Khi user vừa đăng nhập thành công -> Tự động chuyển hướng về App kèm sso_token
+  // A login response keeps the bearer in localStorage and issues a short-lived code to another app.
   const handleLogin = async (values) => {
     setLoading(true);
     setAlertInfo(null);
@@ -113,9 +211,17 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
 
         const redirectTarget = getRedirectTargetUrl();
         if (redirectTarget) {
-          redirectTarget.searchParams.set('sso_token', data.token);
-          window.location.href = redirectTarget.toString();
-          return;
+          if (redirectTarget.origin === window.location.origin) {
+            redirectTarget.searchParams.delete('sso_token');
+            redirectTarget.searchParams.delete('sso_code');
+            if (redirectTarget.pathname !== window.location.pathname) {
+              window.location.href = redirectTarget.toString();
+              return;
+            }
+          } else {
+            window.location.href = await requestRedirectUrl(redirectTarget.toString(), data.token);
+            return;
+          }
         }
 
         if (data.user?.role === 'admin') {
@@ -222,6 +328,14 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
         {/* IF USER IS ALREADY LOGGED IN */}
         {user ? (
           <div style={{ textAlign: 'center', padding: '12px 0' }}>
+            {isRedirecting && (
+              <Alert
+                type="info"
+                showIcon
+                message="Đang hoàn tất đăng nhập an toàn..."
+                style={{ marginBottom: 16, textAlign: 'left' }}
+              />
+            )}
             <Avatar
               size={64}
               src={user.id ? `/sso/avatar/${user.id}` : undefined}
@@ -260,10 +374,8 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                 type="default"
                 block
                 style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
-                onClick={() => {
-                  const token = localStorage.getItem('sso_token');
-                  window.location.href = token ? `https://vunph.id.vn/kinhdich/?sso_token=${token}` : 'https://vunph.id.vn/kinhdich/';
-                }}
+                loading={loading}
+                onClick={() => navigateToApp('https://vunph.id.vn/kinhdich/')}
               >
                 ☯️ Đến IChingNow
               </Button>
@@ -271,10 +383,8 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                 type="default"
                 block
                 style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
-                onClick={() => {
-                  const token = localStorage.getItem('sso_token');
-                  window.location.href = token ? `https://vunph.id.vn/tarot/?sso_token=${token}` : 'https://vunph.id.vn/tarot/';
-                }}
+                loading={loading}
+                onClick={() => navigateToApp('https://vunph.id.vn/tarot/')}
               >
                 🃏 Đến TarotNow
               </Button>
@@ -282,10 +392,8 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                 type="default"
                 block
                 style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
-                onClick={() => {
-                  const token = localStorage.getItem('sso_token');
-                  window.location.href = token ? `https://vunph.id.vn/tuvi/?sso_token=${token}` : 'https://vunph.id.vn/tuvi/';
-                }}
+                loading={loading}
+                onClick={() => navigateToApp('https://vunph.id.vn/tuvi/')}
               >
                 🔮 Đến TuViNow
               </Button>
@@ -303,10 +411,8 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                 type="default"
                 block
                 style={{ height: 38, borderColor: 'rgba(16,185,129,0.4)', color: '#10b981' }}
-                onClick={() => {
-                  const token = localStorage.getItem('sso_token');
-                  window.location.href = token ? `https://vunph.id.vn/note/?sso_token=${token}` : 'https://vunph.id.vn/note/';
-                }}
+                loading={loading}
+                onClick={() => navigateToApp('https://vunph.id.vn/note/')}
               >
                 📝 Đến NoteNow (Ghi chú)
               </Button>

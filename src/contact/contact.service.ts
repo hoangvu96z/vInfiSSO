@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { ContactMessage, AttachedImage } from './contact-message.entity';
 import { MailService } from '../mail/mail.service';
 import { ConfigService } from '@nestjs/config';
 import { parseUserAgent, lookupIpLocation } from './device-detector.util';
+import * as crypto from 'node:crypto';
 
 @Injectable()
 export class ContactService {
@@ -16,6 +17,58 @@ export class ContactService {
     private readonly mailService: MailService,
     private readonly configService: ConfigService,
   ) {}
+
+  createGuestSessionToken(sessionId: string): string {
+    const expiresAt = Math.floor(Date.now() / 1000) + 90 * 24 * 60 * 60;
+    const signature = crypto
+      .createHmac('sha256', this.getGuestSessionSecret())
+      .update(`${sessionId}:${expiresAt}`)
+      .digest('base64url');
+    return `${expiresAt}.${signature}`;
+  }
+
+  isValidGuestSessionToken(
+    sessionId: string,
+    candidate: string | undefined,
+  ): boolean {
+    const match = candidate?.match(/^(\d{10,13})\.([A-Za-z0-9_-]{43})$/);
+    if (!match) return false;
+    const expiresAt = Number(match[1]);
+    const now = Math.floor(Date.now() / 1000);
+    if (
+      !Number.isSafeInteger(expiresAt) ||
+      expiresAt <= now ||
+      expiresAt > now + 90 * 24 * 60 * 60
+    )
+      return false;
+    const expected = Buffer.from(
+      crypto
+        .createHmac('sha256', this.getGuestSessionSecret())
+        .update(`${sessionId}:${expiresAt}`)
+        .digest('base64url'),
+    );
+    const actual = Buffer.from(match[2]);
+    return (
+      expected.length === actual.length &&
+      crypto.timingSafeEqual(expected, actual)
+    );
+  }
+
+  async hasMessagesBySession(sessionId: string): Promise<boolean> {
+    return (await this.messageRepo.count({ where: { sessionId } })) > 0;
+  }
+
+  private getGuestSessionSecret(): string {
+    const secret =
+      this.configService.get<string>('CONTACT_SESSION_SECRET') ||
+      this.configService.get<string>('SESSION_SECRET') ||
+      this.configService.get<string>('JWT_SECRET');
+    if (!secret || secret.length < 32)
+      throw new Error(
+        'A 32-character contact session signing secret is required',
+      );
+    return secret;
+  }
 
   /**
    * Create a new contact message and send email notification to admin.
@@ -33,7 +86,10 @@ export class ContactService {
     userAgent?: string | null;
     clientMeta?: Record<string, any> | null;
   }): Promise<ContactMessage> {
-    const { device, browser, os } = parseUserAgent(dto.userAgent || '', dto.clientMeta || undefined);
+    const { device, browser, os } = parseUserAgent(
+      dto.userAgent || '',
+      dto.clientMeta || undefined,
+    );
     const geo = await lookupIpLocation(dto.senderIp);
 
     const metadata = {
@@ -52,12 +108,13 @@ export class ContactService {
         ...img,
         data: (img.data || '').replace(/^data:image\/[a-zA-Z+]+;base64,/, ''),
       }));
-      primaryImageData = images[0]?.data || null;
       primaryImageMime = images[0]?.mime || null;
     } else if (dto.imageData) {
-      primaryImageData = dto.imageData.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
+      primaryImageData = dto.imageData.replace(
+        /^data:image\/[a-zA-Z+]+;base64,/,
+        '',
+      );
       primaryImageMime = dto.imageMime || 'image/jpeg';
-      images = [{ data: primaryImageData, mime: primaryImageMime }];
     }
 
     const msg = this.messageRepo.create({
@@ -79,11 +136,15 @@ export class ContactService {
     });
 
     const saved = await this.messageRepo.save(msg);
-    this.logger.log(`New contact message from ${dto.name} (${device}, ${geo?.location || 'IP: ' + dto.senderIp}) with ${images ? images.length : 0} image(s)`);
+    this.logger.log(
+      `New contact message from ${dto.name} (${device}, ${geo?.location || 'IP: ' + dto.senderIp}) with ${images?.length || (primaryImageData ? 1 : 0)} image(s)`,
+    );
 
     // Send email notification (fire-and-forget)
-    this.sendNotificationEmail(saved).catch((err) => {
-      this.logger.error(`Failed to send notification email: ${err.message}`);
+    this.sendNotificationEmail(saved).catch((err: unknown) => {
+      const errorMessage =
+        err instanceof Error ? err.message : 'Unknown notification error';
+      this.logger.error(`Failed to send notification email: ${errorMessage}`);
     });
 
     return saved;
@@ -92,12 +153,53 @@ export class ContactService {
   /**
    * Get all messages (admin only).
    */
-  async getAllMessages(page = 1, limit = 50): Promise<{ messages: ContactMessage[]; total: number }> {
-    const [messages, total] = await this.messageRepo.findAndCount({
-      order: { createdAt: 'DESC' },
-      take: limit,
-      skip: (page - 1) * limit,
-    });
+  async getAllMessages(
+    page = 1,
+    limit = 50,
+    filters: {
+      search?: string;
+      status?: string;
+      dateFrom?: string;
+      dateTo?: string;
+    } = {},
+  ): Promise<{ messages: ContactMessage[]; total: number }> {
+    const safePage = Math.max(1, page);
+    const safeLimit = Math.min(100, Math.max(1, limit));
+    const start = filters.dateFrom ? new Date(filters.dateFrom) : undefined;
+    const end = filters.dateTo ? new Date(filters.dateTo) : undefined;
+    if (
+      (start && Number.isNaN(start.getTime())) ||
+      (end && Number.isNaN(end.getTime())) ||
+      (start && end && start > end)
+    ) {
+      throw new BadRequestException('Invalid contact message date range');
+    }
+
+    const query = this.messageRepo
+      .createQueryBuilder('message')
+      .orderBy('message.createdAt', 'DESC');
+
+    if (filters.status === 'read' || filters.status === 'unread') {
+      query.andWhere('message.isRead = :isRead', {
+        isRead: filters.status === 'read',
+      });
+    }
+
+    if (filters.search?.trim()) {
+      const search = `%${filters.search.trim().toLowerCase()}%`;
+      query.andWhere(
+        '(LOWER(message.name) LIKE :search OR LOWER(message.email) LIKE :search OR LOWER(message.title) LIKE :search OR LOWER(message.message) LIKE :search OR LOWER(message.device) LIKE :search OR LOWER(message.location) LIKE :search)',
+        { search },
+      );
+    }
+
+    if (start) query.andWhere('message.createdAt >= :dateFrom', { dateFrom: start });
+    if (end) query.andWhere('message.createdAt < :dateTo', { dateTo: end });
+
+    const [messages, total] = await query
+      .skip((safePage - 1) * safeLimit)
+      .take(safeLimit)
+      .getManyAndCount();
     return { messages, total };
   }
 
@@ -166,36 +268,50 @@ export class ContactService {
    * Send email notification to admin about a new message.
    */
   private async sendNotificationEmail(msg: ContactMessage): Promise<void> {
-    const adminEmail = this.configService.get<string>('CONTACT_NOTIFY_EMAIL', 'hoangvu96z@gmail.com');
+    const adminEmail = this.configService.get<string>(
+      'CONTACT_NOTIFY_EMAIL',
+      'hoangvu96z@gmail.com',
+    );
     const fromAddress =
       this.configService.get<string>('SMTP_FROM') ||
-      this.configService.get<string>('MAIL_FROM', '"TalkWithMe" <noreply@vunph.click>');
+      this.configService.get<string>(
+        'MAIL_FROM',
+        '"TalkWithMe" <noreply@vunph.click>',
+      );
 
-    const ssoBase = this.configService.get<string>('SSO_BASE_URL', 'https://sso.vunph.click');
+    const ssoBase = this.configService.get<string>(
+      'SSO_BASE_URL',
+      'https://sso.vunph.click',
+    );
     const dashLink = `${ssoBase}/ui/admin#contact`;
 
     const attachments: any[] = [];
     let imageSection = '';
 
-    const imagesToAttach = msg.images && msg.images.length > 0
-      ? msg.images
-      : (msg.imageData ? [{ data: msg.imageData, mime: msg.imageMime || 'image/jpeg' }] : []);
+    const imagesToAttach =
+      msg.images && msg.images.length > 0
+        ? msg.images
+        : msg.imageData
+          ? [{ data: msg.imageData, mime: msg.imageMime || 'image/jpeg' }]
+          : [];
 
     if (imagesToAttach.length > 0) {
-      const imgTags = imagesToAttach.map((img, idx) => {
-        const ext = (img.mime?.split('/')[1] || 'png').replace('jpeg', 'jpg');
-        const cid = `attached_image_${idx}`;
-        attachments.push({
-          filename: `image_${msg.sessionId?.substring(0, 8) || 'attach'}_${idx + 1}.${ext}`,
-          content: Buffer.from(img.data, 'base64'),
-          contentType: img.mime || 'image/jpeg',
-          cid,
-        });
-        return `<div style="display: inline-block; margin: 6px; text-align: center;">
+      const imgTags = imagesToAttach
+        .map((img, idx) => {
+          const ext = (img.mime?.split('/')[1] || 'png').replace('jpeg', 'jpg');
+          const cid = `attached_image_${idx}`;
+          attachments.push({
+            filename: `image_${msg.sessionId?.substring(0, 8) || 'attach'}_${idx + 1}.${ext}`,
+            content: Buffer.from(img.data, 'base64'),
+            contentType: img.mime || 'image/jpeg',
+            cid,
+          });
+          return `<div style="display: inline-block; margin: 6px; text-align: center;">
           <img src="cid:${cid}" alt="Ảnh ${idx + 1}" style="max-width: 100%; max-height: 380px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);" />
           ${img.width && img.height ? `<div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">720p (${img.width}x${img.height})</div>` : ''}
         </div>`;
-      }).join('');
+        })
+        .join('');
 
       imageSection = `
         <div style="margin-top: 24px; padding: 16px; background: rgba(6, 182, 212, 0.06); border: 1px solid rgba(6, 182, 212, 0.25); border-radius: 12px;">
@@ -213,7 +329,11 @@ export class ContactService {
       timeStyle: 'medium',
     });
 
-    const subjectPreview = msg.title || (msg.message.length > 50 ? msg.message.substring(0, 50) + '…' : msg.message);
+    const subjectPreview =
+      msg.title ||
+      (msg.message.length > 50
+        ? msg.message.substring(0, 50) + '…'
+        : msg.message);
 
     const htmlContent = `
     <!DOCTYPE html>
@@ -280,11 +400,15 @@ export class ContactService {
               ${msg.isp ? `<span style="font-size: 12px; color: #94a3b8; font-weight: normal; margin-left: 6px;">(Mạng: ${msg.isp})</span>` : ''}
             </td>
           </tr>
-          ${msg.metadata?.timezone || msg.metadata?.language ? `
+          ${
+            msg.metadata?.timezone || msg.metadata?.language
+              ? `
           <tr>
             <td class="label">⏰ Múi giờ / Lang:</td>
             <td class="value"><span class="code">${msg.metadata?.timezone || 'N/A'}</span> · <span class="code">${msg.metadata?.language || 'N/A'}</span></td>
-          </tr>` : ''}
+          </tr>`
+              : ''
+          }
           <tr>
             <td class="label">🌐 Địa chỉ IP:</td>
             <td class="value"><span class="code">${msg.senderIp || 'N/A'}</span></td>
@@ -324,6 +448,8 @@ export class ContactService {
       attachments,
     });
 
-    this.logger.log(`Notification email sent to ${adminEmail} (replyTo: ${msg.email || 'none'})`);
+    this.logger.log(
+      `Notification email sent to ${adminEmail} (replyTo: ${msg.email || 'none'})`,
+    );
   }
 }

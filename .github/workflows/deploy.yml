@@ -17,22 +17,49 @@ jobs:
         uses: actions/checkout@v4
 
       # ── 2. Node.js setup ────────────────────────────────────────────────────
-      - name: Setup Node.js 20
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       # ── 3. Install & Build ───────────────────────────────────────────────────
       - name: Install dependencies
         run: |
           npm ci
-          cd admin-ui && npm install && cd ..
+          npm ci --prefix admin-ui
 
       - name: Build NestJS & Admin UI
         run: npm run build
         env:
           NODE_ENV: production
+
+      # Check the runtime used by the existing app before copying any artifacts.
+      - name: Preflight VPS Node.js runtime
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST || '43.128.116.69' }}
+          username: ${{ secrets.SSH_USER || 'ubuntu' }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -eu
+            NODE_BIN="$(command -v node || true)"
+            APP_PID="$(pm2 pid vinfi-sso 2>/dev/null | head -n 1 || true)"
+            if [ -n "$APP_PID" ] && [ -x "/proc/$APP_PID/exe" ]; then
+              NODE_BIN="$(readlink -f "/proc/$APP_PID/exe")"
+            fi
+            if [ -z "$NODE_BIN" ]; then
+              echo "Preflight failed: Node.js is not available on the VPS."
+              exit 1
+            fi
+            NODE_VERSION="$("$NODE_BIN" -p 'process.versions.node')"
+            if ! "$NODE_BIN" -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 22 || (major === 22 && minor < 13)) process.exit(1)'; then
+              echo "Preflight failed: vInfiSSO requires Node.js >= 22.13.0; VPS has $NODE_VERSION."
+              exit 1
+            fi
+            echo "Preflight passed: VPS app runtime is Node.js $NODE_VERSION."
 
       # ── 4. Upload dist & admin-ui/dist lên server qua SSH/SCP ───────────────
       - name: Copy build artifacts to VPS server
@@ -43,8 +70,8 @@ jobs:
           password: ${{ secrets.SSH_PASSWORD }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
-          source: "dist/**,admin-ui/dist/**,package.json,package-lock.json"
-          target: "/var/www/sso.vunph.click"
+          source: 'dist/**,admin-ui/dist/**,package.json,package-lock.json'
+          target: '/var/www/sso.vunph.click'
 
       # ── 5. Restart PM2 Service ──────────────────────────────────────────────
       - name: Restart PM2 on VPS

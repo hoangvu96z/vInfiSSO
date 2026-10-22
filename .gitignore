@@ -1,6 +1,7 @@
 node_modules
 dist
 .env
+.env.production
 # .env.example được commit (template không có credentials)
 coverage
 *.log

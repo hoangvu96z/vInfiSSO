@@ -148,12 +148,10 @@ export class SsoService {
         action: 'logout',
         app: 'sso',
       });
-      // Xóa TẤT CẢ sessions của user để đảm bảo logout toàn bộ app (global SSO logout)
-      await this.usersService.deleteAllSessionsForUser(user.id);
-    } else {
-      // Nếu không tìm thấy user, vẫn xóa session theo token này
-      await this.usersService.deleteSessionByToken(rawToken);
     }
+    // A logout request revokes only the credential it presented; other devices
+    // and apps retain their independent SSO sessions.
+    await this.usersService.deleteSessionByToken(rawToken);
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -190,8 +188,23 @@ export class SsoService {
     return this.usersService.resetPassword(token, newPassword);
   }
 
-  async createSessionForUser(userId: string): Promise<string> {
-    return this.usersService.createSession(userId);
+  async createSessionForUser(
+    userId: string,
+    appOrigin?: string,
+  ): Promise<string> {
+    return this.usersService.createSession(userId, appOrigin);
+  }
+
+  async createOAuthLoginCode(
+    userId: string,
+    appOrigin: string,
+  ): Promise<string> {
+    // Store only a hash in the existing session table: no schema change needed.
+    return this.usersService.createSession(userId, appOrigin, 60_000);
+  }
+
+  async consumeOAuthLoginCode(code: string, appOrigin: string): Promise<User> {
+    return this.usersService.consumeOAuthLoginCode(code, appOrigin);
   }
 
   // ─── Profile ───────────────────────────────────────────────────────────
@@ -216,12 +229,12 @@ export class SsoService {
     return this.sanitizeUser(user);
   }
 
-  async updateAvatar(
-    userId: string,
-    buffer: Buffer,
-    contentType: string,
-  ) {
-    const user = await this.usersService.updateAvatar(userId, buffer, contentType);
+  async updateAvatar(userId: string, buffer: Buffer, contentType: string) {
+    const user = await this.usersService.updateAvatar(
+      userId,
+      buffer,
+      contentType,
+    );
 
     await this.auditLogRepo.save({
       userId: user.id,

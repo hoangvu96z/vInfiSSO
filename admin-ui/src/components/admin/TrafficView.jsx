@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Card, Row, Col, Space, Button, Typography, Tag, Select, Input,
-  Progress, Statistic, Popconfirm, message
+  Progress, Statistic, message
 } from 'antd';
 import { ReloadOutlined, DeleteOutlined } from '@ant-design/icons';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import ModernDataTable from '../ModernDataTable';
-import { authFetch, safeArr } from '../../utils/api';
+import { authFetch, getResponseErrorMessage, safeArr } from '../../utils/api';
 import { formatTimeWithZone, getTimezoneLabel } from '../../utils/dateUtils';
+import ConfirmActionButton from './ConfirmActionButton';
+import { downloadCsv } from '../../utils/csv';
 
 const { Text } = Typography;
 const { Option } = Select;
@@ -27,20 +29,29 @@ export default function TrafficView({ isDarkMode, timezone, isMobile }) {
 
   const loadTraffic = useCallback(async () => {
     setTrafficLoading(true);
-    const [resStats, resLogs] = await Promise.all([
-      authFetch(`/analytics/admin/stats?days=${trafficDays}&app=${trafficApp}`),
-      authFetch(`/analytics/admin/logs?page=${trafficPage}&limit=20&app=${trafficApp}&search=${encodeURIComponent(trafficSearch || '')}`),
-    ]);
-    if (resStats) {
-      const data = await resStats.json();
-      setTrafficStats(data);
+    try {
+      const [resStats, resLogs] = await Promise.all([
+        authFetch(`/analytics/admin/stats?days=${trafficDays}&app=${trafficApp}`),
+        authFetch(`/analytics/admin/logs?page=${trafficPage}&limit=20&app=${trafficApp}&search=${encodeURIComponent(trafficSearch || '')}&days=${trafficDays}`),
+      ]);
+      if (resStats?.ok) {
+        const data = await resStats.json();
+        setTrafficStats(data);
+      } else if (resStats) {
+        message.error(await getResponseErrorMessage(resStats, 'Không thể tải thống kê truy cập'));
+      }
+      if (resLogs?.ok) {
+        const data = await resLogs.json();
+        setTrafficLogs(data.logs || []);
+        setTrafficTotal(data.total || 0);
+      } else if (resLogs) {
+        message.error(await getResponseErrorMessage(resLogs, 'Không thể tải danh sách lượt truy cập'));
+      }
+    } catch {
+      message.error('Không thể tải dữ liệu truy cập. Vui lòng thử lại.');
+    } finally {
+      setTrafficLoading(false);
     }
-    if (resLogs) {
-      const data = await resLogs.json();
-      setTrafficLogs(data.logs || []);
-      setTrafficTotal(data.total || 0);
-    }
-    setTrafficLoading(false);
   }, [trafficDays, trafficApp, trafficPage, trafficSearch]);
 
   useEffect(() => {
@@ -49,18 +60,23 @@ export default function TrafficView({ isDarkMode, timezone, isMobile }) {
 
   const handleBatchDeleteTrafficLogs = useCallback(async (ids) => {
     if (!ids || ids.length === 0) return;
-    const res = await authFetch('/analytics/admin/logs/batch-delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
-    });
-    if (res && res.ok) {
-      message.info(`Đã xóa ${ids.length} bản ghi truy cập! 🗑️`);
+    try {
+      const res = await authFetch('/analytics/admin/logs/batch-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể xóa bản ghi truy cập'));
+        return;
+      }
+      message.success(`Đã xóa ${ids.length} bản ghi truy cập! 🗑️`);
       setClearTrafficSelected((prev) => !prev);
       setSelectedTrafficRows([]);
       loadTraffic();
-    } else {
-      message.error('Lỗi khi xóa bản ghi truy cập');
+    } catch {
+      message.error('Không thể xóa bản ghi truy cập. Vui lòng thử lại.');
     }
   }, [loadTraffic]);
 
@@ -197,14 +213,16 @@ export default function TrafficView({ isDarkMode, timezone, isMobile }) {
       name: 'Thao tác',
       width: '80px',
       cell: (r) => (
-        <Popconfirm
+        <ConfirmActionButton
           title="Xóa bản ghi này?"
+          description="Bản ghi truy cập này sẽ bị xóa vĩnh viễn."
           onConfirm={() => handleBatchDeleteTrafficLogs([r.id])}
-          okText="Xóa"
+          confirmText="Xóa"
           cancelText="Hủy"
+          buttonProps={{ size: 'small', danger: true, icon: <DeleteOutlined /> }}
         >
-          <Button size="small" danger icon={<DeleteOutlined />} />
-        </Popconfirm>
+          Xóa
+        </ConfirmActionButton>
       ),
     },
   ], [timezone, handleBatchDeleteTrafficLogs]);
@@ -213,16 +231,17 @@ export default function TrafficView({ isDarkMode, timezone, isMobile }) {
     const ids = selectedTrafficRows.map((r) => r.id);
     const count = ids.length;
     return (
-      <Popconfirm
+      <ConfirmActionButton
         title={`Xóa vĩnh viễn ${count} bản ghi truy cập đã chọn?`}
+        description="Các bản ghi đã chọn sẽ bị xóa vĩnh viễn."
         onConfirm={() => handleBatchDeleteTrafficLogs(ids)}
-        okText="Xóa"
+        confirmText="Xóa"
         cancelText="Hủy"
+        buttonProps={{ danger: true, icon: <DeleteOutlined />, size: 'small' }}
+        disabled={!count}
       >
-        <Button danger icon={<DeleteOutlined />} size="small">
-          Xóa {count} đã chọn
-        </Button>
-      </Popconfirm>
+        Xóa {count} đã chọn
+      </ConfirmActionButton>
     );
   }, [selectedTrafficRows, handleBatchDeleteTrafficLogs]);
 
@@ -246,14 +265,16 @@ export default function TrafficView({ isDarkMode, timezone, isMobile }) {
             </span>
           </div>
           <div onClick={(e) => e.stopPropagation()}>
-            <Popconfirm
+            <ConfirmActionButton
               title="Xóa bản ghi này?"
+              description="Bản ghi truy cập này sẽ bị xóa vĩnh viễn."
               onConfirm={() => handleBatchDeleteTrafficLogs([r.id])}
-              okText="Xóa"
+              confirmText="Xóa"
               cancelText="Hủy"
+              buttonProps={{ size: 'small', danger: true, icon: <DeleteOutlined />, type: 'text' }}
             >
-              <Button size="small" danger icon={<DeleteOutlined />} type="text" />
-            </Popconfirm>
+              Xóa
+            </ConfirmActionButton>
           </div>
         </div>
 
@@ -536,9 +557,24 @@ export default function TrafficView({ isDarkMode, timezone, isMobile }) {
             <Input.Search
               placeholder="Tìm IP, vị trí..."
               allowClear
+              value={trafficSearch}
               onSearch={(val) => { setTrafficSearch(val); setTrafficPage(1); }}
+              onChange={(event) => { setTrafficSearch(event.target.value); setTrafficPage(1); }}
               style={{ width: isMobile ? 180 : 280 }}
             />
+            <Button
+              disabled={!trafficLogs.length}
+              onClick={() => downloadCsv(trafficLogs, [
+                { label: 'Thời gian', value: (log) => log.createdAt },
+                { label: 'Ứng dụng', value: (log) => log.app },
+                { label: 'IP', value: (log) => log.ipAddress },
+                { label: 'Địa điểm', value: (log) => log.location },
+                { label: 'Thiết bị', value: (log) => log.device },
+                { label: 'Trình duyệt', value: (log) => log.browser },
+                { label: 'Đường dẫn', value: (log) => log.path },
+                { label: 'Nguồn', value: (log) => log.referrer },
+              ], `traffic-logs-page-${trafficPage}`)}
+            >Xuất CSV trang này</Button>
             <Button icon={<ReloadOutlined />} onClick={loadTraffic} title="Làm mới">
               {!isMobile && 'Làm mới'}
             </Button>
@@ -559,6 +595,7 @@ export default function TrafficView({ isDarkMode, timezone, isMobile }) {
           paginationTotalRows={trafficTotal}
           paginationPerPage={20}
           paginationRowsPerPageOptions={[20]}
+          paginationPage={trafficPage}
           onChangePage={(page) => setTrafficPage(page)}
           renderMobileCard={renderTrafficMobileCard}
         />

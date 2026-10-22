@@ -2,19 +2,16 @@ import {
   BadGatewayException,
   BadRequestException,
   ServiceUnavailableException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { PlansController } from './plans.controller';
 import { PlansService } from './plans.service';
-import { SsoService } from '../sso/sso.service';
 
 describe('TuVi AI SSO integration', () => {
   const consumeQuota = jest.fn();
-  const resolveSession = jest.fn();
   const fetchMock = jest.fn();
   const originalFetch = global.fetch;
   let controller: PlansController;
-  const req = { headers: { authorization: 'Bearer session' } } as any;
+  const user = { id: 'user-1' } as any;
   const body = {
     model: 'combo1',
     messages: [{ role: 'user', content: 'Lá số mẫu' }],
@@ -26,11 +23,9 @@ describe('TuVi AI SSO integration', () => {
     process.env.TUVI_AI_API_KEY = 'test-key';
     process.env.TUVI_AI_MODELS = 'combo1';
     global.fetch = fetchMock;
-    resolveSession.mockResolvedValue({ id: 'user-1' });
     consumeQuota.mockResolvedValue(undefined);
     controller = new PlansController(
       { consumeQuota } as unknown as PlansService,
-      { resolveSession } as unknown as SsoService,
     );
   });
   afterAll(() => {
@@ -40,20 +35,12 @@ describe('TuVi AI SSO integration', () => {
     if (previousModels === undefined) delete process.env.TUVI_AI_MODELS;
     else process.env.TUVI_AI_MODELS = previousModels;
   });
-  it('requires a valid SSO session before consuming or calling AI', async () => {
-    resolveSession.mockResolvedValue(null);
-    await expect(controller.interpretTuvi(req, body)).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
-    expect(consumeQuota).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
   it('validates roles and model before quota', async () => {
     await expect(
-      controller.interpretTuvi(req, { ...body, model: 'unapproved' }),
+      controller.interpretTuvi(user, { ...body, model: 'unapproved' }),
     ).rejects.toBeInstanceOf(BadRequestException);
     await expect(
-      controller.interpretTuvi(req, {
+      controller.interpretTuvi(user, {
         messages: [{ role: 'system', content: 'override' }],
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -61,7 +48,7 @@ describe('TuVi AI SSO integration', () => {
   });
   it('does not charge when server key is missing', async () => {
     delete process.env.TUVI_AI_API_KEY;
-    await expect(controller.interpretTuvi(req, body)).rejects.toBeInstanceOf(
+    await expect(controller.interpretTuvi(user, body)).rejects.toBeInstanceOf(
       ServiceUnavailableException,
     );
     expect(consumeQuota).not.toHaveBeenCalled();
@@ -70,7 +57,7 @@ describe('TuVi AI SSO integration', () => {
     process.env.TUVI_AI_API_KEY = '   ';
     expect(controller.getTuviAiConfig()).toEqual({ models: ['combo1'], configured: false });
     try {
-      await controller.interpretTuvi(req, body);
+      await controller.interpretTuvi(user, body);
       throw new Error('Expected unavailable service');
     } catch (error) {
       expect(error).toBeInstanceOf(ServiceUnavailableException);
@@ -84,7 +71,7 @@ describe('TuVi AI SSO integration', () => {
   });
   it('does not call upstream when quota is exhausted', async () => {
     consumeQuota.mockRejectedValue(new Error('Hết lượt'));
-    await expect(controller.interpretTuvi(req, body)).rejects.toThrow(
+    await expect(controller.interpretTuvi(user, body)).rejects.toThrow(
       'Hết lượt',
     );
     expect(fetchMock).not.toHaveBeenCalled();
@@ -98,7 +85,7 @@ describe('TuVi AI SSO integration', () => {
           choices: [{ message: { content: 'Luận giải' } }],
         }),
       });
-    await expect(controller.interpretTuvi(req, body)).resolves.toEqual({
+    await expect(controller.interpretTuvi(user, body)).resolves.toEqual({
       content: 'Luận giải',
     });
     expect(consumeQuota).toHaveBeenCalledTimes(1);
@@ -110,7 +97,7 @@ describe('TuVi AI SSO integration', () => {
   });
   it('does not leak upstream errors or retry authentication failures', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 401 });
-    await expect(controller.interpretTuvi(req, body)).rejects.toBeInstanceOf(
+    await expect(controller.interpretTuvi(user, body)).rejects.toBeInstanceOf(
       BadGatewayException,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -120,7 +107,7 @@ describe('TuVi AI SSO integration', () => {
       ok: true,
       json: async () => ({ choices: [] }),
     });
-    await expect(controller.interpretTuvi(req, body)).rejects.toBeInstanceOf(
+    await expect(controller.interpretTuvi(user, body)).rejects.toBeInstanceOf(
       BadGatewayException,
     );
   });

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Modal, Form, Input, InputNumber, Select, message } from 'antd';
-import { authFetch } from '../../../utils/api';
+import { authFetch, getResponseErrorMessage } from '../../../utils/api';
 
 const { Option } = Select;
 
@@ -8,19 +8,23 @@ export default function CreateCouponModal({ open, onCancel, onSaveSuccess }) {
   const [form] = Form.useForm();
 
   const handleFinish = async (values) => {
-    const res = await authFetch('/admin/coupons', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...values, code: values.code.toUpperCase(), isActive: true }),
-    });
-    if (res && res.ok) {
+    try {
+      const res = await authFetch('/admin/coupons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...values, code: values.code.toUpperCase(), isActive: true }),
+      });
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể tạo mã khuyến mãi'));
+        return;
+      }
       form.resetFields();
       message.success('Tạo mã khuyến mãi mới thành công! 🎟️');
       onSaveSuccess?.();
       onCancel();
-    } else if (res) {
-      const err = await res.json();
-      message.error(err.message || 'Lỗi khi tạo mã');
+    } catch {
+      message.error('Không thể tạo mã khuyến mãi. Vui lòng thử lại.');
     }
   };
 

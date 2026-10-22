@@ -14,9 +14,10 @@
 # Update system
 sudo apt update && sudo apt upgrade -y
 
-# Install Node.js (v18 or higher recommended)
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+# Install Node.js 22.13 or later
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install nodejs -y
+node --version # Must be v22.13.0 or later
 
 # Install PostgreSQL
 sudo apt install postgresql postgresql-contrib -y
@@ -131,6 +132,13 @@ JWT_SECRET=generate-random-string-min-32-chars-use-openssl-rand-hex-16
 JWT_EXPIRES_IN=7d
 SESSION_SECRET=another-random-string-min-32-chars
 
+# ─── Reading encryption (required before startup in every environment) ─────
+# Generate a unique 32-byte key with: openssl rand -base64 32
+# Replace this placeholder with the generated value in the server-only .env.
+# Multiple keys use comma-separated keyId:base64 pairs for rotation.
+DATA_ENCRYPTION_KEYS=k1:<base64-encoded-32-byte-key>
+DATA_ENCRYPTION_ACTIVE_KEY_ID=k1
+
 # ─── OAuth ──────────────────────────────
 GOOGLE_CLIENT_ID=your-google-id
 GOOGLE_CLIENT_SECRET=your-google-secret
@@ -158,7 +166,9 @@ TALKWITHME_URL=https://vunph.click/talkwithme
 CONTACT_NOTIFY_EMAIL=admin@vunph.id.vn
 
 # ─── CORS ──────────────────────────────
-ALLOWED_ORIGINS=https://vunph.click,https://www.vunph.click
+ALLOWED_ORIGINS=https://vunph.id.vn,https://www.vunph.id.vn,https://vunph.click,https://www.vunph.click
+ALLOWED_REDIRECT_ORIGINS=https://vunph.id.vn,https://www.vunph.id.vn
+TRUST_PROXY=loopback
 ```
 
 ### 4. Generate Secure Random Values
@@ -166,7 +176,72 @@ ALLOWED_ORIGINS=https://vunph.click,https://www.vunph.click
 # Generate JWT_SECRET and SESSION_SECRET
 openssl rand -hex 32
 openssl rand -hex 32
+
+# Generate one 32-byte reading encryption key on a trusted machine.
+# Paste it directly into the server-only .env; do not commit or share it.
+openssl rand -base64 32
 ```
+
+### 5. Configure and Rotate the Reading Encryption Key
+
+The service refuses to start in every environment if `DATA_ENCRYPTION_KEYS` or
+`DATA_ENCRYPTION_ACTIVE_KEY_ID` is missing, malformed, or points to an unknown key.
+Keep the production `.env` outside the repository, restrict it to the service
+account (mode `0600`), and store a separate protected copy of each key in the
+organization's secret manager and offline recovery location. Do not put generated
+key values in this guide, source control, chat, or deployment logs.
+
+Configuration steps:
+
+1. On a trusted machine, run the key-generation command above and place the value
+   directly in the organization's password manager or secret manager.
+2. Edit the existing server-only file and add the two variables shown below:
+   `sudoedit /opt/vinfisso/.env`.
+3. Ensure the file is owned by the account that runs PM2 and is owner-readable
+   only. Replace the placeholders below with that account and group:
+
+   ```bash
+   sudo chown <pm2-runtime-user>:<pm2-runtime-group> /opt/vinfisso/.env
+   sudo chmod 600 /opt/vinfisso/.env
+   pm2 restart vinfisso
+   ```
+
+4. Keep a separately protected key copy for recovery. Production startup validates
+   the keyring and will refuse to start until the real values are configured.
+
+Use this format in the server-only `.env`:
+
+```env
+DATA_ENCRYPTION_KEYS=k1:<base64-encoded-32-byte-key>
+DATA_ENCRYPTION_ACTIVE_KEY_ID=k1
+```
+
+The active ID selects the key for new records. To rotate, first add the new key
+without removing old IDs, then make it active, restart the service, and re-encrypt
+existing records. Remove an old ID only after re-encryption is verified and no
+records refer to it. Keep all retained key values backed up securely; losing a
+key makes readings encrypted with that ID unrecoverable.
+
+Before applying a migration, verify a recent database backup and secure backups
+of the encryption keyring. The migration prints counts only and processes at most
+200 records per batch. It defaults to dry-run and does not alter records unless
+`--apply` is supplied:
+
+```bash
+cd /opt/vinfisso
+npm run encrypt:readings -- --dry-run
+npm run encrypt:readings -- --apply
+```
+
+For a key rotation, re-encrypt v2 records under the configured active key:
+
+```bash
+npm run encrypt:readings -- --apply --reencrypt
+```
+
+Do not run the apply commands until the database backup and key recovery copies
+have been verified. These commands are documented only; this change does not run
+the migration.
 
 ---
 

@@ -1,8 +1,27 @@
-import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import { Reading } from './reading.entity';
 import { AuditLog } from '../users/audit-log.entity';
+import { ReadingEncryptionService } from './reading-encryption';
+
+const ENCRYPTED_READING_KEY = '_enc';
+
+function getSafeMetadataTitle(app: string, type: string): string {
+  if (
+    !/^[A-Za-z0-9_-]{1,20}$/.test(app) ||
+    !/^[A-Za-z0-9_-]{1,50}$/.test(type)
+  ) {
+    throw new BadRequestException('Invalid reading app or type');
+  }
+  return `${app}:${type}`;
+}
 
 @Injectable()
 export class ReadingsService {
@@ -11,22 +30,27 @@ export class ReadingsService {
     private readonly readingsRepo: Repository<Reading>,
     @InjectRepository(AuditLog)
     private readonly auditLogRepo: Repository<AuditLog>,
+    private readonly readingEncryption: ReadingEncryptionService,
   ) {}
 
   async getReadings(userId: string, app?: string): Promise<Reading[]> {
-    const where: any = { userId };
+    const where: FindOptionsWhere<Reading> = { userId };
     if (app) where.app = app;
-    return this.readingsRepo.find({
+    const readings = await this.readingsRepo.find({
       where,
       order: { createdAt: 'DESC' },
     });
+    return readings.map((reading) => this.toApiReading(reading));
   }
 
   async getReadingById(userId: string, readingId: string): Promise<Reading> {
-    const reading = await this.readingsRepo.findOne({ where: { id: readingId } });
+    const reading = await this.readingsRepo.findOne({
+      where: { id: readingId },
+    });
     if (!reading) throw new NotFoundException('Không tìm thấy lịch sử');
-    if (reading.userId !== userId) throw new ForbiddenException('Không có quyền truy cập');
-    return reading;
+    if (reading.userId !== userId)
+      throw new ForbiddenException('Không có quyền truy cập');
+    return this.toApiReading(reading);
   }
 
   async createReading(
@@ -36,16 +60,33 @@ export class ReadingsService {
       type: string;
       question?: string;
       title: string;
-      data: Record<string, any>;
+      data: Record<string, unknown>;
     },
   ): Promise<Reading> {
+    const safeTitle = getSafeMetadataTitle(dto.app, dto.type);
+    if (
+      typeof dto.title !== 'string' ||
+      (dto.question !== undefined &&
+        dto.question !== null &&
+        typeof dto.question !== 'string')
+    ) {
+      throw new BadRequestException('Reading question and title must be text');
+    }
+    if (!dto.data || typeof dto.data !== 'object' || Array.isArray(dto.data)) {
+      throw new BadRequestException('Reading data must be an object');
+    }
+    const payload = {
+      question: dto.question ?? null,
+      title: dto.title,
+      data: dto.data,
+    };
     const reading = this.readingsRepo.create({
       userId,
       app: dto.app,
       type: dto.type,
-      question: dto.question ?? null,
-      title: dto.title,
-      data: dto.data,
+      question: null,
+      title: safeTitle,
+      data: this.readingEncryption.encryptPayload(payload, userId),
     });
     const saved = await this.readingsRepo.save(reading);
 
@@ -53,49 +94,115 @@ export class ReadingsService {
       userId,
       action: 'create_reading',
       app: dto.app,
-      metadata: { type: dto.type, title: dto.title },
+      metadata: { type: dto.type },
     });
 
-    return saved;
+    return this.toApiReading(saved);
   }
 
   async updateReadingData(
     userId: string,
     readingId: string,
-    partialData: Record<string, any>,
+    partialData: Record<string, unknown>,
   ): Promise<Reading> {
-    const reading = await this.readingsRepo.findOne({ where: { id: readingId } });
+    const reading = await this.readingsRepo.findOne({
+      where: { id: readingId },
+    });
     if (!reading) throw new NotFoundException('Không tìm thấy lịch sử');
-    if (reading.userId !== userId) throw new ForbiddenException('Không có quyền cập nhật');
+    if (reading.userId !== userId)
+      throw new ForbiddenException('Không có quyền cập nhật');
+    if (
+      !partialData ||
+      typeof partialData !== 'object' ||
+      Array.isArray(partialData)
+    ) {
+      throw new BadRequestException('Reading update data must be an object');
+    }
 
-    reading.data = { ...reading.data, ...partialData };
+    const current = this.decryptStoredReading(reading);
+    const mergedData = { ...current.data, ...partialData };
+    const safeTitle = getSafeMetadataTitle(reading.app, reading.type);
+    reading.question = null;
+    reading.title = safeTitle;
+    reading.data = this.readingEncryption.encryptPayload(
+      {
+        question: current.question,
+        title: current.title,
+        data: mergedData,
+      },
+      userId,
+    );
     const saved = await this.readingsRepo.save(reading);
 
-    if (partialData.aiConversation) {
+    const aiConversation = partialData.aiConversation;
+    if (aiConversation) {
+      const followUps =
+        typeof aiConversation === 'object' &&
+        !Array.isArray(aiConversation) &&
+        'followUps' in aiConversation &&
+        Array.isArray(aiConversation.followUps)
+          ? aiConversation.followUps.length
+          : 0;
       await this.auditLogRepo.save({
         userId,
         action: 'ai_question',
         app: reading.app,
         metadata: {
           readingId,
-          followUpsCount: partialData.aiConversation.followUps?.length || 0,
+          followUpsCount: followUps,
         },
       });
     }
 
-    return saved;
+    return this.toApiReading(saved);
   }
 
   async deleteReading(userId: string, readingId: string): Promise<void> {
-    const reading = await this.readingsRepo.findOne({ where: { id: readingId } });
+    const reading = await this.readingsRepo.findOne({
+      where: { id: readingId },
+    });
     if (!reading) throw new NotFoundException('Không tìm thấy lịch sử');
-    if (reading.userId !== userId) throw new ForbiddenException('Không có quyền xoá');
+    if (reading.userId !== userId)
+      throw new ForbiddenException('Không có quyền xoá');
     await this.readingsRepo.delete(readingId);
   }
 
   async deleteAllReadings(userId: string, app?: string): Promise<void> {
-    const where: any = { userId };
+    const where: FindOptionsWhere<Reading> = { userId };
     if (app) where.app = app;
     await this.readingsRepo.delete(where);
+  }
+
+  private decryptStoredReading(reading: Reading): Reading {
+    if (
+      !reading.data ||
+      typeof reading.data !== 'object' ||
+      Array.isArray(reading.data) ||
+      !Object.prototype.hasOwnProperty.call(reading.data, ENCRYPTED_READING_KEY)
+    ) {
+      // Legacy client-encrypted records stay intact for old clients to decode.
+      return reading;
+    }
+    try {
+      const payload = this.readingEncryption.decryptEnvelope(
+        reading.data,
+        reading.userId,
+      );
+      return {
+        ...reading,
+        question: payload.question,
+        title: payload.title,
+        data: payload.data,
+      };
+    } catch {
+      // Never expose corrupt ciphertext or allow an update to overwrite it.
+      throw new InternalServerErrorException(
+        'Unable to read encrypted history. Contact support before retrying.',
+      );
+    }
+  }
+
+  private toApiReading(reading: Reading): Reading {
+    return this.decryptStoredReading(reading);
   }
 }

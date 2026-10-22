@@ -4,7 +4,6 @@ import { PageVisit } from './page-visit.entity';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
 import { SsoModule } from '../sso/sso.module';
-import { AdminGuard } from '../auth/admin.guard';
 
 @Module({
   imports: [
@@ -12,7 +11,7 @@ import { AdminGuard } from '../auth/admin.guard';
     SsoModule,
   ],
   controllers: [AnalyticsController],
-  providers: [AnalyticsService, AdminGuard],
+  providers: [AnalyticsService],
   exports: [AnalyticsService],
 })
 export class AnalyticsModule {}

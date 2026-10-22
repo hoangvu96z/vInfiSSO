@@ -1,4 +1,12 @@
-import { IsString, IsNotEmpty, IsOptional, MaxLength, IsBoolean } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  MaxLength,
+  IsBoolean,
+  IsUrl,
+  ValidateIf,
+} from 'class-validator';
 
 export class RecordVisitDto {
   @IsString()
@@ -11,9 +19,16 @@ export class RecordVisitDto {
   @MaxLength(255)
   path?: string;
 
-  @IsOptional()
+  @ValidateIf(
+    (_object, value) => value !== undefined && value !== null && value !== '',
+  )
   @IsString()
   @MaxLength(500)
+  @IsUrl({
+    protocols: ['http', 'https'],
+    require_protocol: true,
+    require_tld: false,
+  })
   referrer?: string;
 
   @IsOptional()

@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Card, Space, Tag, Input, Button, Switch, Popconfirm, Modal, message
+  Card, Space, Tag, Input, Button, Switch, message
 } from 'antd';
 import {
   ReloadOutlined, TagOutlined, CopyOutlined, DeleteOutlined
 } from '@ant-design/icons';
 import ModernDataTable from '../ModernDataTable';
 import CreateCouponModal from './modals/CreateCouponModal';
-import { authFetch, safeArr } from '../../utils/api';
+import ConfirmActionButton from './ConfirmActionButton';
+import { authFetch, getResponseErrorMessage, safeArr } from '../../utils/api';
 
 export default function CouponsView({ isDarkMode }) {
   const [coupons, setCoupons] = useState([]);
@@ -20,12 +21,20 @@ export default function CouponsView({ isDarkMode }) {
 
   const loadCoupons = useCallback(async () => {
     setCouponsLoading(true);
-    const res = await authFetch('/admin/coupons');
-    if (res) {
+    try {
+      const res = await authFetch('/admin/coupons');
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể tải mã khuyến mãi'));
+        return;
+      }
       const data = await res.json();
       setCoupons(data.coupons || []);
+    } catch {
+      message.error('Không thể tải mã khuyến mãi. Vui lòng thử lại.');
+    } finally {
+      setCouponsLoading(false);
     }
-    setCouponsLoading(false);
   }, []);
 
   useEffect(() => {
@@ -33,41 +42,60 @@ export default function CouponsView({ isDarkMode }) {
   }, [loadCoupons]);
 
   const handleToggleCoupon = useCallback(async (id, isActive) => {
-    await authFetch(`/admin/coupons/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isActive }),
-    });
-    message.info(`Đã ${isActive ? 'bật' : 'tắt'} mã khuyến mãi! 🔄`);
-    loadCoupons();
+    try {
+      const res = await authFetch(`/admin/coupons/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive }),
+      });
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể thay đổi trạng thái mã khuyến mãi'));
+        return;
+      }
+      message.success(`Đã ${isActive ? 'bật' : 'tắt'} mã khuyến mãi! 🔄`);
+      loadCoupons();
+    } catch {
+      message.error('Không thể thay đổi trạng thái mã khuyến mãi. Vui lòng thử lại.');
+    }
   }, [loadCoupons]);
 
   const handleDeleteCoupon = useCallback(async (id) => {
-    Modal.confirm({
-      title: 'Xóa mã khuyến mãi?',
-      content: 'Mã này sẽ bị xóa khỏi hệ thống.',
-      onOk: async () => {
-        await authFetch(`/admin/coupons/${id}`, { method: 'DELETE' });
-        message.info('Đã xóa mã khuyến mãi! 🗑️');
-        loadCoupons();
-      },
-    });
+    try {
+      const res = await authFetch(`/admin/coupons/${id}`, { method: 'DELETE' });
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể xóa mã khuyến mãi'));
+        throw new Error('Coupon deletion failed');
+      }
+      message.success('Đã xóa mã khuyến mãi! 🗑️');
+      loadCoupons();
+    } catch (error) {
+      if (error.message === 'Coupon deletion failed') throw error;
+      message.error('Không thể xóa mã khuyến mãi. Vui lòng thử lại.');
+      throw error;
+    }
   }, [loadCoupons]);
 
   const handleBatchDeleteCoupons = useCallback(async (ids) => {
     if (!ids || ids.length === 0) return;
-    const res = await authFetch('/admin/coupons/batch-delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
-    });
-    if (res && res.ok) {
-      message.info(`Đã xóa ${ids.length} mã khuyến mãi đã chọn! 🗑️`);
+    try {
+      const res = await authFetch('/admin/coupons/batch-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể xóa hàng loạt mã khuyến mãi'));
+        return;
+      }
+      message.success(`Đã xóa ${ids.length} mã khuyến mãi đã chọn! 🗑️`);
       setClearCouponSelected((prev) => !prev);
       setSelectedCouponRows([]);
       loadCoupons();
-    } else {
-      message.error('Lỗi khi xóa mã khuyến mãi hàng loạt');
+    } catch {
+      message.error('Không thể xóa hàng loạt mã khuyến mãi. Vui lòng thử lại.');
     }
   }, [loadCoupons]);
 
@@ -139,14 +167,16 @@ export default function CouponsView({ isDarkMode }) {
           >
             Copy
           </Button>
-          <Popconfirm
+          <ConfirmActionButton
             title="Xóa mã khuyến mãi này?"
+            description="Mã này sẽ bị xóa khỏi hệ thống."
             onConfirm={() => handleDeleteCoupon(r.id)}
-            okText="Xóa"
+            confirmText="Xóa"
             cancelText="Hủy"
+            buttonProps={{ size: 'small', danger: true, icon: <DeleteOutlined /> }}
           >
-            <Button size="small" danger icon={<DeleteOutlined />}>Xóa</Button>
-          </Popconfirm>
+            Xóa
+          </ConfirmActionButton>
         </Space>
       ),
     },
@@ -156,16 +186,17 @@ export default function CouponsView({ isDarkMode }) {
     const ids = selectedCouponRows.map((r) => r.id);
     const count = ids.length;
     return (
-      <Popconfirm
+      <ConfirmActionButton
         title={`Xóa vĩnh viễn ${count} mã khuyến mãi đã chọn?`}
+        description="Các mã đã chọn sẽ bị xóa khỏi hệ thống."
         onConfirm={() => handleBatchDeleteCoupons(ids)}
-        okText="Xóa"
+        confirmText="Xóa"
         cancelText="Hủy"
+        buttonProps={{ danger: true, icon: <DeleteOutlined />, size: 'small' }}
+        disabled={!count}
       >
-        <Button danger icon={<DeleteOutlined />} size="small">
-          Xóa {count} mã đã chọn
-        </Button>
-      </Popconfirm>
+        Xóa {count} mã đã chọn
+      </ConfirmActionButton>
     );
   }, [selectedCouponRows, handleBatchDeleteCoupons]);
 

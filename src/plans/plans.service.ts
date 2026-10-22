@@ -5,12 +5,13 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan, IsNull, In } from 'typeorm';
+import { Repository, MoreThan, IsNull, In, DataSource } from 'typeorm';
 import { Plan } from './plan.entity';
 import { UserSubscription } from './user-subscription.entity';
 import { AiUsage } from './ai-usage.entity';
 import { Coupon } from './coupon.entity';
 import { User } from '../users/user.entity';
+import { normalizeQuotaAppName } from './quota-app.util';
 
 @Injectable()
 export class PlansService {
@@ -25,6 +26,7 @@ export class PlansService {
     private readonly couponRepo: Repository<Coupon>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    private readonly dataSource: DataSource,
   ) {}
 
   /** Lấy ngày hôm nay dạng YYYY-MM-DD */
@@ -83,7 +85,9 @@ export class PlansService {
 
     // Nếu user Free nhưng admin override toàn bộ Free lên Premium
     if (planName === 'free' && plan.overrideFreeToPremium) {
-      const premiumPlan = await this.planRepo.findOne({ where: { name: 'premium' } });
+      const premiumPlan = await this.planRepo.findOne({
+        where: { name: 'premium' },
+      });
       if (premiumPlan) return premiumPlan;
     }
 
@@ -114,14 +118,19 @@ export class PlansService {
   }
 
   /** Lấy hoặc tạo AI usage record cho user hôm nay */
-  private async getOrCreateUsage(userId: string, appName: string = 'default'): Promise<AiUsage> {
+  private async getOrCreateUsage(
+    userId: string,
+    appName: string = 'default',
+    repository: Repository<AiUsage> = this.usageRepo,
+  ): Promise<AiUsage> {
     const today = this.today();
     const month = this.currentMonth();
-    const normalizedApp = appName ? appName.trim().toLowerCase() : 'default';
+    const normalizedApp = normalizeQuotaAppName(appName);
 
-    let usage = await this.usageRepo.findOne({ where: { userId, date: today, app: normalizedApp } });
-    if (!usage) {
-      usage = this.usageRepo.create({
+    await repository
+      .createQueryBuilder()
+      .insert()
+      .values({
         userId,
         app: normalizedApp,
         date: today,
@@ -130,14 +139,22 @@ export class PlansService {
         monthlyCount: 0,
         bonusUsedToday: 0,
         bonusRemaining: 0,
-      });
-      await this.usageRepo.save(usage);
-    }
+      })
+      .orIgnore()
+      .execute();
+
+    const usage = await repository.findOne({
+      where: { userId, date: today, app: normalizedApp },
+    });
+    if (!usage) throw new Error('Could not initialize AI usage record');
     return usage;
   }
 
   /** Kiểm tra quota còn lại của user theo từng App */
-  async checkQuota(userId: string, appName: string = 'default'): Promise<{
+  async checkQuota(
+    userId: string,
+    appName: string = 'default',
+  ): Promise<{
     plan: string;
     planLabel: string;
     dailyLimit: number;
@@ -158,7 +175,7 @@ export class PlansService {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    const normalizedApp = appName ? appName.trim().toLowerCase() : 'default';
+    const normalizedApp = normalizeQuotaAppName(appName);
     const usage = await this.getOrCreateUsage(userId, normalizedApp);
     const month = this.currentMonth();
 
@@ -193,10 +210,16 @@ export class PlansService {
     });
 
     const plan = await this.getEffectivePlan(userId);
-    const baseFreePlan = await this.planRepo.findOne({ where: { name: 'free' } });
-    const isOverride = user?.planName === 'free' && (baseFreePlan?.overrideFreeToLite || baseFreePlan?.overrideFreeToPremium);
+    const baseFreePlan = await this.planRepo.findOne({
+      where: { name: 'free' },
+    });
+    const isOverride =
+      user?.planName === 'free' &&
+      (baseFreePlan?.overrideFreeToLite || baseFreePlan?.overrideFreeToPremium);
 
-    let expiresAt: string | null = sub?.expiresAt ? new Date(sub.expiresAt).toISOString() : null;
+    const expiresAt: string | null = sub?.expiresAt
+      ? new Date(sub.expiresAt).toISOString()
+      : null;
     let daysRemaining: number | null = null;
     let isExpiringSoon = false;
 
@@ -214,23 +237,33 @@ export class PlansService {
     const monthlyUsage = await this.usageRepo
       .createQueryBuilder('u')
       .select('SUM(u.dailyCount)', 'total')
-      .where('u.userId = :userId AND u.month = :month AND u.app = :app', { userId, month, app: normalizedApp })
+      .where('u.userId = :userId AND u.month = :month AND u.app = :app', {
+        userId,
+        month,
+        app: normalizedApp,
+      })
       .getRawOne();
     const monthlyCount = parseInt(monthlyUsage?.total ?? '0', 10);
 
     const dailyLimit = plan.dailyLimit;
     const monthlyLimit = plan.monthlyLimit;
 
-    const dailyExceeded = dailyLimit !== -1 && usage.dailyCount >= dailyLimit + usage.bonusRemaining;
+    const dailyExceeded =
+      dailyLimit !== -1 &&
+      usage.dailyCount >= dailyLimit + usage.bonusRemaining;
     const monthlyExceeded = monthlyLimit !== -1 && monthlyCount >= monthlyLimit;
 
     const canAsk = !dailyExceeded && !monthlyExceeded;
 
     let remaining: number;
     if (dailyLimit === -1) {
-      remaining = monthlyLimit === -1 ? 9999 : Math.max(0, monthlyLimit - monthlyCount);
+      remaining =
+        monthlyLimit === -1 ? 9999 : Math.max(0, monthlyLimit - monthlyCount);
     } else {
-      remaining = Math.max(0, dailyLimit + usage.bonusRemaining - usage.dailyCount);
+      remaining = Math.max(
+        0,
+        dailyLimit + usage.bonusRemaining - usage.dailyCount,
+      );
     }
 
     return {
@@ -254,58 +287,136 @@ export class PlansService {
   }
 
   /** Trừ 1 lượt AI của App. Throw ForbiddenException nếu hết quota */
-  async consumeQuota(userId: string, appName: string = 'default'): Promise<void> {
-    const normalizedApp = appName ? appName.trim().toLowerCase() : 'default';
-    const quota = await this.checkQuota(userId, normalizedApp);
+  async consumeQuota(
+    userId: string,
+    appName: string = 'default',
+  ): Promise<{ app: string; date: string; month: string; usedBonus: boolean }> {
+    const normalizedApp = normalizeQuotaAppName(appName);
+    const today = this.today();
+    const month = this.currentMonth();
+    const plan = await this.getEffectivePlan(userId);
+    const usedBonus = await this.dataSource.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        `ai-quota:${userId}:${normalizedApp}:${month}`,
+      ]);
+      const usageRepo = manager.getRepository(AiUsage);
+      const usage = await this.getOrCreateUsage(
+        userId,
+        normalizedApp,
+        usageRepo,
+      );
+      const monthlyRaw = await usageRepo
+        .createQueryBuilder('usage')
+        .select('SUM(usage.dailyCount)', 'total')
+        .where(
+          'usage.userId = :userId AND usage.month = :month AND usage.app = :app',
+          {
+            userId,
+            month,
+            app: normalizedApp,
+          },
+        )
+        .getRawOne();
+      const monthlyUsed = Number.parseInt(monthlyRaw?.total ?? '0', 10) || 0;
+      const dailyExceeded =
+        plan.dailyLimit !== -1 &&
+        usage.dailyCount >= plan.dailyLimit + usage.bonusRemaining;
+      const monthlyExceeded =
+        plan.monthlyLimit !== -1 && monthlyUsed >= plan.monthlyLimit;
 
-    if (!quota.canAsk) {
-      const msg =
-        quota.monthlyUsed >= quota.monthlyLimit && quota.monthlyLimit !== -1
-          ? `Bạn đã đạt giới hạn ${quota.monthlyLimit} lượt AI trong tháng này`
-          : `Bạn đã dùng hết ${quota.dailyLimit} lượt AI hôm nay`;
-      throw new ForbiddenException({
-        statusCode: 429,
-        error: 'Quota Exceeded',
-        message: msg,
-        plan: quota.plan,
-        canBonus: quota.canBonus,
+      if (dailyExceeded || monthlyExceeded) {
+        const msg = monthlyExceeded
+          ? `Bạn đã đạt giới hạn ${plan.monthlyLimit} lượt AI trong tháng này`
+          : `Bạn đã dùng hết ${plan.dailyLimit} lượt AI hôm nay`;
+        throw new ForbiddenException({
+          statusCode: 403,
+          code: 'QUOTA_EXCEEDED',
+          error: 'Quota Exceeded',
+          message: msg,
+          plan: plan.name,
+          canBonus: plan.canBonus,
+        });
+      }
+
+      const shouldUseBonus =
+        plan.dailyLimit !== -1 &&
+        usage.bonusRemaining > 0 &&
+        usage.dailyCount >= plan.dailyLimit;
+      if (shouldUseBonus) usage.bonusRemaining -= 1;
+      usage.dailyCount += 1;
+      usage.monthlyCount += 1;
+      await usageRepo.save(usage);
+      return shouldUseBonus;
+    });
+
+    return { app: normalizedApp, date: today, month, usedBonus };
+  }
+
+  async refundQuota(
+    userId: string,
+    appName: string = 'default',
+    date: string = this.today(),
+    usedBonus = false,
+  ): Promise<void> {
+    const normalizedApp = normalizeQuotaAppName(appName);
+    const month = date.slice(0, 7);
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        `ai-quota:${userId}:${normalizedApp}:${month}`,
+      ]);
+      const usageRepo = manager.getRepository(AiUsage);
+      const usage = await usageRepo.findOne({
+        where: { userId, date, app: normalizedApp },
       });
-    }
-
-    const usage = await this.getOrCreateUsage(userId, normalizedApp);
-
-    // Nếu còn bonus thì tiêu bonus trước
-    if (usage.bonusRemaining > 0 && usage.dailyCount >= (await this.getEffectivePlan(userId)).dailyLimit) {
-      usage.bonusRemaining = Math.max(0, usage.bonusRemaining - 1);
-    }
-
-    usage.dailyCount += 1;
-    usage.monthlyCount += 1;
-    await this.usageRepo.save(usage);
+      if (!usage || usage.dailyCount <= 0) return;
+      usage.dailyCount -= 1;
+      usage.monthlyCount = Math.max(0, usage.monthlyCount - 1);
+      if (usedBonus) usage.bonusRemaining += 1;
+      await usageRepo.save(usage);
+    });
   }
 
   /** Xin thêm bonus câu hỏi (Premium only) */
-  async requestBonus(userId: string, appName: string = 'default'): Promise<{ bonusAdded: number; bonusRemaining: number }> {
+  async requestBonus(
+    userId: string,
+    appName: string = 'default',
+  ): Promise<{ bonusAdded: number; bonusRemaining: number }> {
     const plan = await this.getEffectivePlan(userId);
 
     if (!plan.canBonus) {
-      throw new ForbiddenException('Chức năng "Hỏi thêm" chỉ dành cho gói Premium');
-    }
-
-    const normalizedApp = appName ? appName.trim().toLowerCase() : 'default';
-    const usage = await this.getOrCreateUsage(userId, normalizedApp);
-
-    if (plan.bonusMaxPerDay !== -1 && usage.bonusUsedToday >= plan.bonusMaxPerDay) {
       throw new ForbiddenException(
-        `Bạn đã dùng tối đa ${plan.bonusMaxPerDay} lần "Hỏi thêm" hôm nay`,
+        'Chức năng "Hỏi thêm" chỉ dành cho gói Premium',
       );
     }
 
-    usage.bonusUsedToday += 1;
-    usage.bonusRemaining += plan.bonusAmount;
-    await this.usageRepo.save(usage);
-
-    return { bonusAdded: plan.bonusAmount, bonusRemaining: usage.bonusRemaining };
+    const normalizedApp = normalizeQuotaAppName(appName);
+    return this.dataSource.transaction(async (manager) => {
+      const month = this.currentMonth();
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        `ai-quota:${userId}:${normalizedApp}:${month}`,
+      ]);
+      const usageRepo = manager.getRepository(AiUsage);
+      const usage = await this.getOrCreateUsage(
+        userId,
+        normalizedApp,
+        usageRepo,
+      );
+      if (
+        plan.bonusMaxPerDay !== -1 &&
+        usage.bonusUsedToday >= plan.bonusMaxPerDay
+      ) {
+        throw new ForbiddenException(
+          `Bạn đã dùng tối đa ${plan.bonusMaxPerDay} lần "Hỏi thêm" hôm nay`,
+        );
+      }
+      usage.bonusUsedToday += 1;
+      usage.bonusRemaining += plan.bonusAmount;
+      await usageRepo.save(usage);
+      return {
+        bonusAdded: plan.bonusAmount,
+        bonusRemaining: usage.bonusRemaining,
+      };
+    });
   }
 
   /** Lấy subscription info của user */
@@ -336,77 +447,86 @@ export class PlansService {
   }
 
   /** Áp mã khuyến mãi */
-  async applyCoupon(userId: string, code: string): Promise<{ message: string; planName: string }> {
-    const coupon = await this.couponRepo.findOne({ where: { code: code.toUpperCase(), isActive: true } });
-
-    if (!coupon) {
-      throw new NotFoundException('Mã khuyến mãi không tồn tại hoặc đã hết hạn');
-    }
-
-    if (coupon.expiresAt && coupon.expiresAt < new Date()) {
-      throw new BadRequestException('Mã khuyến mãi đã hết hạn');
-    }
-
-    if (coupon.maxUses !== -1 && coupon.usedCount >= coupon.maxUses) {
-      throw new BadRequestException('Mã khuyến mãi đã được sử dụng hết');
-    }
-
-    const now = new Date();
-    const expiresAt = new Date(now);
-    expiresAt.setDate(expiresAt.getDate() + coupon.durationDays);
-
-    if (coupon.type === 'grant_plan' && coupon.planName) {
-      // Tặng gói
-      const newSub = this.subRepo.create({
-        userId,
-        planName: coupon.planName,
-        startedAt: now,
-        expiresAt,
-        grantedByCoupon: code.toUpperCase(),
-        grantedByAdmin: false,
+  async applyCoupon(
+    userId: string,
+    code: string,
+  ): Promise<{ message: string; planName: string }> {
+    const normalizedCode = code.trim().toUpperCase();
+    return this.dataSource.transaction(async (manager) => {
+      const coupons = manager.getRepository(Coupon);
+      const subscriptions = manager.getRepository(UserSubscription);
+      const coupon = await coupons.findOne({
+        where: { code: normalizedCode, isActive: true },
+        lock: { mode: 'pessimistic_write' },
       });
-      await this.subRepo.save(newSub);
+      if (!coupon)
+        throw new NotFoundException(
+          'Mã khuyến mãi không tồn tại hoặc đã hết hạn',
+        );
+      const now = new Date();
+      if (coupon.expiresAt && coupon.expiresAt < now) {
+        throw new BadRequestException('Mã khuyến mãi đã hết hạn');
+      }
+      if (coupon.maxUses !== -1 && coupon.usedCount >= coupon.maxUses) {
+        throw new BadRequestException('Mã khuyến mãi đã được sử dụng hết');
+      }
+      const previousUse = await subscriptions.findOne({
+        where: { userId, grantedByCoupon: normalizedCode },
+      });
+      if (previousUse)
+        throw new BadRequestException('Bạn đã sử dụng mã khuyến mãi này');
 
-      // Cập nhật planName trên user để cache
-      await this.userRepo.update(userId, { planName: coupon.planName });
+      const user = await manager
+        .getRepository(User)
+        .findOne({ where: { id: userId } });
+      if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+      let planName: string;
+      let subscriptionExpiry: Date;
+      if (coupon.type === 'grant_plan' && coupon.planName) {
+        planName = coupon.planName;
+        subscriptionExpiry = new Date(now);
+        subscriptionExpiry.setDate(
+          subscriptionExpiry.getDate() + coupon.durationDays,
+        );
+        user.planName = planName;
+        await manager.getRepository(User).save(user);
+      } else if (coupon.type === 'trial_days') {
+        const currentSub = await subscriptions.findOne({
+          where: { userId },
+          order: { createdAt: 'DESC' },
+        });
+        planName = currentSub?.planName ?? 'free';
+        const baseDate =
+          currentSub?.expiresAt && currentSub.expiresAt > now
+            ? currentSub.expiresAt
+            : now;
+        subscriptionExpiry = new Date(baseDate);
+        subscriptionExpiry.setDate(
+          subscriptionExpiry.getDate() + coupon.durationDays,
+        );
+      } else {
+        throw new BadRequestException('Loại mã khuyến mãi không hỗ trợ');
+      }
 
+      await subscriptions.save(
+        subscriptions.create({
+          userId,
+          planName,
+          startedAt: now,
+          expiresAt: subscriptionExpiry,
+          grantedByCoupon: normalizedCode,
+          grantedByAdmin: false,
+        }),
+      );
       coupon.usedCount += 1;
-      await this.couponRepo.save(coupon);
-
-      return { message: `Kích hoạt thành công gói ${coupon.planName}!`, planName: coupon.planName };
-    }
-
-    if (coupon.type === 'trial_days') {
-      // Thêm ngày vào gói hiện tại
-      const currentSub = await this.subRepo.findOne({
-        where: { userId },
-        order: { createdAt: 'DESC' },
-      });
-
-      const baseDate = currentSub?.expiresAt && currentSub.expiresAt > now ? currentSub.expiresAt : now;
-      const newExpires = new Date(baseDate);
-      newExpires.setDate(newExpires.getDate() + coupon.durationDays);
-
-      const newSub = this.subRepo.create({
-        userId,
-        planName: currentSub?.planName ?? 'free',
-        startedAt: now,
-        expiresAt: newExpires,
-        grantedByCoupon: code.toUpperCase(),
-        grantedByAdmin: false,
-      });
-      await this.subRepo.save(newSub);
-
-      coupon.usedCount += 1;
-      await this.couponRepo.save(coupon);
-
-      return {
-        message: `Đã thêm ${coupon.durationDays} ngày vào gói của bạn!`,
-        planName: currentSub?.planName ?? 'free',
-      };
-    }
-
-    throw new BadRequestException('Loại mã khuyến mãi không hỗ trợ');
+      await coupons.save(coupon);
+      return coupon.type === 'trial_days'
+        ? {
+            message: `Đã thêm ${coupon.durationDays} ngày vào gói của bạn!`,
+            planName,
+          }
+        : { message: `Kích hoạt thành công gói ${planName}!`, planName };
+    });
   }
 
   // ─── Admin methods ────────────────────────────────────────────────────────
@@ -464,7 +584,8 @@ export class PlansService {
         overrideFreeToLite: false,
         overrideFreeToPremium: false,
         price: 99000,
-        description: 'Không giới hạn ngày, 180 lần/tháng, hỏi thêm 5 câu mỗi ngày',
+        description:
+          'Không giới hạn ngày, 180 lần/tháng, hỏi thêm 5 câu mỗi ngày',
       },
     ];
 
@@ -483,7 +604,9 @@ export class PlansService {
   async createCoupon(data: Partial<Coupon>): Promise<Coupon> {
     if (!data.code) throw new BadRequestException('Mã coupon là bắt buộc');
     data.code = data.code.toUpperCase();
-    const existing = await this.couponRepo.findOne({ where: { code: data.code } });
+    const existing = await this.couponRepo.findOne({
+      where: { code: data.code },
+    });
     if (existing) throw new BadRequestException('Mã này đã tồn tại');
     const coupon = this.couponRepo.create(data);
     return this.couponRepo.save(coupon);
@@ -516,7 +639,10 @@ export class PlansService {
     if (!user) throw new NotFoundException('User not found');
 
     const now = new Date();
-    const expiresAt = durationDays > 0 ? new Date(now.getTime() + durationDays * 86400000) : null;
+    const expiresAt =
+      durationDays > 0
+        ? new Date(now.getTime() + durationDays * 86400000)
+        : null;
 
     const sub = this.subRepo.create({
       userId,

@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Build, test, and lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            admin-ui/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Install admin UI dependencies
+        run: npm ci --prefix admin-ui
+
+      - name: Type check backend and specs
+        run: npx tsc --noEmit
+
+      - name: Build backend and admin UI
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Test backend
+        run: npm test -- --runInBand
+
+      - name: Lint backend (informational while existing baseline is cleaned)
+        id: backend-lint
+        continue-on-error: true
+        run: npx eslint "{src,apps,libs,test}/**/*.ts"
+
+      - name: Report backend lint baseline
+        if: steps.backend-lint.outcome == 'failure'
+        run: echo "::warning::Backend ESLint currently reports pre-existing repository-wide violations. Build, tests, and admin UI lint remain required; backend lint findings are visible here but non-blocking until the baseline is cleaned."
+
+      - name: Lint admin UI
+        run: npm run lint --prefix admin-ui

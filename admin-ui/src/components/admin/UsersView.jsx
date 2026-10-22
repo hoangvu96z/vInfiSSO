@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Card, Space, Tag, Input, Select, Button, Popconfirm, Modal, message
+  Card, Space, Tag, Input, Select, Button, Modal, message
 } from 'antd';
 import {
   ReloadOutlined, PoweroffOutlined, CheckCircleOutlined,
@@ -8,13 +8,18 @@ import {
 } from '@ant-design/icons';
 import ModernDataTable from '../ModernDataTable';
 import GrantPlanModal from './modals/GrantPlanModal';
-import { authFetch } from '../../utils/api';
+import ConfirmActionButton from './ConfirmActionButton';
+import { authFetch, getResponseErrorMessage } from '../../utils/api';
+import { downloadCsv } from '../../utils/csv';
 
 const { Option } = Select;
 
 export default function UsersView({ isDarkMode }) {
   const [users, setUsers] = useState([]);
+  const [usersTotal, setUsersTotal] = useState(0);
   const [usersLoading, setUsersLoading] = useState(false);
+  const [usersPage, setUsersPage] = useState(1);
+  const usersLimit = 20;
   const [userSearch, setUserSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
 
@@ -24,16 +29,27 @@ export default function UsersView({ isDarkMode }) {
 
   const loadUsers = useCallback(async () => {
     setUsersLoading(true);
-    const query = new URLSearchParams();
-    if (userSearch) query.set('search', userSearch);
-    if (roleFilter) query.set('role', roleFilter);
-    const res = await authFetch(`/admin/users?${query.toString()}`);
-    if (res) {
+    try {
+      const query = new URLSearchParams();
+      query.set('page', String(usersPage));
+      query.set('limit', String(usersLimit));
+      if (userSearch) query.set('search', userSearch);
+      if (roleFilter) query.set('role', roleFilter);
+      const res = await authFetch(`/admin/users?${query.toString()}`);
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể tải danh sách người dùng'));
+        return;
+      }
       const data = await res.json();
       setUsers(data.users || data.data || []);
+      setUsersTotal(data.total || 0);
+    } catch {
+      message.error('Không thể tải danh sách người dùng. Vui lòng thử lại.');
+    } finally {
+      setUsersLoading(false);
     }
-    setUsersLoading(false);
-  }, [userSearch, roleFilter]);
+  }, [userSearch, roleFilter, usersPage]);
 
   useEffect(() => {
     loadUsers();
@@ -44,48 +60,65 @@ export default function UsersView({ isDarkMode }) {
       title: `Xác nhận đổi role?`,
       content: `Đổi role của người dùng thành ${newRole}?`,
       onOk: async () => {
-        const res = await authFetch(`/admin/users/${userId}/role`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ role: newRole }),
-        });
-        if (res && res.ok) {
+        try {
+          const res = await authFetch(`/admin/users/${userId}/role`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: newRole }),
+          });
+          if (!res) return;
+          if (!res.ok) {
+            message.error(await getResponseErrorMessage(res, 'Không thể cập nhật role người dùng'));
+            throw new Error('Role update failed');
+          }
           message.success(`Đã cập nhật role thành ${newRole} thành công! ✅`);
           loadUsers();
+        } catch (error) {
+          if (error.message === 'Role update failed') throw error;
+          message.error('Không thể cập nhật role người dùng. Vui lòng thử lại.');
+          throw error;
         }
       },
     });
   }, [loadUsers]);
 
   const handleRevokeSessions = useCallback(async (userId) => {
-    Modal.confirm({
-      title: `Hủy phiên đăng nhập?`,
-      content: `Tất cả phiên đăng nhập của người dùng sẽ bị chấm dứt lập tức.`,
-      onOk: async () => {
-        const res = await authFetch(`/admin/users/${userId}/sessions`, { method: 'DELETE' });
-        if (res && res.ok) {
-          message.info('Đã hủy tất cả phiên đăng nhập của người dùng! ⚡');
-          loadUsers();
-        }
-      },
-    });
+    try {
+      const res = await authFetch(`/admin/users/${userId}/sessions`, { method: 'DELETE' });
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể hủy phiên đăng nhập'));
+        throw new Error('Session revocation failed');
+      }
+      message.success('Đã hủy tất cả phiên đăng nhập của người dùng! ⚡');
+      loadUsers();
+    } catch (error) {
+      if (error.message === 'Session revocation failed') throw error;
+      message.error('Không thể hủy phiên đăng nhập. Vui lòng thử lại.');
+      throw error;
+    }
   }, [loadUsers]);
 
   const handleBatchRevokeSessions = useCallback(async (userIds) => {
     if (!userIds || userIds.length === 0) return;
-    const res = await authFetch('/admin/users/batch-revoke-sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userIds }),
-    });
-    if (res && res.ok) {
+    try {
+      const res = await authFetch('/admin/users/batch-revoke-sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userIds }),
+      });
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể hủy phiên hàng loạt'));
+        return;
+      }
       const data = await res.json();
-      message.info(data.message || `Đã hủy phiên của ${userIds.length} người dùng! ⚡`);
+      message.success(data.message || `Đã hủy phiên của ${userIds.length} người dùng! ⚡`);
       setClearUserSelected((prev) => !prev);
       setSelectedUserRows([]);
       loadUsers();
-    } else {
-      message.error('Lỗi khi hủy phiên hàng loạt');
+    } catch {
+      message.error('Không thể hủy phiên hàng loạt. Vui lòng thử lại.');
     }
   }, [loadUsers]);
 
@@ -150,14 +183,16 @@ export default function UsersView({ isDarkMode }) {
           <Button size="small" type="primary" icon={<GiftOutlined />} onClick={() => setGrantModalUser(r)}>
             Tặng Gói
           </Button>
-          <Popconfirm
+          <ConfirmActionButton
             title="Hủy tất cả phiên của người dùng này?"
+            description="Phiên đăng nhập hiện tại trên tất cả thiết bị sẽ bị chấm dứt."
             onConfirm={() => handleRevokeSessions(r.id)}
-            okText="Hủy phiên"
+            confirmText="Hủy phiên"
             cancelText="Đóng"
+            buttonProps={{ size: 'small', danger: true }}
           >
-            <Button size="small" danger>Hủy Session</Button>
-          </Popconfirm>
+            Hủy Session
+          </ConfirmActionButton>
         </Space>
       ),
     },
@@ -167,16 +202,17 @@ export default function UsersView({ isDarkMode }) {
     const userIds = selectedUserRows.map((r) => r.id);
     const count = userIds.length;
     return (
-      <Popconfirm
+      <ConfirmActionButton
         title={`Hủy tất cả phiên đăng nhập của ${count} người dùng đã chọn?`}
+        description="Người dùng đã chọn sẽ cần đăng nhập lại trên mọi thiết bị."
         onConfirm={() => handleBatchRevokeSessions(userIds)}
-        okText="Hủy phiên"
+        confirmText="Hủy phiên"
         cancelText="Đóng"
+        buttonProps={{ danger: true, icon: <PoweroffOutlined />, size: 'small' }}
+        disabled={!count}
       >
-        <Button danger icon={<PoweroffOutlined />} size="small">
-          Hủy phiên ({count} đã chọn)
-        </Button>
-      </Popconfirm>
+        Hủy phiên ({count} đã chọn)
+      </ConfirmActionButton>
     );
   }, [selectedUserRows, handleBatchRevokeSessions]);
 
@@ -186,7 +222,7 @@ export default function UsersView({ isDarkMode }) {
         title={
           <Space align="center">
             <span>👥 Danh Sách Người Dùng</span>
-            <Tag color="blue">{users.length} người dùng</Tag>
+            <Tag color="blue">{usersTotal} người dùng</Tag>
           </Space>
         }
         extra={
@@ -194,15 +230,25 @@ export default function UsersView({ isDarkMode }) {
             <Input.Search
               placeholder="Tìm email, tên..."
               allowClear
-              onSearch={setUserSearch}
-              onChange={(e) => setUserSearch(e.target.value)}
+              onSearch={(value) => { setUsersPage(1); setUserSearch(value); }}
+              onChange={(e) => { setUsersPage(1); setUserSearch(e.target.value); }}
               style={{ width: 220 }}
             />
-            <Select placeholder="Role" allowClear onChange={setRoleFilter} style={{ width: 120 }}>
+            <Select placeholder="Role" allowClear onChange={(value) => { setUsersPage(1); setRoleFilter(value || ''); }} style={{ width: 120 }}>
               <Option value="user">User</Option>
               <Option value="admin">Admin</Option>
               <Option value="vip">VIP</Option>
             </Select>
+            <Button
+              disabled={!users.length}
+              onClick={() => downloadCsv(users, [
+                { label: 'Email', value: (user) => user.email },
+                { label: 'Tên', value: (user) => user.fullName || user.displayName || user.username },
+                { label: 'Vai trò', value: (user) => user.role },
+                { label: 'Gói', value: (user) => user.planName },
+                { label: 'Ngày tạo', value: (user) => user.createdAt },
+              ], `users-page-${usersPage}`)}
+            >Xuất CSV trang này</Button>
             <Button icon={<ReloadOutlined />} onClick={loadUsers}>Làm mới</Button>
           </Space>
         }
@@ -217,7 +263,11 @@ export default function UsersView({ isDarkMode }) {
           onSelectedRowsChange={({ selectedRows }) => setSelectedUserRows(selectedRows)}
           clearSelectedRows={clearUserSelected}
           contextActions={userContextActions}
-          paginationPerPage={15}
+          paginationPerPage={usersLimit}
+          paginationServer
+          paginationTotalRows={usersTotal}
+          paginationPage={usersPage}
+          onChangePage={setUsersPage}
         />
       </Card>
 

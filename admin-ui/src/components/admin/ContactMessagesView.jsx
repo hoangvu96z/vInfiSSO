@@ -1,16 +1,20 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Card, Space, Tag, Input, Select, Button, Popconfirm, message
+  Card, Space, Tag, Input, Select, Button, DatePicker, message
 } from 'antd';
 import {
   ReloadOutlined, CheckOutlined, EyeOutlined, DeleteOutlined, PictureOutlined
 } from '@ant-design/icons';
 import ModernDataTable from '../ModernDataTable';
 import MessageDetailModal from './modals/MessageDetailModal';
-import { authFetch, safeArr } from '../../utils/api';
+import ConfirmActionButton from './ConfirmActionButton';
+import { authFetch, getResponseErrorMessage } from '../../utils/api';
 import { formatTimeWithZone } from '../../utils/dateUtils';
+import { downloadCsv } from '../../utils/csv';
 
 const { Option } = Select;
+const { RangePicker } = DatePicker;
+const CONTACT_PAGE_SIZE = 25;
 
 export default function ContactMessagesView({
   isDarkMode,
@@ -19,9 +23,12 @@ export default function ContactMessagesView({
   onUnreadCountChange,
 }) {
   const [messages, setMessages] = useState([]);
+  const [messagesTotal, setMessagesTotal] = useState(0);
+  const [messagesPage, setMessagesPage] = useState(1);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [contactFilterStatus, setContactFilterStatus] = useState('all');
   const [contactSearchText, setContactSearchText] = useState('');
+  const [contactDateRange, setContactDateRange] = useState(null);
 
   const [selectedContactRows, setSelectedContactRows] = useState([]);
   const [clearContactSelected, setClearContactSelected] = useState(false);
@@ -32,20 +39,40 @@ export default function ContactMessagesView({
 
   const loadContactMessages = useCallback(async () => {
     setMessagesLoading(true);
-    const [resList, resCount] = await Promise.all([
-      authFetch('/contact/admin/messages?limit=100'),
-      authFetch('/contact/admin/unread-count'),
-    ]);
-    if (resList) {
-      const data = await resList.json();
-      setMessages(data.messages || []);
+    try {
+      const [resList, resCount] = await Promise.all([
+        (() => {
+          const query = new URLSearchParams({
+            page: String(messagesPage),
+            limit: String(CONTACT_PAGE_SIZE),
+          });
+          if (contactSearchText) query.set('search', contactSearchText);
+          if (contactFilterStatus !== 'all') query.set('status', contactFilterStatus);
+          if (contactDateRange?.[0]) query.set('dateFrom', contactDateRange[0].startOf('day').toISOString());
+          if (contactDateRange?.[1]) query.set('dateTo', contactDateRange[1].add(1, 'day').startOf('day').toISOString());
+          return authFetch(`/contact/admin/messages?${query.toString()}`);
+        })(),
+        authFetch('/contact/admin/unread-count'),
+      ]);
+      if (resList?.ok) {
+        const data = await resList.json();
+        setMessages(data.messages || []);
+        setMessagesTotal(data.total || 0);
+      } else if (resList) {
+        message.error(await getResponseErrorMessage(resList, 'Không thể tải tin nhắn liên hệ'));
+      }
+      if (resCount?.ok) {
+        const countData = await resCount.json();
+        onUnreadCountChange?.(countData.count || 0);
+      } else if (resCount) {
+        message.error(await getResponseErrorMessage(resCount, 'Không thể tải số tin nhắn chưa đọc'));
+      }
+    } catch {
+      message.error('Không thể tải tin nhắn liên hệ. Vui lòng thử lại.');
+    } finally {
+      setMessagesLoading(false);
     }
-    if (resCount) {
-      const countData = await resCount.json();
-      onUnreadCountChange?.(countData.count || 0);
-    }
-    setMessagesLoading(false);
-  }, [onUnreadCountChange]);
+  }, [onUnreadCountChange, messagesPage, contactFilterStatus, contactSearchText, contactDateRange]);
 
   useEffect(() => {
     loadContactMessages();
@@ -54,34 +81,61 @@ export default function ContactMessagesView({
   const handleViewMessage = useCallback(async (msgSummary) => {
     setDetailModalOpen(true);
     setDetailLoading(true);
-    const res = await authFetch(`/contact/admin/messages/${msgSummary.id}`);
-    if (res) {
+    setSelectedMessage(null);
+    try {
+      const res = await authFetch(`/contact/admin/messages/${msgSummary.id}`);
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể tải tin nhắn'));
+        return;
+      }
       const data = await res.json();
       setSelectedMessage(data.message);
       if (!msgSummary.isRead) {
-        await authFetch(`/contact/admin/messages/${msgSummary.id}/read`, { method: 'PATCH' });
-        setMessages((prev) => prev.map((m) => (m.id === msgSummary.id ? { ...m, isRead: true } : m)));
-        onUnreadCountChange?.(Math.max(0, unreadCount - 1));
+        const readRes = await authFetch(`/contact/admin/messages/${msgSummary.id}/read`, { method: 'PATCH' });
+        if (readRes?.ok) {
+          setMessages((prev) => prev.map((m) => (m.id === msgSummary.id ? { ...m, isRead: true } : m)));
+          onUnreadCountChange?.(Math.max(0, unreadCount - 1));
+          loadContactMessages();
+        } else if (readRes) {
+          message.error(await getResponseErrorMessage(readRes, 'Không thể đánh dấu tin nhắn đã đọc'));
+        }
       }
+    } catch {
+      message.error('Không thể tải tin nhắn. Vui lòng thử lại.');
+    } finally {
+      setDetailLoading(false);
     }
-    setDetailLoading(false);
-  }, [unreadCount, onUnreadCountChange]);
+  }, [unreadCount, onUnreadCountChange, loadContactMessages]);
 
   const handleMarkAllRead = async () => {
-    const res = await authFetch('/contact/admin/read-all', { method: 'PATCH' });
-    if (res) {
+    try {
+      const res = await authFetch('/contact/admin/read-all', { method: 'PATCH' });
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể đánh dấu tất cả tin nhắn đã đọc'));
+        return;
+      }
       message.success('Đã đánh dấu tất cả là đã đọc! ✅');
       setMessages((prev) => prev.map((m) => ({ ...m, isRead: true })));
       onUnreadCountChange?.(0);
+    } catch {
+      message.error('Không thể đánh dấu tất cả tin nhắn đã đọc. Vui lòng thử lại.');
     }
   };
 
   const handleDeleteMessage = useCallback(async (id) => {
-    const res = await authFetch(`/contact/admin/messages/${id}`, { method: 'DELETE' });
-    if (res) {
+    try {
+      const res = await authFetch(`/contact/admin/messages/${id}`, { method: 'DELETE' });
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể xóa tin nhắn'));
+        return;
+      }
       message.success('Đã xóa tin nhắn! 🗑️');
       const target = messages.find((m) => m.id === id);
       setMessages((prev) => prev.filter((m) => m.id !== id));
+      setMessagesTotal((total) => Math.max(0, total - 1));
       if (target && !target.isRead) {
         onUnreadCountChange?.(Math.max(0, unreadCount - 1));
       }
@@ -89,17 +143,24 @@ export default function ContactMessagesView({
         setDetailModalOpen(false);
         setSelectedMessage(null);
       }
+    } catch {
+      message.error('Không thể xóa tin nhắn. Vui lòng thử lại.');
     }
   }, [messages, selectedMessage, unreadCount, onUnreadCountChange]);
 
   const handleBatchDeleteMessages = useCallback(async (ids) => {
     if (!ids || ids.length === 0) return;
-    const res = await authFetch('/contact/admin/messages/batch-delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
-    });
-    if (res && res.ok) {
+    try {
+      const res = await authFetch('/contact/admin/messages/batch-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể xóa tin nhắn hàng loạt'));
+        return;
+      }
       const data = await res.json();
       message.success(`Đã xóa ${data.count || ids.length} tin nhắn đã chọn! 🗑️`);
       setMessages((prev) => prev.filter((m) => !ids.includes(m.id)));
@@ -110,48 +171,34 @@ export default function ContactMessagesView({
         setSelectedMessage(null);
       }
       loadContactMessages();
-    } else {
-      message.error('Lỗi khi xóa tin nhắn hàng loạt');
+    } catch {
+      message.error('Không thể xóa tin nhắn hàng loạt. Vui lòng thử lại.');
     }
   }, [selectedMessage, loadContactMessages]);
 
   const handleBatchMarkReadMessages = useCallback(async (ids) => {
     if (!ids || ids.length === 0) return;
-    const res = await authFetch('/contact/admin/messages/batch-read', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
-    });
-    if (res && res.ok) {
+    try {
+      const res = await authFetch('/contact/admin/messages/batch-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể đánh dấu tin nhắn đã đọc'));
+        return;
+      }
       const data = await res.json();
       message.success(`Đã đánh dấu ${data.count || ids.length} tin nhắn đã đọc! ✅`);
       setMessages((prev) => prev.map((m) => (ids.includes(m.id) ? { ...m, isRead: true } : m)));
       setClearContactSelected((prev) => !prev);
       setSelectedContactRows([]);
       loadContactMessages();
-    } else {
-      message.error('Lỗi khi đánh dấu đã đọc');
+    } catch {
+      message.error('Không thể đánh dấu tin nhắn đã đọc. Vui lòng thử lại.');
     }
   }, [loadContactMessages]);
-
-  const filteredMessages = useMemo(() => {
-    return safeArr(messages).filter((m) => {
-      if (contactFilterStatus === 'unread' && m.isRead) return false;
-      if (contactFilterStatus === 'read' && !m.isRead) return false;
-      if (contactSearchText) {
-        const q = contactSearchText.toLowerCase();
-        const match =
-          (m.name && m.name.toLowerCase().includes(q)) ||
-          (m.email && m.email.toLowerCase().includes(q)) ||
-          (m.title && m.title.toLowerCase().includes(q)) ||
-          (m.message && m.message.toLowerCase().includes(q)) ||
-          (m.device && m.device.toLowerCase().includes(q)) ||
-          (m.location && m.location.toLowerCase().includes(q));
-        if (!match) return false;
-      }
-      return true;
-    });
-  }, [messages, contactFilterStatus, contactSearchText]);
 
   const contactColumns = useMemo(() => [
     {
@@ -239,9 +286,13 @@ export default function ContactMessagesView({
           <Button size="small" type="primary" icon={<EyeOutlined />} onClick={() => handleViewMessage(r)}>
             Xem
           </Button>
-          <Popconfirm title="Xóa tin nhắn này?" onConfirm={() => handleDeleteMessage(r.id)} okText="Xóa" cancelText="Hủy">
-            <Button size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
+          <ConfirmActionButton
+            title="Xóa tin nhắn này?"
+            description="Tin nhắn và ảnh đính kèm sẽ bị xóa vĩnh viễn."
+            onConfirm={() => handleDeleteMessage(r.id)}
+            confirmText="Xóa"
+            buttonProps={{ size: 'small', danger: true, icon: <DeleteOutlined /> }}
+          />
         </Space>
       ),
     },
@@ -259,16 +310,17 @@ export default function ContactMessagesView({
         >
           Đánh dấu {count} đã đọc
         </Button>
-        <Popconfirm
+        <ConfirmActionButton
           title={`Xóa vĩnh viễn ${count} tin nhắn đã chọn?`}
+          description="Tin nhắn và ảnh đính kèm đã chọn sẽ bị xóa vĩnh viễn."
           onConfirm={() => handleBatchDeleteMessages(ids)}
-          okText="Xóa"
+          confirmText="Xóa"
           cancelText="Hủy"
+          buttonProps={{ size: 'small', danger: true, icon: <DeleteOutlined /> }}
+          disabled={!count}
         >
-          <Button size="small" danger icon={<DeleteOutlined />}>
-            Xóa {count} đã chọn
-          </Button>
-        </Popconfirm>
+          Xóa {count} đã chọn
+        </ConfirmActionButton>
       </Space>
     );
   }, [selectedContactRows, handleBatchMarkReadMessages, handleBatchDeleteMessages]);
@@ -280,7 +332,7 @@ export default function ContactMessagesView({
           <Space align="center">
             <span>💬 Hộp Thư TalkWithMe</span>
             {unreadCount > 0 && <Tag color="cyan">{unreadCount} chưa đọc</Tag>}
-            <Tag color="default">Tổng {messages.length}</Tag>
+            <Tag color="default">Tổng {messagesTotal}</Tag>
           </Space>
         }
         extra={
@@ -288,18 +340,35 @@ export default function ContactMessagesView({
             <Input.Search
               placeholder="Tìm người gửi, email, tin nhắn..."
               allowClear
-              onChange={(e) => setContactSearchText(e.target.value)}
+              onChange={(e) => { setMessagesPage(1); setContactSearchText(e.target.value); }}
               style={{ width: 240 }}
             />
             <Select
               value={contactFilterStatus}
-              onChange={setContactFilterStatus}
+              onChange={(value) => { setMessagesPage(1); setContactFilterStatus(value); }}
               style={{ width: 130 }}
             >
-              <Option value="all">Tất cả ({messages.length})</Option>
+              <Option value="all">Tất cả</Option>
               <Option value="unread">Chưa đọc ({unreadCount})</Option>
-              <Option value="read">Đã đọc ({Math.max(0, messages.length - unreadCount)})</Option>
+              <Option value="read">Đã đọc</Option>
             </Select>
+            <RangePicker
+              allowClear
+              value={contactDateRange}
+              onChange={(value) => { setMessagesPage(1); setContactDateRange(value); }}
+              placeholder={['Từ ngày', 'Đến ngày']}
+            />
+            <Button
+              disabled={!messages.length}
+              onClick={() => downloadCsv(messages, [
+                { label: 'Thời gian', value: (item) => item.createdAt },
+                { label: 'Người gửi', value: (item) => item.name },
+                { label: 'Email', value: (item) => item.email },
+                { label: 'Tiêu đề', value: (item) => item.title },
+                { label: 'Tin nhắn', value: (item) => item.message },
+                { label: 'Trạng thái', value: (item) => item.isRead ? 'Đã đọc' : 'Chưa đọc' },
+              ], `contact-messages-page-${messagesPage}`)}
+            >Xuất CSV trang này</Button>
             <Button icon={<ReloadOutlined />} onClick={loadContactMessages} loading={messagesLoading}>
               Làm mới
             </Button>
@@ -313,7 +382,7 @@ export default function ContactMessagesView({
       >
         <ModernDataTable
           columns={contactColumns}
-          data={filteredMessages}
+          data={messages}
           loading={messagesLoading}
           isDarkMode={isDarkMode}
           keyField="id"
@@ -321,7 +390,11 @@ export default function ContactMessagesView({
           onSelectedRowsChange={({ selectedRows }) => setSelectedContactRows(selectedRows)}
           clearSelectedRows={clearContactSelected}
           contextActions={contactContextActions}
-          paginationPerPage={15}
+          paginationPerPage={CONTACT_PAGE_SIZE}
+          paginationServer
+          paginationTotalRows={messagesTotal}
+          paginationPage={messagesPage}
+          onChangePage={setMessagesPage}
         />
       </Card>
 

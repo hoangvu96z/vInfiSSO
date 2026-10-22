@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Card, Space, Tag, Input, Button } from 'antd';
+import { Card, Space, Tag, Input, Button, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import ModernDataTable from '../ModernDataTable';
-import { authFetch, safeArr } from '../../utils/api';
+import { authFetch, getResponseErrorMessage, safeArr } from '../../utils/api';
 
 export default function AiLeaderboardView({ isDarkMode }) {
   const [aiUsage, setAiUsage] = useState([]);
@@ -11,12 +11,20 @@ export default function AiLeaderboardView({ isDarkMode }) {
 
   const loadAiUsage = useCallback(async () => {
     setAiLoading(true);
-    const res = await authFetch('/admin/ai-usage');
-    if (res) {
+    try {
+      const res = await authFetch('/admin/ai-usage');
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể tải thống kê sử dụng AI'));
+        return;
+      }
       const data = await res.json();
       setAiUsage(data.userAiStats || data.data || []);
+    } catch {
+      message.error('Không thể tải thống kê sử dụng AI. Vui lòng thử lại.');
+    } finally {
+      setAiLoading(false);
     }
-    setAiLoading(false);
   }, []);
 
   useEffect(() => {

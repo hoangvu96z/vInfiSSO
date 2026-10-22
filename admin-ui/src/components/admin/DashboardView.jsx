@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Row, Col, Card, Statistic } from 'antd';
+import { Row, Col, Card, Statistic, message } from 'antd';
 import {
   UserOutlined, PoweroffOutlined, AuditOutlined, RobotOutlined
 } from '@ant-design/icons';
@@ -8,7 +8,7 @@ import {
   BarElement, ArcElement, Title as ChartTitle, Tooltip as ChartTooltip, Legend, Filler
 } from 'chart.js';
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
-import { authFetch, safeArr } from '../../utils/api';
+import { authFetch, getResponseErrorMessage, safeArr } from '../../utils/api';
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement,
@@ -22,19 +22,28 @@ export default function DashboardView({ isDarkMode }) {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [resStats, resCharts] = await Promise.all([
-      authFetch('/admin/stats'),
-      authFetch('/admin/analytics'),
-    ]);
-    if (resStats) {
-      const dataStats = await resStats.json();
-      setStats(dataStats);
+    try {
+      const [resStats, resCharts] = await Promise.all([
+        authFetch('/admin/stats'),
+        authFetch('/admin/analytics'),
+      ]);
+      if (resStats?.ok) {
+        const dataStats = await resStats.json();
+        setStats(dataStats);
+      } else if (resStats) {
+        message.error(await getResponseErrorMessage(resStats, 'Không thể tải thống kê quản trị'));
+      }
+      if (resCharts?.ok) {
+        const dataCharts = await resCharts.json();
+        setAnalyticsData(dataCharts);
+      } else if (resCharts) {
+        message.error(await getResponseErrorMessage(resCharts, 'Không thể tải biểu đồ quản trị'));
+      }
+    } catch {
+      message.error('Không thể tải dữ liệu quản trị. Vui lòng thử lại.');
+    } finally {
+      setLoading(false);
     }
-    if (resCharts) {
-      const dataCharts = await resCharts.json();
-      setAnalyticsData(dataCharts);
-    }
-    setLoading(false);
   }, []);
 
   useEffect(() => {

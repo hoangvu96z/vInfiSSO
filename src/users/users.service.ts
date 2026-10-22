@@ -1,6 +1,11 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  ConflictException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import * as bcryptjs from 'bcryptjs';
 import { User } from './user.entity';
 import { OAuthAccount } from './oauth-account.entity';
@@ -21,7 +26,12 @@ export class UsersService {
     private readonly sessionsRepo: Repository<Session>,
 
     private readonly mailService: MailService,
+    private readonly dataSource: DataSource,
   ) {}
+
+  private digestActionToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
 
   // ─── Users ────────────────────────────────────────────────────────────────
 
@@ -62,7 +72,7 @@ export class UsersService {
       passwordHash,
       displayName: dto.displayName?.trim() || normalizedEmail.split('@')[0],
       avatarUrl: dto.avatarUrl ?? null,
-      emailVerificationToken,
+      emailVerificationToken: this.digestActionToken(emailVerificationToken),
       emailVerificationTokenExpiresAt,
     });
 
@@ -102,7 +112,8 @@ export class UsersService {
 
     if (dto.displayName !== undefined) {
       const name = dto.displayName?.trim();
-      if (!name) throw new ConflictException('Tên hiển thị không được để trống');
+      if (!name)
+        throw new ConflictException('Tên hiển thị không được để trống');
       user.displayName = name.substring(0, 100);
     }
 
@@ -128,7 +139,9 @@ export class UsersService {
     return this.usersRepo.save(user);
   }
 
-  async findAvatar(userId: string): Promise<{ buffer: Buffer | null; contentType: string | null } | null> {
+  async findAvatar(
+    userId: string,
+  ): Promise<{ buffer: Buffer | null; contentType: string | null } | null> {
     const user = await this.findById(userId);
     if (!user || !user.avatar) return null;
     return { buffer: user.avatar, contentType: user.avatarContentType };
@@ -185,12 +198,19 @@ export class UsersService {
 
   // ─── Sessions ─────────────────────────────────────────────────────────────
 
-  async createSession(userId: string, appOrigin?: string): Promise<string> {
+  async createSession(
+    userId: string,
+    appOrigin?: string,
+    ttlMs = 30 * 24 * 60 * 60 * 1000,
+  ): Promise<string> {
     // Generate a secure random token
     const rawToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const tokenHash = crypto
+      .createHash('sha256')
+      .update(rawToken)
+      .digest('hex');
 
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+    const expiresAt = new Date(Date.now() + ttlMs);
 
     const user = await this.findById(userId);
     if (!user) throw new NotFoundException('User not found');
@@ -206,10 +226,43 @@ export class UsersService {
     return rawToken; // Return unhashed token to store in cookie
   }
 
+  async consumeOAuthLoginCode(
+    rawCode: string,
+    appOrigin: string,
+  ): Promise<User> {
+    if (!/^[a-f0-9]{64}$/.test(rawCode)) {
+      throw new UnauthorizedException(
+        'Mã đăng nhập không hợp lệ hoặc đã hết hạn',
+      );
+    }
+    const tokenHash = crypto.createHash('sha256').update(rawCode).digest('hex');
+    const userId = await this.dataSource.transaction(async (manager) => {
+      const rows = await manager.query(
+        'SELECT id, user_id, expires_at FROM sessions WHERE token_hash = $1 AND app_origin = $2 FOR UPDATE',
+        [tokenHash, appOrigin],
+      );
+      const session = rows[0] as
+        { id: string; user_id: string; expires_at: Date } | undefined;
+      if (!session || new Date(session.expires_at) <= new Date()) {
+        throw new UnauthorizedException(
+          'Mã đăng nhập không hợp lệ hoặc đã hết hạn',
+        );
+      }
+      await manager.query('DELETE FROM sessions WHERE id = $1', [session.id]);
+      return session.user_id;
+    });
+    const user = await this.findById(userId);
+    if (!user) throw new NotFoundException('Tài khoản không còn tồn tại');
+    return user;
+  }
+
   async resolveSessionByToken(rawToken: string): Promise<User | null> {
     if (!rawToken) return null;
 
-    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const tokenHash = crypto
+      .createHash('sha256')
+      .update(rawToken)
+      .digest('hex');
 
     const session = await this.sessionsRepo.findOne({
       where: { tokenHash },
@@ -229,7 +282,10 @@ export class UsersService {
   async deleteSessionByToken(rawToken: string): Promise<void> {
     if (!rawToken) return;
 
-    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const tokenHash = crypto
+      .createHash('sha256')
+      .update(rawToken)
+      .digest('hex');
     await this.sessionsRepo.delete({ tokenHash });
   }
 
@@ -245,7 +301,9 @@ export class UsersService {
 
   async verifyEmail(token: string): Promise<User | null> {
     const user = await this.usersRepo.findOne({
-      where: { emailVerificationToken: token },
+      where: {
+        emailVerificationToken: In([this.digestActionToken(token), token]),
+      },
     });
 
     if (!user) {
@@ -290,7 +348,9 @@ export class UsersService {
       Date.now() + 24 * 60 * 60 * 1000,
     );
 
-    user.emailVerificationToken = emailVerificationToken;
+    user.emailVerificationToken = this.digestActionToken(
+      emailVerificationToken,
+    );
     user.emailVerificationTokenExpiresAt = emailVerificationTokenExpiresAt;
 
     await this.usersRepo.save(user);
@@ -321,7 +381,7 @@ export class UsersService {
     const passwordResetToken = crypto.randomBytes(32).toString('hex');
     const passwordResetTokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
-    user.passwordResetToken = passwordResetToken;
+    user.passwordResetToken = this.digestActionToken(passwordResetToken);
     user.passwordResetTokenExpiresAt = passwordResetTokenExpiresAt;
 
     await this.usersRepo.save(user);
@@ -344,27 +404,34 @@ export class UsersService {
       throw new ConflictException('Mật khẩu phải có ít nhất 8 ký tự');
     }
 
-    const user = await this.usersRepo.findOne({
-      where: { passwordResetToken: token },
+    const passwordHash = await bcryptjs.hash(newPassword, 12);
+    return this.dataSource.transaction(async (manager) => {
+      const candidates = [this.digestActionToken(token), token];
+      const user = await manager
+        .getRepository(User)
+        .createQueryBuilder('user')
+        .setLock('pessimistic_write')
+        .where('user.passwordResetToken IN (:...candidates)', { candidates })
+        .getOne();
+      if (!user) throw new NotFoundException('Token không hợp lệ');
+      if (
+        !user.passwordResetTokenExpiresAt ||
+        user.passwordResetTokenExpiresAt < new Date()
+      ) {
+        throw new NotFoundException('Token đã hết hạn');
+      }
+
+      user.passwordHash = passwordHash;
+      user.passwordResetToken = null;
+      user.passwordResetTokenExpiresAt = null;
+      const saved = await manager.getRepository(User).save(user);
+      await manager
+        .getRepository(Session)
+        .createQueryBuilder()
+        .delete()
+        .where('user_id = :userId', { userId: user.id })
+        .execute();
+      return saved;
     });
-
-    if (!user) {
-      throw new NotFoundException('Token không hợp lệ');
-    }
-
-    // Check if token has expired
-    if (
-      user.passwordResetTokenExpiresAt &&
-      user.passwordResetTokenExpiresAt < new Date()
-    ) {
-      throw new NotFoundException('Token đã hết hạn');
-    }
-
-    // Update password
-    user.passwordHash = await bcryptjs.hash(newPassword, 12);
-    user.passwordResetToken = null;
-    user.passwordResetTokenExpiresAt = null;
-
-    return this.usersRepo.save(user);
   }
 }

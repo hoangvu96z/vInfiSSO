@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Row, Col, Card, Typography, Switch, Button, message } from 'antd';
 import { EditOutlined } from '@ant-design/icons';
 import EditPlanModal from './modals/EditPlanModal';
-import { authFetch, safeArr } from '../../utils/api';
+import { authFetch, getResponseErrorMessage, safeArr } from '../../utils/api';
 
 const { Title, Text } = Typography;
 
@@ -13,12 +13,20 @@ export default function PlansView() {
 
   const loadPlans = useCallback(async () => {
     setLoading(true);
-    const res = await authFetch('/admin/plans');
-    if (res) {
+    try {
+      const res = await authFetch('/admin/plans');
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể tải gói dịch vụ'));
+        return;
+      }
       const data = await res.json();
       setPlans(data.plans || []);
+    } catch {
+      message.error('Không thể tải gói dịch vụ. Vui lòng thử lại.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -26,31 +34,41 @@ export default function PlansView() {
   }, [loadPlans]);
 
   const handleTogglePlan = async (planName, isActive) => {
-    const res = await authFetch(`/admin/plans/${planName}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isActive }),
-    });
-    if (res && res.ok) {
+    try {
+      const res = await authFetch(`/admin/plans/${planName}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive }),
+      });
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể thay đổi trạng thái gói'));
+        return;
+      }
       message.success(`✅ Đã ${isActive ? 'bật' : 'tắt'} gói ${planName.toUpperCase()}!`);
-    } else {
-      message.error('❌ Không thể thay đổi trạng thái gói!');
+      loadPlans();
+    } catch {
+      message.error('Không thể thay đổi trạng thái gói. Vui lòng thử lại.');
     }
-    loadPlans();
   };
 
   const handleTogglePlanField = async (planName, field, value, label) => {
-    const res = await authFetch(`/admin/plans/${planName}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ [field]: value }),
-    });
-    if (res && res.ok) {
+    try {
+      const res = await authFetch(`/admin/plans/${planName}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [field]: value }),
+      });
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, `Không thể cập nhật "${label}"`));
+        return;
+      }
       message.success(`✅ ${label}: ${value ? 'Bật' : 'Tắt'} thành công!`);
-    } else {
-      message.error(`❌ Không thể cập nhật "${label}"!`);
+      loadPlans();
+    } catch {
+      message.error(`Không thể cập nhật "${label}". Vui lòng thử lại.`);
     }
-    loadPlans();
   };
 
   return (

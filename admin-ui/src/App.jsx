@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { message } from 'antd';
 import SsoPage from './pages/SsoPage';
 import AdminPage from './pages/AdminPage';
 import ProfilePage from './pages/ProfilePage';
 import PaymentPage from './pages/PaymentPage';
+import { getResponseErrorMessage } from './utils/api';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -47,18 +49,22 @@ export default function App() {
         });
         if (res.ok) {
           const data = await res.json();
-          // Đồng bộ token từ server (cookie session) về localStorage
-          // để các flow redirect kèm ?sso_token= luôn có token sẵn
-          if (data.user && data.token) {
-            localStorage.setItem('sso_token', data.token);
+          if (data.user) {
+            setUser(data.user);
+          } else {
+            localStorage.removeItem('sso_token');
+            setUser(null);
           }
-          setUser(data.user);
-        } else {
+        } else if (res.status === 401 || res.status === 403) {
           localStorage.removeItem('sso_token');
           setUser(null);
+        } else {
+          setUser(null);
+          message.error(await getResponseErrorMessage(res, 'Không thể xác minh phiên đăng nhập'));
         }
-      } catch (e) {
+      } catch {
         setUser(null);
+        message.error('Không thể kết nối để xác minh phiên đăng nhập. Vui lòng thử lại.');
       } finally {
         setLoading(false);
       }
@@ -72,12 +78,16 @@ export default function App() {
     localStorage.removeItem('sso_token');
 
     try {
-      const token = localStorage.getItem('sso_token'); // already null, but keep for header
-      await fetch('/sso/logout', {
+      const res = await fetch('/sso/logout', {
         method: 'POST',
         credentials: 'include',
       });
-    } catch (e) {}
+      if (!res.ok) {
+        message.warning(await getResponseErrorMessage(res, 'Máy chủ chưa xác nhận đã hủy phiên đăng nhập'));
+      }
+    } catch {
+      message.warning('Đã đăng xuất khỏi giao diện, nhưng không thể kết nối để hủy phiên trên máy chủ.');
+    }
 
     // DO NOT do window.location.href — just update React state directly
     // This avoids re-triggering checkSession with a potentially still-valid cookie

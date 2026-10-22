@@ -4,45 +4,25 @@ import {
   Post,
   Body,
   Req,
+  UseGuards,
   UnauthorizedException,
   BadRequestException,
   ServiceUnavailableException,
   BadGatewayException,
+  Res,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { PlansService } from './plans.service';
-import { SsoService } from '../sso/sso.service';
-
-const COOKIE_NAME = 'sso_token';
+import { SsoAuthGuard } from '../auth/auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { User } from '../users/user.entity';
+import { AppQuotaDto, ApplyCouponDto, PlansAiDto, TuviAiDto } from './dto/plan-write.dto';
 
 @Controller('plans')
 export class PlansController {
   constructor(
     private readonly plansService: PlansService,
-    private readonly ssoService: SsoService,
   ) {}
-
-  private getToken(req: Request): string | undefined {
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
-      return authHeader.substring(7).trim();
-    }
-    const raw = req.headers.cookie ?? '';
-    const entry = raw
-      .split(';')
-      .map((s) => s.trim())
-      .find((s) => s.startsWith(`${COOKIE_NAME}=`));
-    if (!entry) return undefined;
-    const [, val] = entry.split('=');
-    return val ? decodeURIComponent(val) : undefined;
-  }
-
-  private async requireUser(req: Request) {
-    const token = this.getToken(req);
-    const user = await this.ssoService.resolveSession(token);
-    if (!user) throw new UnauthorizedException('Vui lòng đăng nhập');
-    return user;
-  }
 
   private extractAppName(req: Request, body?: any): string {
     const qApp = req.query.app as string;
@@ -53,27 +33,190 @@ export class PlansController {
 
   // GET /plans/my-quota — Kiểm tra quota còn lại
   @Get('my-quota')
-  async getMyQuota(@Req() req: Request) {
-    const user = await this.requireUser(req);
+  @UseGuards(SsoAuthGuard)
+  async getMyQuota(@CurrentUser() user: User, @Req() req: Request) {
     const app = this.extractAppName(req);
     return this.plansService.checkQuota(user.id, app);
   }
 
   // GET /plans/my-subscription — Thông tin gói hiện tại
   @Get('my-subscription')
-  async getMySubscription(@Req() req: Request) {
-    const user = await this.requireUser(req);
+  @UseGuards(SsoAuthGuard)
+  async getMySubscription(@CurrentUser() user: User) {
     return this.plansService.getMySubscription(user.id);
   }
 
   // POST /plans/consume — Trừ 1 lượt AI (gọi trước khi hỏi AI)
   @Post('consume')
-  async consume(@Req() req: Request, @Body() body?: { app?: string }) {
-    const user = await this.requireUser(req);
+  @UseGuards(SsoAuthGuard)
+  async consume(
+    @CurrentUser() user: User,
+    @Req() req: Request,
+    @Body() body?: AppQuotaDto,
+  ) {
     const app = this.extractAppName(req, body);
     await this.plansService.consumeQuota(user.id, app);
     const quota = await this.plansService.checkQuota(user.id, app);
     return { success: true, quota };
+  }
+
+  // POST /plans/ai — quota-gated server-side OpenAI-compatible streaming proxy.
+  @Post('ai')
+  @UseGuards(SsoAuthGuard)
+  async proxyAi(
+    @CurrentUser() user: User,
+    @Body() body: PlansAiDto,
+    @Res() res: Response,
+  ) {
+    const app = (body?.app || '').trim().toLowerCase();
+    const appBuckets: Record<string, string> = {
+      iching: 'ichingnow',
+      ichingnow: 'ichingnow',
+      tarot: 'tarotnow',
+      tarotnow: 'tarotnow',
+      tuvi: 'tuvinow',
+      tuvinow: 'tuvinow',
+    };
+    const quotaApp = appBuckets[app];
+    const defaultModels = [
+      'combo1',
+      'openrouter/tencent/hy3:free',
+      'openrouter/openai/gpt-oss-20b:free',
+      'openrouter/poolside/laguna-xs-2.1:free',
+      'openrouter/google/gemma-4-26b-a4b-it:free',
+    ];
+    const allowedModels = (
+      process.env.AI_MODELS ||
+      [
+        ...defaultModels,
+        ...(process.env.TUVI_AI_MODELS || '')
+          .split(',')
+          .map((model) => model.trim())
+          .filter(Boolean),
+      ].join(',')
+    )
+      .split(',')
+      .map((model) => model.trim())
+      .filter(Boolean);
+    const messages = body?.messages;
+    if (
+      !quotaApp ||
+      !body?.model ||
+      !allowedModels.includes(body.model) ||
+      body.stream !== true ||
+      !Array.isArray(messages) ||
+      messages.length < 1 ||
+      messages.length > 12 ||
+      messages.some(
+        (message) =>
+          !message ||
+          !['system', 'user', 'assistant'].includes(message.role) ||
+          typeof message.content !== 'string' ||
+          !message.content.trim() ||
+          message.content.length > 60000,
+      ) ||
+      messages.reduce((size, message) => size + message.content.length, 0) >
+        180000 ||
+      !['user', 'system'].includes(messages[0]?.role) ||
+      !['user', 'assistant'].includes(messages.at(-1)?.role || '') ||
+      (body.max_tokens !== undefined &&
+        (!Number.isInteger(body.max_tokens) ||
+          body.max_tokens < 1 ||
+          body.max_tokens > 8192)) ||
+      (body.temperature !== undefined &&
+        (!Number.isFinite(body.temperature) ||
+          body.temperature < 0 ||
+          body.temperature > 2))
+    ) {
+      throw new BadRequestException(
+        'Nội dung, model hoặc ứng dụng AI không hợp lệ',
+      );
+    }
+
+    const apiKey = (
+      process.env.AI_API_KEY ||
+      process.env.TUVI_AI_API_KEY ||
+      ''
+    ).trim();
+    if (!apiKey) {
+      throw new ServiceUnavailableException({
+        code: 'AI_NOT_CONFIGURED',
+        message: 'Dịch vụ AI chưa được cấu hình.',
+      });
+    }
+    const endpoint = (
+      process.env.AI_BASE_URL ||
+      process.env.TUVI_AI_BASE_URL ||
+      'http://127.0.0.1:20128/v1'
+    ).replace(/\/$/, '');
+    const reservation = await this.plansService.consumeQuota(user.id, quotaApp);
+    let responseStarted = false;
+    try {
+      let upstream: globalThis.Response;
+      try {
+        upstream = await fetch(`${endpoint}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: body.model,
+            messages,
+            stream: true,
+            ...(body.max_tokens !== undefined
+              ? { max_tokens: body.max_tokens }
+              : {}),
+            ...(body.temperature !== undefined
+              ? { temperature: body.temperature }
+              : {}),
+          }),
+          signal: AbortSignal.timeout(90000),
+        });
+      } catch {
+        throw new BadGatewayException({
+          code: 'AI_UPSTREAM_ERROR',
+          message: 'Không kết nối được dịch vụ AI.',
+        });
+      }
+      if (!upstream.ok || !upstream.body) {
+        throw new BadGatewayException({
+          code: 'AI_UPSTREAM_ERROR',
+          message: 'Dịch vụ AI chưa thể xử lý yêu cầu.',
+        });
+      }
+
+      const quota = await this.plansService.checkQuota(user.id, quotaApp);
+      res.status(200);
+      res.setHeader(
+        'Content-Type',
+        upstream.headers.get('content-type') ||
+          'text/event-stream; charset=utf-8',
+      );
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Quota-Remaining', String(quota.remaining));
+      responseStarted = true;
+      for await (const chunk of upstream.body as any) {
+        if (res.destroyed) break;
+        res.write(chunk);
+      }
+      res.end();
+    } catch (error) {
+      await this.plansService.refundQuota(
+        user.id,
+        reservation.app,
+        reservation.date,
+        reservation.usedBonus,
+      );
+      if (!responseStarted) throw error;
+      if (!res.destroyed) {
+        res.write(
+          `data: ${JSON.stringify({ error: { code: 'AI_UPSTREAM_ERROR', message: 'Dịch vụ AI bị gián đoạn.' } })}\n\n`,
+        );
+        res.end();
+      }
+    }
   }
 
   // TuViNow uses the same SSO session and quota bucket as /plans/consume.
@@ -88,15 +231,11 @@ export class PlansController {
   }
 
   @Post('tuvi-ai')
+  @UseGuards(SsoAuthGuard)
   async interpretTuvi(
-    @Req() req: Request,
-    @Body()
-    body: {
-      model?: string;
-      messages?: Array<{ role: string; content: string }>;
-    },
+    @CurrentUser() user: User,
+    @Body() body: TuviAiDto,
   ) {
-    const user = await this.requireUser(req);
     const { models } = this.getTuviAiConfig();
     const model = body?.model || models[0];
     const messages = body?.messages;
@@ -122,7 +261,11 @@ export class PlansController {
     }
     const apiKey = process.env.TUVI_AI_API_KEY?.trim();
     if (!apiKey) {
-      throw new ServiceUnavailableException({ code: 'AI_NOT_CONFIGURED', message: 'Dịch vụ luận giải Tử Vi chưa sẵn sàng. Bạn vẫn có thể sao chép prompt để sử dụng với AI khác.' });
+      throw new ServiceUnavailableException({
+        code: 'AI_NOT_CONFIGURED',
+        message:
+          'Dịch vụ luận giải Tử Vi chưa sẵn sàng. Bạn vẫn có thể sao chép prompt để sử dụng với AI khác.',
+      });
     }
     const endpoint = (
       process.env.TUVI_AI_BASE_URL || 'http://43.128.116.69:20128/v1'
@@ -182,8 +325,12 @@ export class PlansController {
 
   // POST /plans/bonus — Xin thêm 5 câu (Premium only)
   @Post('bonus')
-  async requestBonus(@Req() req: Request, @Body() body?: { app?: string }) {
-    const user = await this.requireUser(req);
+  @UseGuards(SsoAuthGuard)
+  async requestBonus(
+    @CurrentUser() user: User,
+    @Req() req: Request,
+    @Body() body?: AppQuotaDto,
+  ) {
     const app = this.extractAppName(req, body);
     const result = await this.plansService.requestBonus(user.id, app);
     const quota = await this.plansService.checkQuota(user.id, app);
@@ -192,11 +339,14 @@ export class PlansController {
 
   // POST /plans/apply-coupon — Nhập mã khuyến mãi
   @Post('apply-coupon')
-  async applyCoupon(@Req() req: Request, @Body() body: { code: string }) {
+  @UseGuards(SsoAuthGuard)
+  async applyCoupon(
+    @CurrentUser() user: User,
+    @Body() body: ApplyCouponDto,
+  ) {
     if (!body.code) {
       throw new UnauthorizedException('Vui lòng nhập mã khuyến mãi');
     }
-    const user = await this.requireUser(req);
     return this.plansService.applyCoupon(user.id, body.code);
   }
 

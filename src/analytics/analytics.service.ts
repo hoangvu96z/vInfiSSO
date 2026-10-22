@@ -267,7 +267,13 @@ export class AnalyticsService {
   /**
    * Paginated list of recent traffic visits with search
    */
-  async getTrafficLogs(page = 1, limit = 50, appFilter?: string, search?: string) {
+  async getTrafficLogs(
+    page = 1,
+    limit = 50,
+    appFilter?: string,
+    search?: string,
+    days = 30,
+  ) {
     const safePage = Math.max(1, page);
     const safeLimit = Math.min(Math.max(1, limit), 100);
     const skip = (safePage - 1) * safeLimit;
@@ -277,6 +283,11 @@ export class AnalyticsService {
       .orderBy('v.createdAt', 'DESC')
       .skip(skip)
       .take(safeLimit);
+
+    const safeDays = Math.min(Math.max(1, days), 90);
+    const since = new Date();
+    since.setDate(since.getDate() - safeDays);
+    qb.andWhere('v.createdAt >= :since', { since });
 
     if (appFilter && appFilter !== 'all') {
       qb.andWhere('v.app = :app', { app: appFilter.toLowerCase() });
@@ -297,6 +308,7 @@ export class AnalyticsService {
       total,
       page: safePage,
       limit: safeLimit,
+      days: safeDays,
       totalPages: Math.ceil(total / safeLimit),
     };
   }

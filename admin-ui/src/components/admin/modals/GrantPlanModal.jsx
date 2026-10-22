@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Modal, Form, Select, InputNumber, message } from 'antd';
-import { authFetch } from '../../../utils/api';
+import { authFetch, getResponseErrorMessage } from '../../../utils/api';
 
 const { Option } = Select;
 
@@ -15,17 +15,22 @@ export default function GrantPlanModal({ user, open, onCancel, onSaveSuccess }) 
 
   const handleFinish = async (values) => {
     if (!user) return;
-    const res = await authFetch(`/admin/users/${user.id}/grant-plan`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(values),
-    });
-    if (res && res.ok) {
+    try {
+      const res = await authFetch(`/admin/users/${user.id}/grant-plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      });
+      if (!res) return;
+      if (!res.ok) {
+        message.error(await getResponseErrorMessage(res, 'Không thể tặng gói cho người dùng'));
+        return;
+      }
       message.success(`Đã tặng gói ${values.planName.toUpperCase()} cho người dùng thành công! 🎁`);
       onSaveSuccess?.();
       onCancel();
-    } else {
-      message.error('Lỗi khi tặng gói cho người dùng');
+    } catch {
+      message.error('Không thể tặng gói cho người dùng. Vui lòng thử lại.');
     }
   };
 

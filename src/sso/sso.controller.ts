@@ -16,19 +16,39 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import type { Request, Response } from 'express';
+import type { CookieOptions, Request, Response } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SsoService } from './sso.service';
 import { ConfigService } from '@nestjs/config';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { SsoAuthGuard } from '../auth/auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { extractSessionToken } from '../auth/session-token.util';
+import { User } from '../users/user.entity';
+import {
+  EmailDto,
+  IssueOAuthCodeDto,
+  LoginDto,
+  OAuthCodeExchangeDto,
+  RegisterDto,
+  ResetPasswordDto,
+  TokenDto,
+  UpdateProfileDto,
+} from './dto/sso-write.dto';
+import {
+  getOAuthRedirectOrigins,
+  normalizeWebOrigin,
+  resolveAllowedRedirectUrl,
+} from './oauth-redirect.util';
 
 const COOKIE_NAME = 'sso_token';
 const isProd = process.env.NODE_ENV === 'production';
-const COOKIE_OPTIONS = {
+const COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
   // SameSite=None;Secure bắt buộc để cookie cross-domain (sso.vunph.click → vunph.id.vn)
   // Dev dùng lax vì HTTP không hỗ trợ Secure
-  sameSite: (isProd ? 'none' : 'lax') as 'none' | 'lax',
+  sameSite: isProd ? 'none' : 'lax',
   secure: isProd,
   path: '/',
   maxAge: 30 * 24 * 60 * 60 * 1000, // 30 ngày
@@ -42,42 +62,46 @@ export class SsoController {
   ) {}
 
   private getToken(req: Request): string | undefined {
-    // 1. Check Authorization header: Bearer <token>
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
-      return authHeader.substring(7).trim();
-    }
-
-    // 2. Fallback to Cookie
-    const raw = req.headers.cookie ?? '';
-    const entry = raw
-      .split(';')
-      .map((s) => s.trim())
-      .find((s) => s.startsWith(`${COOKIE_NAME}=`));
-    if (!entry) return undefined;
-    const [, val] = entry.split('=');
-    return val ? decodeURIComponent(val) : undefined;
+    return extractSessionToken(req);
   }
 
   private setSessionCookie(res: Response, token: string) {
     res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
   }
 
+  private getAllowedRedirectOrigins(): string[] {
+    return getOAuthRedirectOrigins({
+      isProduction: this.configService.get<string>('NODE_ENV') === 'production',
+      allowedRedirectOrigins: this.configService.get<string>(
+        'ALLOWED_REDIRECT_ORIGINS',
+      ),
+      allowedOrigins: this.configService.get<string>('ALLOWED_ORIGINS'),
+      ssoBaseUrl: this.configService.get<string>('SSO_BASE_URL'),
+    });
+  }
+
+  private resolveRedirect(rawUrl: string | undefined): URL | null {
+    return resolveAllowedRedirectUrl(rawUrl, this.getAllowedRedirectOrigins());
+  }
+
+  private firstQueryValue(...values: unknown[]): string | undefined {
+    return values.find((value): value is string => typeof value === 'string');
+  }
+
   private extractRequestMetadata(req: Request) {
-    const ip = (req.headers['cf-connecting-ip'] as string)
-      || (req.headers['x-real-ip'] as string)
-      || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-      || req.ip
-      || req.socket.remoteAddress
-      || '127.0.0.1';
+    // Express req.ip reflects only the configured trust-proxy chain. Never
+    // trust client-supplied forwarding headers directly.
+    const ip = req.ip || req.socket.remoteAddress || '127.0.0.1';
 
     const userAgent = (req.headers['user-agent'] as string) || '';
     const cfCountry = (req.headers['cf-ipcountry'] as string) || '';
     const cfCity = (req.headers['cf-ipcity'] as string) || '';
 
     let browser = 'Unknown Browser';
-    if (userAgent.includes('Chrome') && !userAgent.includes('Edg')) browser = 'Chrome';
-    else if (userAgent.includes('Safari') && !userAgent.includes('Chrome')) browser = 'Safari';
+    if (userAgent.includes('Chrome') && !userAgent.includes('Edg'))
+      browser = 'Chrome';
+    else if (userAgent.includes('Safari') && !userAgent.includes('Chrome'))
+      browser = 'Safari';
     else if (userAgent.includes('Firefox')) browser = 'Firefox';
     else if (userAgent.includes('Edg')) browser = 'Edge';
 
@@ -85,14 +109,25 @@ export class SsoController {
     if (userAgent.includes('Mac OS')) os = 'macOS';
     else if (userAgent.includes('Windows')) os = 'Windows';
     else if (userAgent.includes('Android')) os = 'Android';
-    else if (userAgent.includes('iPhone') || userAgent.includes('iPad')) os = 'iOS';
+    else if (userAgent.includes('iPhone') || userAgent.includes('iPad'))
+      os = 'iOS';
     else if (userAgent.includes('Linux')) os = 'Linux';
 
     let deviceType = 'Desktop';
-    if (userAgent.includes('Mobile') || userAgent.includes('Android') || userAgent.includes('iPhone')) deviceType = 'Mobile';
-    if (userAgent.includes('iPad') || userAgent.includes('Tablet')) deviceType = 'Tablet';
+    if (
+      userAgent.includes('Mobile') ||
+      userAgent.includes('Android') ||
+      userAgent.includes('iPhone')
+    )
+      deviceType = 'Mobile';
+    if (userAgent.includes('iPad') || userAgent.includes('Tablet'))
+      deviceType = 'Tablet';
 
-    const city = cfCity ? decodeURIComponent(cfCity) : (cfCountry === 'VN' || ip === '127.0.0.1' || ip === '::1' ? 'Hồ Chí Minh' : 'Hà Nội');
+    const city = cfCity
+      ? decodeURIComponent(cfCity)
+      : cfCountry === 'VN' || ip === '127.0.0.1' || ip === '::1'
+        ? 'Hồ Chí Minh'
+        : 'Hà Nội';
     const country = cfCountry || 'VN';
 
     return {
@@ -116,23 +151,17 @@ export class SsoController {
     const user = await this.ssoService.resolveSession(token);
     return {
       user: user ? this.ssoService.sanitizeUser(user) : null,
-      token: user ? token : null,
     };
   }
 
   // ─── PATCH /sso/profile ───────────────────────────────────────────────────
 
   @Patch('profile')
+  @UseGuards(SsoAuthGuard)
   async updateProfile(
-    @Req() req: Request,
-    @Body() body: { displayName?: string; avatarUrl?: string | null },
+    @CurrentUser() user: User,
+    @Body() body: UpdateProfileDto,
   ) {
-    const token = this.getToken(req);
-    const user = await this.ssoService.resolveSession(token);
-    if (!user) {
-      throw new UnauthorizedException('Bạn cần đăng nhập');
-    }
-
     const updated = await this.ssoService.updateProfile(user.id, {
       displayName: body.displayName,
       avatarUrl: body.avatarUrl,
@@ -143,23 +172,27 @@ export class SsoController {
   // ─── POST /sso/avatar (upload ảnh đại diện → lưu DB) ──────────
 
   @Post('avatar')
+  @UseGuards(SsoAuthGuard)
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: 5 * 1024 * 1024 },
       fileFilter: (_req, file, cb) => {
         if (!/^image\/(jpeg|png|gif|webp)$/.test(file.mimetype)) {
-          return cb(new BadRequestException('Chỉ chấp nhận ảnh JPEG, PNG, GIF hoặc WebP'), false);
+          return cb(
+            new BadRequestException(
+              'Chỉ chấp nhận ảnh JPEG, PNG, GIF hoặc WebP',
+            ),
+            false,
+          );
         }
         cb(null, true);
       },
     }),
   )
-  async uploadAvatar(@Req() req: Request, @UploadedFile() file?: Express.Multer.File) {
-    const token = this.getToken(req);
-    const user = await this.ssoService.resolveSession(token);
-    if (!user) {
-      throw new UnauthorizedException('Bạn cần đăng nhập');
-    }
+  async uploadAvatar(
+    @CurrentUser() user: User,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
     if (!file) {
       throw new BadRequestException('Không có file nào được tải lên');
     }
@@ -191,8 +224,10 @@ export class SsoController {
   // ─── POST /sso/register ───────────────────────────────────────────────────
 
   @Post('register')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async register(
-    @Body() body: { email: string; password: string; displayName?: string },
+    @Body() body: RegisterDto,
     @Req() req: Request,
   ) {
     const reqMeta = this.extractRequestMetadata(req);
@@ -203,17 +238,22 @@ export class SsoController {
   // ─── POST /sso/login ──────────────────────────────────────────────────────
 
   @Post('login')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000, blockDuration: 15 * 60_000 } })
   async login(
-    @Body() body: { email: string; password: string },
+    @Body() body: LoginDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
     const appOrigin = req.headers.origin ?? req.headers.referer;
     const reqMeta = this.extractRequestMetadata(req);
-    const { token, user } = await this.ssoService.login({
-      ...body,
-      appOrigin: typeof appOrigin === 'string' ? appOrigin : undefined,
-    }, reqMeta);
+    const { token, user } = await this.ssoService.login(
+      {
+        ...body,
+        appOrigin: typeof appOrigin === 'string' ? appOrigin : undefined,
+      },
+      reqMeta,
+    );
     this.setSessionCookie(res, token);
     return { success: true, token, user };
   }
@@ -230,9 +270,9 @@ export class SsoController {
       await this.ssoService.logout(token);
     }
 
-    const clearOpts = {
+    const clearOpts: CookieOptions = {
       path: '/',
-      sameSite: (isProd ? 'none' : 'lax') as 'none' | 'lax',
+      sameSite: isProd ? 'none' : 'lax',
       secure: isProd,
     };
     res.clearCookie(COOKIE_NAME, clearOpts);
@@ -255,9 +295,9 @@ export class SsoController {
       await this.ssoService.logout(token);
     }
 
-    const clearOpts = {
+    const clearOpts: CookieOptions = {
       path: '/',
-      sameSite: (isProd ? 'none' : 'lax') as 'none' | 'lax',
+      sameSite: isProd ? 'none' : 'lax',
       secure: isProd,
     };
     res.clearCookie(COOKIE_NAME, clearOpts);
@@ -271,14 +311,16 @@ export class SsoController {
       (req.query.app_url as string);
 
     if (redirectRaw) {
-      try {
-        const decoded = redirectRaw.includes('%3A') ? decodeURIComponent(redirectRaw) : redirectRaw;
-        const target = new URL(decoded.startsWith('http') ? decoded : `https://${decoded}`);
+      const target = this.resolveRedirect(redirectRaw);
+      if (target) {
         return res.redirect(target.toString());
-      } catch (e) {}
+      }
     }
 
-    const base = this.configService.get<string>('SSO_BASE_URL', 'http://localhost:3000');
+    const base = this.configService.get<string>(
+      'SSO_BASE_URL',
+      'http://localhost:3000',
+    );
     return res.redirect(`${base}/ui/sso?logged_out=true`);
   }
 
@@ -301,24 +343,38 @@ export class SsoController {
     }
 
     const reqMeta = this.extractRequestMetadata(req);
-    const { token } = await this.ssoService.oauthLogin(req.user, 'google', reqMeta);
+    const { token, user } = await this.ssoService.oauthLogin(
+      req.user,
+      'google',
+      reqMeta,
+    );
+    if (!user.id)
+      throw new UnauthorizedException('Tài khoản OAuth không hợp lệ');
     this.setSessionCookie(res, token);
 
-    const base = this.configService.get<string>('SSO_BASE_URL', 'http://localhost:3000');
-    const redirectRaw =
-      (req.query.redirect as string) ||
-      (req.query.redirect_uri as string) ||
-      (req.query.redirect_url as string) ||
-      (req.query.app as string) ||
-      (req.query.app_url as string);
+    const base = this.configService.get<string>(
+      'SSO_BASE_URL',
+      'http://localhost:3000',
+    );
+    const redirectRaw = this.firstQueryValue(
+      req.query.redirect,
+      req.query.redirect_uri,
+      req.query.redirect_url,
+      req.query.app,
+      req.query.app_url,
+    );
 
     if (redirectRaw) {
-      try {
-        const decoded = redirectRaw.includes('%3A') ? decodeURIComponent(redirectRaw) : redirectRaw;
-        const target = new URL(decoded.startsWith('http') ? decoded : `https://${decoded}`);
-        target.searchParams.set('sso_token', token);
+      const target = this.resolveRedirect(redirectRaw);
+      if (target) {
+        const code = await this.ssoService.createOAuthLoginCode(
+          user.id,
+          target.origin,
+        );
+        target.searchParams.delete('sso_token');
+        target.searchParams.set('sso_code', code);
         return res.redirect(target.toString());
-      } catch (e) {}
+      }
     }
     res.redirect(`${base}/ui/sso`);
   }
@@ -341,46 +397,104 @@ export class SsoController {
       throw new BadRequestException('Facebook OAuth failed');
     }
 
-    const { token } = await this.ssoService.oauthLogin(req.user, 'facebook');
+    const { token, user } = await this.ssoService.oauthLogin(
+      req.user,
+      'facebook',
+    );
+    if (!user.id)
+      throw new UnauthorizedException('Tài khoản OAuth không hợp lệ');
     this.setSessionCookie(res, token);
 
-    const base = this.configService.get<string>('SSO_BASE_URL', 'http://localhost:3000');
-    const redirectRaw =
-      (req.query.redirect as string) ||
-      (req.query.redirect_uri as string) ||
-      (req.query.redirect_url as string) ||
-      (req.query.app as string) ||
-      (req.query.app_url as string);
+    const base = this.configService.get<string>(
+      'SSO_BASE_URL',
+      'http://localhost:3000',
+    );
+    const redirectRaw = this.firstQueryValue(
+      req.query.redirect,
+      req.query.redirect_uri,
+      req.query.redirect_url,
+      req.query.app,
+      req.query.app_url,
+    );
 
     if (redirectRaw) {
-      try {
-        const decoded = redirectRaw.includes('%3A') ? decodeURIComponent(redirectRaw) : redirectRaw;
-        const target = new URL(decoded.startsWith('http') ? decoded : `https://${decoded}`);
-        target.searchParams.set('sso_token', token);
+      const target = this.resolveRedirect(redirectRaw);
+      if (target) {
+        const code = await this.ssoService.createOAuthLoginCode(
+          user.id,
+          target.origin,
+        );
+        target.searchParams.delete('sso_token');
+        target.searchParams.set('sso_code', code);
         return res.redirect(target.toString());
-      } catch (e) {}
+      }
     }
     res.redirect(`${base}/ui/sso`);
+  }
+
+  @Post('exchange')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async exchangeOAuthCode(
+    @Body() body: OAuthCodeExchangeDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const origin = normalizeWebOrigin(req.headers.origin);
+    if (
+      !body?.code ||
+      !origin ||
+      !this.getAllowedRedirectOrigins().some((allowed) => {
+        try {
+          return new URL(allowed).origin === origin;
+        } catch {
+          return false;
+        }
+      })
+    ) {
+      throw new UnauthorizedException('Nguồn đăng nhập không hợp lệ');
+    }
+    const user = await this.ssoService.consumeOAuthLoginCode(body.code, origin);
+    const token = await this.ssoService.createSessionForUser(user.id, origin);
+    this.setSessionCookie(res, token);
+    return { success: true, token, user: this.ssoService.sanitizeUser(user) };
+  }
+
+  @Post('issue-code')
+  @UseGuards(SsoAuthGuard, ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async issueOAuthCode(
+    @Body() body: IssueOAuthCodeDto,
+    @CurrentUser() user: User,
+  ) {
+    const target = this.resolveRedirect(body?.redirectUri);
+    if (!target) throw new BadRequestException('Ứng dụng đích không được phép');
+    const code = await this.ssoService.createOAuthLoginCode(
+      user.id,
+      target.origin,
+    );
+    target.searchParams.delete('sso_token');
+    target.searchParams.set('sso_code', code);
+    return { success: true, redirectUrl: target.toString() };
   }
 
   // ─── GET & POST /sso/verify-email ──────────────────────────────────────────
 
   @Get('verify-email')
-  async verifyEmailGet(
-    @Query('token') token: string,
-    @Res() res: Response,
-  ) {
+  async verifyEmailGet(@Query('token') token: string, @Res() res: Response) {
     try {
       await this.ssoService.verifyEmail(token);
       res.redirect('/ui/sso?verified=true');
     } catch (err) {
-      const msg = encodeURIComponent(err.message || 'Xác nhận email thất bại');
+      const message =
+        err instanceof Error ? err.message : 'Xác nhận email thất bại';
+      const msg = encodeURIComponent(message);
       res.redirect(`/ui/sso?verify_error=${msg}`);
     }
   }
 
   @Post('verify-email')
-  async verifyEmail(@Body() body: { token: string }) {
+  async verifyEmail(@Body() body: TokenDto) {
     if (!body.token) {
       throw new BadRequestException('Token là bắt buộc');
     }
@@ -395,27 +509,39 @@ export class SsoController {
   // ─── POST /sso/resend-verification & /sso/resend-verification-email ──────
 
   @Post('resend-verification')
-  async resendVerification(@Body() body: { email: string }) {
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 3, ttl: 60 * 60_000 } })
+  async resendVerification(@Body() body: EmailDto) {
     if (!body.email) {
       throw new BadRequestException('Email là bắt buộc');
     }
     await this.ssoService.resendVerificationEmail(body.email);
-    return { success: true, message: 'Đã gửi lại email xác nhận. Vui lòng kiểm tra hộp thư của bạn.' };
+    return {
+      success: true,
+      message: 'Đã gửi lại email xác nhận. Vui lòng kiểm tra hộp thư của bạn.',
+    };
   }
 
   @Post('resend-verification-email')
-  async resendVerificationEmail(@Body() body: { email: string }) {
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 3, ttl: 60 * 60_000 } })
+  async resendVerificationEmail(@Body() body: EmailDto) {
     if (!body.email) {
       throw new BadRequestException('Email là bắt buộc');
     }
     await this.ssoService.resendVerificationEmail(body.email);
-    return { success: true, message: 'Đã gửi lại email xác nhận. Vui lòng kiểm tra hộp thư của bạn.' };
+    return {
+      success: true,
+      message: 'Đã gửi lại email xác nhận. Vui lòng kiểm tra hộp thư của bạn.',
+    };
   }
 
   // ─── POST /sso/forgot-password ────────────────────────────────────────────
 
   @Post('forgot-password')
-  async forgotPassword(@Body() body: { email: string }) {
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 3, ttl: 60 * 60_000 } })
+  async forgotPassword(@Body() body: EmailDto) {
     if (!body.email) {
       throw new BadRequestException('Email là bắt buộc');
     }
@@ -429,8 +555,10 @@ export class SsoController {
   // ─── POST /sso/reset-password ─────────────────────────────────────────────
 
   @Post('reset-password')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60 * 60_000 } })
   async resetPassword(
-    @Body() body: { token: string; password: string },
+    @Body() body: ResetPasswordDto,
     @Res({ passthrough: true }) res: Response,
   ) {
     if (!body.token || !body.password) {
@@ -448,4 +576,3 @@ export class SsoController {
     };
   }
 }
-
