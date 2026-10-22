@@ -349,10 +349,10 @@ if [[ "$RCLONE_ENABLED" != true ]]; then
 fi
 
 RUN_STAGE=offsite_daily_upload
-rclone --non-interactive --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
+rclone --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
   copy "$FINAL_DIR" "$REMOTE_DAILY"
 RUN_STAGE=offsite_daily_verification
-rclone --non-interactive --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
+rclone --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
   check --one-way "$FINAL_DIR" "$REMOTE_DAILY"
 OFFSITE_READY=true
 write_status
@@ -360,22 +360,22 @@ write_status
 if [[ "${RUN_DATE:8:2}" == 01 ]]; then
   REMOTE_MONTHLY="$REMOTE_BASE/monthly/$RUN_MONTH/$RUN_ID"
   RUN_STAGE=offsite_monthly_upload
-  rclone --non-interactive --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
+  rclone --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
     copy "$FINAL_DIR" "$REMOTE_MONTHLY"
   RUN_STAGE=offsite_monthly_verification
-  rclone --non-interactive --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
+  rclone --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
     check --one-way "$FINAL_DIR" "$REMOTE_MONTHLY"
 fi
 
 # Retention runs only after the new copy has uploaded and passed rclone check.
 RUN_STAGE=remote_retention
-rclone --non-interactive --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
+rclone --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
   delete "$REMOTE_BASE/daily" --min-age 30d
-rclone --non-interactive --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
+rclone --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
   rmdirs "$REMOTE_BASE/daily"
-rclone --non-interactive --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
+rclone --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
   delete "$REMOTE_BASE/monthly" --min-age 365d
-rclone --non-interactive --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
+rclone --config="$BACKUP_RCLONE_CONFIG" --log-level ERROR \
   rmdirs "$REMOTE_BASE/monthly"
 
 BACKUP_STATUS=offsite_ok
