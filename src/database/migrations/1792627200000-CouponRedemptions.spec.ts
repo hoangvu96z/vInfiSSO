@@ -12,13 +12,15 @@ describe('explicit migration DataSource', () => {
       DATABASE_NAME: 'vinfi-test',
     });
 
-    expect(options.synchronize).toBe(false);
-    expect(options.migrationsRun).toBe(false);
-    expect(options.migrationsTransactionMode).toBe('all');
-    expect(options.migrationsTableName).toBe('typeorm_migrations');
-    expect(options.host).toBe('db.example.test');
-    expect(options.port).toBe(5432);
-    expect(options.username).toBe('migration-user');
+    expect(options).toMatchObject({
+      synchronize: false,
+      migrationsRun: false,
+      migrationsTransactionMode: 'all',
+      migrationsTableName: 'typeorm_migrations',
+      host: 'db.example.test',
+      port: 5432,
+      username: 'migration-user',
+    });
   });
 });
 
