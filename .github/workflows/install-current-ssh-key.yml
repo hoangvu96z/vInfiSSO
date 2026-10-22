@@ -1,0 +1,37 @@
+name: Install approved VPS SSH public key
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/install-current-ssh-key.yml
+
+permissions:
+  contents: read
+
+jobs:
+  install-key:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add the approved public key to ubuntu authorized_keys
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          CURRENT_SSH_PUBLIC_KEY: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC4qABVx6iwXxSsdVJOTs0BfYEfxHY/IIEC4FNH3mo/Zg+LEosS3sK0Yi+SyqL3nt/vYw0ehhppOGL+vgQRsNZr+3xRnpJyLlaYATayvENE4Ml1En31bF4RC+JQqs0vENN9NfaoGQH1YHD2D2LYF68tUzFO5bKHB1RZIPpa5RTApxQtc3nyVLbcYulkUCxdLtue5ozIhlWv2jADZ1eGljDSgnJIWP6ZSVO9kXt2cFTupKaE7Gvqvy4k+gh8YVIGpdbJ/X5/gucW50kZfg7CVnOXt5+grFta6dcAhj7iowU2cethkeVLo6hijizMRinq28X9wF9oeceGRoQ5yULqOnAeCC7vgAV3f+58n6FTVZinxn+ykQ+vO/PhS5GIFACwjWtfvRIapiS7u8YMkY0vkg4Kdn9011tKE4aaOjjh0Ka/SLjfMULCOTlHVLtKG3EymIYbQOXBG/WJQGWE+knuZGwWeI1DzgS0OeUpDG06mmDgkWJA5ZsMHX3jTZHBZ7HagZENUPq9K+BD/n2BoYVSbkU+/s9FA+NQXkUjFYiQcpRspyT6wXMaiEGIKv1eBDd/iYlfkySXPLwDC89POmev1Vv2olHvIzN6LaH/FKGM8wXaCDcc4BtpZOphOfrDdZMQweEzKthTSB4JJwtWex0eLnR3Ur7NXXVsqfV1IPs+ZLyejw=="
+        with:
+          host: ${{ secrets.SSH_HOST || '43.128.116.69' }}
+          username: ${{ secrets.SSH_USER || 'ubuntu' }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          envs: CURRENT_SSH_PUBLIC_KEY
+          script: |
+            set -eu
+            umask 077
+            install -d -m 0700 "$HOME/.ssh"
+            touch "$HOME/.ssh/authorized_keys"
+            chmod 0600 "$HOME/.ssh/authorized_keys"
+            if ! grep -Fqx -- "$CURRENT_SSH_PUBLIC_KEY" "$HOME/.ssh/authorized_keys"; then
+              printf '%s\n' "$CURRENT_SSH_PUBLIC_KEY" >> "$HOME/.ssh/authorized_keys"
+              chmod 0600 "$HOME/.ssh/authorized_keys"
+            fi
+            echo 'Approved public key is installed.'
