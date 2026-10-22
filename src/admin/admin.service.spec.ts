@@ -171,13 +171,13 @@ describe('AdminService dashboard and user listing', () => {
     count: jest.fn(),
     find: jest.fn(),
   };
-  const auditLogRepo = { count: jest.fn() };
+  const auditLogRepo = { count: jest.fn(), find: jest.fn() };
   const readingRepo = {
     count: jest.fn(),
     find: jest.fn(),
     createQueryBuilder: jest.fn(),
   };
-  const aiUsageRepo = { find: jest.fn() };
+  const aiUsageRepo = { find: jest.fn(), createQueryBuilder: jest.fn() };
   const dataSource = { query: jest.fn() };
   const service = new AdminService(
     userRepo as any,
@@ -196,7 +196,17 @@ describe('AdminService dashboard and user listing', () => {
     userRepo.count.mockResolvedValue(12);
     sessionRepo.count.mockResolvedValue(5);
     auditLogRepo.count.mockResolvedValue(3);
-    aiUsageRepo.find.mockResolvedValue([]);
+
+    const aiUsageQuery = {
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      setParameter: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({
+        totalAiQuestions: '23',
+        todayAiQuestions: '5',
+      }),
+    };
+    aiUsageRepo.createQueryBuilder.mockReturnValue(aiUsageQuery);
 
     const readingQuery = {
       select: jest.fn().mockReturnThis(),
@@ -217,9 +227,9 @@ describe('AdminService dashboard and user listing', () => {
       totalIchingReadings: 4,
       totalTarotReadings: 6,
       totalTuviReadings: 2,
-      totalAiQuestions: 0,
+      totalAiQuestions: 23,
       todayLogins: 3,
-      todayAiQuestions: 0,
+      todayAiQuestions: 5,
     });
 
     expect(readingRepo.createQueryBuilder).toHaveBeenCalledWith('reading');
@@ -238,6 +248,21 @@ describe('AdminService dashboard and user listing', () => {
     expect(readingQuery.getRawOne).toHaveBeenCalledTimes(1);
     expect(readingRepo.find).not.toHaveBeenCalled();
     expect(readingRepo.count).not.toHaveBeenCalled();
+    expect(aiUsageRepo.createQueryBuilder).toHaveBeenCalledWith('usage');
+    expect(aiUsageQuery.select).toHaveBeenCalledWith(
+      'COALESCE(SUM(usage.monthlyCount), 0)',
+      'totalAiQuestions',
+    );
+    expect(aiUsageQuery.addSelect).toHaveBeenCalledWith(
+      'COALESCE(SUM(CASE WHEN usage.date = :today THEN usage.dailyCount ELSE 0 END), 0)',
+      'todayAiQuestions',
+    );
+    expect(aiUsageQuery.setParameter).toHaveBeenCalledWith(
+      'today',
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    );
+    expect(aiUsageQuery.getRawOne).toHaveBeenCalledTimes(1);
+    expect(aiUsageRepo.find).not.toHaveBeenCalled();
   });
 
   it('selects only returned user fields and aggregates sessions for the page', async () => {
@@ -301,5 +326,50 @@ describe('AdminService dashboard and user listing', () => {
     expect(dataSource.query.mock.calls[0][0]).toContain('COUNT(*)::int');
     expect(dataSource.query.mock.calls[0][0]).toContain('expires_at > NOW()');
     expect(dataSource.query.mock.calls[0][1]).toEqual([['user-1']]);
+  });
+
+  it('aggregates analytics app distribution without loading reading rows', async () => {
+    auditLogRepo.find.mockResolvedValue([]);
+    const aiUsageQuery = {
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      groupBy: jest.fn().mockReturnThis(),
+      getRawMany: jest.fn().mockResolvedValue([]),
+    };
+    aiUsageRepo.createQueryBuilder.mockReturnValue(aiUsageQuery);
+
+    const readingQuery = {
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({
+        ichingCount: '3',
+        tarotCount: '2',
+        tuviCount: '4',
+      }),
+    };
+    readingRepo.createQueryBuilder.mockReturnValue(readingQuery);
+
+    const result = await service.getAnalyticsData();
+
+    expect(result.appDistribution).toEqual({ iching: 3, tarot: 2, tuvi: 4 });
+    expect(result.timeSeries).toHaveLength(14);
+    expect(result.topLocations).toEqual([]);
+    expect(readingRepo.find).not.toHaveBeenCalled();
+    expect(readingQuery.select).toHaveBeenCalledWith(
+      `COUNT(*) FILTER (WHERE LOWER(reading.app) = 'iching')`,
+      'ichingCount',
+    );
+    expect(readingQuery.addSelect).toHaveBeenNthCalledWith(
+      1,
+      `COUNT(*) FILTER (WHERE LOWER(reading.app) = 'tarot')`,
+      'tarotCount',
+    );
+    expect(readingQuery.addSelect).toHaveBeenNthCalledWith(
+      2,
+      `COUNT(*) FILTER (WHERE LOWER(reading.app) LIKE '%tuvi%')`,
+      'tuviCount',
+    );
+    expect(readingQuery.getRawOne).toHaveBeenCalledTimes(1);
   });
 });

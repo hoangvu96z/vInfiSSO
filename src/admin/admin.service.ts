@@ -86,17 +86,22 @@ export class AdminService {
       where: { action: 'login', createdAt: MoreThan(startOfToday) },
     });
 
-    // Query AI usage from ai_usage table (accurate, not parsed from readings.data)
-    const allUsage = await this.aiUsageRepo.find({
-      select: { dailyCount: true, monthlyCount: true, date: true },
-    });
-    const totalAiQuestions = allUsage.reduce(
-      (sum, r) => sum + (r.monthlyCount || 0),
-      0,
-    );
-    const todayAiQuestions = allUsage
-      .filter((r) => r.date === todayStr)
-      .reduce((sum, r) => sum + (r.dailyCount || 0), 0);
+    // Aggregate from ai_usage in the database rather than hydrating every row.
+    const aiUsageStats = await this.aiUsageRepo
+      .createQueryBuilder('usage')
+      .select('COALESCE(SUM(usage.monthlyCount), 0)', 'totalAiQuestions')
+      .addSelect(
+        'COALESCE(SUM(CASE WHEN usage.date = :today THEN usage.dailyCount ELSE 0 END), 0)',
+        'todayAiQuestions',
+      )
+      .setParameter('today', todayStr)
+      .getRawOne<{
+        totalAiQuestions: string | number;
+        todayAiQuestions: string | number;
+      }>();
+
+    const totalAiQuestions = Number(aiUsageStats?.totalAiQuestions ?? 0);
+    const todayAiQuestions = Number(aiUsageStats?.todayAiQuestions ?? 0);
 
     return {
       totalUsers,
@@ -533,16 +538,29 @@ export class AdminService {
       if (entry) entry.ai = parseInt(total, 10) || 0;
     });
 
-    const readings = await this.readingRepo.find({ select: { app: true } });
-    let ichingCount = 0;
-    let tarotCount = 0;
-    let tuviCount = 0;
-    readings.forEach((r) => {
-      const a = (r.app || '').toLowerCase();
-      if (a === 'iching') ichingCount += 1;
-      else if (a === 'tarot') tarotCount += 1;
-      else if (a.includes('tuvi') || a === 'tuvinow') tuviCount += 1;
-    });
+    const readingStats = await this.readingRepo
+      .createQueryBuilder('reading')
+      .select(
+        `COUNT(*) FILTER (WHERE LOWER(reading.app) = 'iching')`,
+        'ichingCount',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE LOWER(reading.app) = 'tarot')`,
+        'tarotCount',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE LOWER(reading.app) LIKE '%tuvi%')`,
+        'tuviCount',
+      )
+      .getRawOne<{
+        ichingCount: string | number;
+        tarotCount: string | number;
+        tuviCount: string | number;
+      }>();
+
+    const ichingCount = Number(readingStats?.ichingCount ?? 0);
+    const tarotCount = Number(readingStats?.tarotCount ?? 0);
+    const tuviCount = Number(readingStats?.tuviCount ?? 0);
 
     const timeSeriesData = Array.from(daysMap.entries()).map(([date, val]) => ({
       date,
