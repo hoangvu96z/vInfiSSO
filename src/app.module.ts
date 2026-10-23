@@ -32,6 +32,8 @@ import { validateApplicationEnvironment } from './config/environment';
 import { PaymentsModule } from './payments/payments.module';
 import { PaymentOrder } from './payments/payment-order.entity';
 import { PaymentSettings } from './payments/payment-settings.entity';
+import { JournalEntry } from './journal/journal-entry.entity';
+import { JournalModule } from './journal/journal.module';
 
 @Module({
   imports: [
@@ -70,6 +72,7 @@ import { PaymentSettings } from './payments/payment-settings.entity';
           NoteInvite,
           PaymentOrder,
           PaymentSettings,
+          JournalEntry,
         ],
         // Production schema changes must be applied through explicit migrations.
         synchronize: false,
@@ -90,6 +93,7 @@ import { PaymentSettings } from './payments/payment-settings.entity';
     AnalyticsModule,
     NotesModule,
     PaymentsModule,
+    JournalModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,5 +1,6 @@
 import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import {
+  buildJournalPayloadAAD,
   buildReadingPayloadAAD,
   decryptLegacyClientTree,
   decryptLegacyClientValue,
@@ -86,6 +87,36 @@ describe('reading server-side encryption', () => {
     ).toThrow();
     expect(() =>
       encryption.decryptEnvelope(encrypted, userId, 'reading-b'),
+    ).toThrow();
+  });
+
+  it('encrypts journal reflections with a separate resource namespace', () => {
+    const encryption = new ReadingEncryption(`k1:${key1}`, 'k1', true);
+    const journalEntryId = 'journal-entry-a';
+    const payload = { reflection: 'A private reflection', tags: ['health'] };
+    const encrypted = encryption.encryptJournalPayload(
+      payload,
+      userId,
+      journalEntryId,
+    );
+
+    expect(encrypted._enc.startsWith('v3:k1:')).toBe(true);
+    expect(JSON.stringify(encrypted)).not.toContain(payload.reflection);
+    expect(JSON.stringify(encrypted)).not.toContain('health');
+    expect(buildJournalPayloadAAD(userId, journalEntryId)).toEqual(
+      Buffer.from(
+        JSON.stringify(['journal', userId, journalEntryId, 'payload']),
+        'utf8',
+      ),
+    );
+    expect(
+      encryption.decryptJournalPayload(encrypted, userId, journalEntryId),
+    ).toEqual(payload);
+    expect(() =>
+      encryption.decryptJournalPayload(encrypted, 'user-b', journalEntryId),
+    ).toThrow();
+    expect(() =>
+      encryption.decryptJournalPayload(encrypted, userId, 'journal-entry-b'),
     ).toThrow();
   });
 

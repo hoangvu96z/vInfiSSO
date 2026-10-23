@@ -11,6 +11,6 @@ import { ReadingEncryptionService } from './reading-encryption';
   imports: [TypeOrmModule.forFeature([Reading, AuditLog]), SsoModule],
   controllers: [ReadingsController],
   providers: [ReadingsService, ReadingEncryptionService],
-  exports: [ReadingsService],
+  exports: [ReadingsService, ReadingEncryptionService],
 })
 export class ReadingsModule {}

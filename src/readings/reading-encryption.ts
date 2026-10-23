@@ -14,6 +14,7 @@ const GCM_IV_BYTES = 12;
 const GCM_TAG_BYTES = 16;
 const LEGACY_PREFIX = 'enc_v1::';
 const READING_PAYLOAD_FIELD = 'payload';
+const JOURNAL_PAYLOAD_FIELD = 'payload';
 
 export type ReadingEnvelopeVersion = 'v2' | 'v3';
 
@@ -30,6 +31,19 @@ export function buildReadingPayloadAAD(
   }
   return Buffer.from(
     JSON.stringify(['reading', userId, readingId, READING_PAYLOAD_FIELD]),
+    'utf8',
+  );
+}
+
+export function buildJournalPayloadAAD(
+  userId: string,
+  journalEntryId: string,
+): Buffer {
+  if (!userId || !journalEntryId) {
+    throw new Error('A user ID and journal entry ID are required');
+  }
+  return Buffer.from(
+    JSON.stringify(['journal', userId, journalEntryId, JOURNAL_PAYLOAD_FIELD]),
     'utf8',
   );
 }
@@ -54,6 +68,11 @@ export interface ReadingPayload {
   question: string | null;
   title: string;
   data: Record<string, unknown>;
+}
+
+export interface JournalPayload {
+  reflection: string;
+  tags: string[];
 }
 
 export interface ParsedReadingKeys {
@@ -157,6 +176,18 @@ export class ReadingEncryption {
     );
   }
 
+  encryptJournalPayload(
+    payload: JournalPayload,
+    userId: string,
+    journalEntryId: string,
+  ): { _enc: string } {
+    return this.encryptPayloadWithAAD(
+      payload,
+      ENVELOPE_VERSION,
+      buildJournalPayloadAAD(userId, journalEntryId),
+    );
+  }
+
   /** Rewrap V3 data in the historical format before rolling the app back. */
   encryptPayloadV2ForRollback(
     payload: ReadingPayload,
@@ -170,7 +201,7 @@ export class ReadingEncryption {
   }
 
   private encryptPayloadWithAAD(
-    payload: ReadingPayload,
+    payload: unknown,
     version: ReadingEnvelopeVersion,
     aad: Buffer,
   ): { _enc: string } {
@@ -205,6 +236,38 @@ export class ReadingEncryption {
     userId: string,
     readingId: string,
   ): ReadingPayload {
+    const payload = this.decryptPayloadWithAAD(data, (version) =>
+      version === LEGACY_ENVELOPE_VERSION
+        ? Buffer.from(`reading:${userId}`, 'utf8')
+        : buildReadingPayloadAAD(userId, readingId),
+    );
+    if (!isReadingPayload(payload)) {
+      throw new Error('Invalid encrypted reading payload');
+    }
+    return payload;
+  }
+
+  decryptJournalPayload(
+    data: unknown,
+    userId: string,
+    journalEntryId: string,
+  ): JournalPayload {
+    if (getReadingEnvelopeVersion(data) !== ENVELOPE_VERSION) {
+      throw new Error('Unsupported encrypted journal entry');
+    }
+    const payload = this.decryptPayloadWithAAD(data, () =>
+      buildJournalPayloadAAD(userId, journalEntryId),
+    );
+    if (!isJournalPayload(payload)) {
+      throw new Error('Invalid encrypted journal payload');
+    }
+    return payload;
+  }
+
+  private decryptPayloadWithAAD(
+    data: unknown,
+    getAAD: (version: ReadingEnvelopeVersion) => Buffer,
+  ): unknown {
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
       throw new Error('Invalid encrypted reading');
     }
@@ -235,23 +298,15 @@ export class ReadingEncryption {
     }
 
     const decipher = createDecipheriv('aes-256-gcm', key, iv);
-    // Keep V2's original user-only AAD so historical ciphertext remains
-    // readable. New V3 rows bind the user, row identity, and payload field.
-    decipher.setAAD(
-      version === LEGACY_ENVELOPE_VERSION
-        ? Buffer.from(`reading:${userId}`, 'utf8')
-        : buildReadingPayloadAAD(userId, readingId),
-    );
+    // The caller selects resource-specific AAD. Reading V2 remains supported
+    // for historical rows; Journal accepts only resource-bound V3 envelopes.
+    decipher.setAAD(getAAD(version as ReadingEnvelopeVersion));
     decipher.setAuthTag(tag);
     const plaintext = Buffer.concat([
       decipher.update(ciphertext),
       decipher.final(),
     ]).toString('utf8');
-    const payload: unknown = JSON.parse(plaintext);
-    if (!isReadingPayload(payload)) {
-      throw new Error('Invalid encrypted reading payload');
-    }
-    return payload;
+    return JSON.parse(plaintext) as unknown;
   }
 }
 
@@ -264,6 +319,17 @@ function isReadingPayload(value: unknown): value is ReadingPayload {
     !!payload.data &&
     typeof payload.data === 'object' &&
     !Array.isArray(payload.data)
+  );
+}
+
+function isJournalPayload(value: unknown): value is JournalPayload {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const payload = value as Record<string, unknown>;
+  return (
+    typeof payload.reflection === 'string' &&
+    Array.isArray(payload.tags) &&
+    payload.tags.length <= 5 &&
+    payload.tags.every((tag) => typeof tag === 'string')
   );
 }
 

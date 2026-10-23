@@ -20,6 +20,30 @@ import { User } from '../users/user.entity';
 import { AppQuotaDto, ApplyCouponDto, PlansAiDto, TuviAiDto } from './dto/plan-write.dto';
 import { resolveLocalAiBaseUrl } from './ai-upstream.util';
 
+const DEFAULT_AI_MODELS = [
+  'combo1',
+  'openrouter/tencent/hy3:free',
+  'openrouter/openai/gpt-oss-20b:free',
+  'openrouter/poolside/laguna-xs-2.1:free',
+  'openrouter/google/gemma-4-26b-a4b-it:free',
+];
+
+function getAllowedAiModels(): string[] {
+  return (
+    process.env.AI_MODELS ||
+    [
+      ...DEFAULT_AI_MODELS,
+      ...(process.env.TUVI_AI_MODELS || '')
+        .split(',')
+        .map((model) => model.trim())
+        .filter(Boolean),
+    ].join(',')
+  )
+    .split(',')
+    .map((model) => model.trim())
+    .filter(Boolean);
+}
+
 @Controller('plans')
 export class PlansController {
   constructor(
@@ -39,6 +63,17 @@ export class PlansController {
   async getMyQuota(@CurrentUser() user: User, @Req() req: Request) {
     const app = this.extractAppName(req);
     return this.plansService.checkQuota(user.id, app);
+  }
+
+  @Get('ai/config')
+  @UseGuards(SsoAuthGuard)
+  getAiConfig() {
+    const apiKey = (
+      process.env.AI_API_KEY ||
+      process.env.TUVI_AI_API_KEY ||
+      ''
+    ).trim();
+    return { models: getAllowedAiModels(), configured: !!apiKey };
   }
 
   // GET /plans/my-subscription — Thông tin gói hiện tại
@@ -81,26 +116,7 @@ export class PlansController {
       tuvinow: 'tuvinow',
     };
     const quotaApp = appBuckets[app];
-    const defaultModels = [
-      'combo1',
-      'openrouter/tencent/hy3:free',
-      'openrouter/openai/gpt-oss-20b:free',
-      'openrouter/poolside/laguna-xs-2.1:free',
-      'openrouter/google/gemma-4-26b-a4b-it:free',
-    ];
-    const allowedModels = (
-      process.env.AI_MODELS ||
-      [
-        ...defaultModels,
-        ...(process.env.TUVI_AI_MODELS || '')
-          .split(',')
-          .map((model) => model.trim())
-          .filter(Boolean),
-      ].join(',')
-    )
-      .split(',')
-      .map((model) => model.trim())
-      .filter(Boolean);
+    const allowedModels = getAllowedAiModels();
     const messages = body?.messages;
     if (
       !quotaApp ||
