@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { ContactMessage, AttachedImage } from './contact-message.entity';
@@ -7,6 +12,10 @@ import { ConfigService } from '@nestjs/config';
 import { parseUserAgent, lookupIpLocation } from './device-detector.util';
 import * as crypto from 'node:crypto';
 import { parseAdminDateRange } from '../common/admin-date-range.util';
+import * as path from 'node:path';
+import type { ObjectStorage } from '../storage/object-storage';
+import { LocalObjectStorage } from '../storage/local-object-storage';
+import { LOCAL_UPLOAD_STORAGE } from '../storage/local-upload-storage.module';
 
 @Injectable()
 export class ContactService {
@@ -17,6 +26,10 @@ export class ContactService {
     private readonly messageRepo: Repository<ContactMessage>,
     private readonly mailService: MailService,
     private readonly configService: ConfigService,
+    @Inject(LOCAL_UPLOAD_STORAGE)
+    private readonly uploadStorage: ObjectStorage = new LocalObjectStorage(
+      path.join(process.cwd(), 'uploads'),
+    ),
   ) {}
 
   createGuestSessionToken(sessionId: string): string {
@@ -99,24 +112,18 @@ export class ContactService {
       os,
     };
 
-    // Normalize images (up to 3 images max) and strip data URI prefixes
-    let images: AttachedImage[] | null = null;
-    let primaryImageData: string | null = null;
-    let primaryImageMime: string | null = null;
-
-    if (dto.images && Array.isArray(dto.images) && dto.images.length > 0) {
-      images = dto.images.slice(0, 3).map((img) => ({
-        ...img,
-        data: (img.data || '').replace(/^data:image\/[a-zA-Z+]+;base64,/, ''),
-      }));
-      primaryImageMime = images[0]?.mime || null;
-    } else if (dto.imageData) {
-      primaryImageData = dto.imageData.replace(
-        /^data:image\/[a-zA-Z+]+;base64,/,
-        '',
-      );
-      primaryImageMime = dto.imageMime || 'image/jpeg';
-    }
+    // New uploads are stored under the backed-up uploads tree. Legacy DB fields
+    // remain readable, but new messages never put image bytes into PostgreSQL.
+    const incomingImages =
+      dto.images && Array.isArray(dto.images) && dto.images.length > 0
+        ? dto.images.slice(0, 3)
+        : dto.imageData
+          ? [{ data: dto.imageData, mime: dto.imageMime || 'image/jpeg' }]
+          : [];
+    const images = incomingImages.length
+      ? await this.persistImages(incomingImages)
+      : null;
+    const primaryImageMime = images?.[0]?.mime || null;
 
     const msg = this.messageRepo.create({
       sessionId: dto.sessionId,
@@ -125,7 +132,7 @@ export class ContactService {
       title: dto.title || null,
       message: dto.message,
       images,
-      imageData: primaryImageData,
+      imageData: null,
       imageMime: primaryImageMime,
       senderIp: dto.senderIp || null,
       device: device || null,
@@ -136,9 +143,19 @@ export class ContactService {
       metadata,
     });
 
-    const saved = await this.messageRepo.save(msg);
+    let saved: ContactMessage;
+    try {
+      saved = await this.messageRepo.save(msg);
+    } catch (error) {
+      await this.deleteUploadKeysBestEffort(
+        (images || []).flatMap((image) =>
+          image.objectKey ? [image.objectKey] : [],
+        ),
+      );
+      throw error;
+    }
     this.logger.log(
-      `New contact message from ${dto.name} (${device}, ${geo?.location || 'IP: ' + dto.senderIp}) with ${images?.length || (primaryImageData ? 1 : 0)} image(s)`,
+      `New contact message from ${dto.name} (${device}, ${geo?.location || 'IP: ' + dto.senderIp}) with ${images?.length || 0} image(s)`,
     );
 
     // Send email notification (fire-and-forget)
@@ -166,7 +183,10 @@ export class ContactService {
   ): Promise<{ messages: ContactMessage[]; total: number }> {
     const safePage = Math.max(1, page);
     const safeLimit = Math.min(100, Math.max(1, limit));
-    const { start, end } = parseAdminDateRange(filters.dateFrom, filters.dateTo);
+    const { start, end } = parseAdminDateRange(
+      filters.dateFrom,
+      filters.dateTo,
+    );
 
     const query = this.messageRepo
       .createQueryBuilder('message')
@@ -187,7 +207,8 @@ export class ContactService {
       );
     }
 
-    if (start) query.andWhere('message.createdAt >= :dateFrom', { dateFrom: start });
+    if (start)
+      query.andWhere('message.createdAt >= :dateFrom', { dateFrom: start });
     if (end) query.andWhere('message.createdAt < :dateTo', { dateTo: end });
 
     const [messages, total] = await query
@@ -211,7 +232,21 @@ export class ContactService {
    * Get single message by ID.
    */
   async getMessageById(id: string): Promise<ContactMessage | null> {
-    return this.messageRepo.findOne({ where: { id } });
+    const message = await this.messageRepo.findOne({ where: { id } });
+    if (!message?.images?.length) return message;
+
+    // This method is called only by the existing @AdminOnly detail route.
+    // Hydrate private files for that response while omitting internal keys.
+    const images = await Promise.all(
+      message.images.map(async (image) => {
+        const { objectKey, data, ...metadata } = image;
+        if (data !== undefined) return { ...metadata, data };
+        if (!objectKey) return { ...metadata, data: '' };
+        const bytes = await this.uploadStorage.get(objectKey);
+        return { ...metadata, data: bytes?.toString('base64') ?? '' };
+      }),
+    );
+    return { ...message, images };
   }
 
   /**
@@ -241,6 +276,7 @@ export class ContactService {
    */
   async deleteMessage(id: string): Promise<void> {
     await this.messageRepo.delete(id);
+    // Keep the file so a backup whose DB dump preceded this delete can restore it.
   }
 
   /**
@@ -249,6 +285,7 @@ export class ContactService {
   async deleteMessages(ids: string[]): Promise<void> {
     if (!ids || ids.length === 0) return;
     await this.messageRepo.delete({ id: In(ids) });
+    // Keep the files for the same DB/filesystem backup consistency reason.
   }
 
   /**
@@ -282,12 +319,23 @@ export class ContactService {
     const attachments: any[] = [];
     let imageSection = '';
 
-    const imagesToAttach =
+    const imageSources =
       msg.images && msg.images.length > 0
         ? msg.images
         : msg.imageData
           ? [{ data: msg.imageData, mime: msg.imageMime || 'image/jpeg' }]
           : [];
+
+    const imagesToAttach: Array<AttachedImage & { data: string }> = [];
+    for (const image of imageSources) {
+      let data = image.data;
+      if (data === undefined && image.objectKey) {
+        const bytes = await this.uploadStorage.get(image.objectKey);
+        if (!bytes) throw new Error('Contact attachment file is missing');
+        data = bytes.toString('base64');
+      }
+      if (data !== undefined) imagesToAttach.push({ ...image, data });
+    }
 
     if (imagesToAttach.length > 0) {
       const imgTags = imagesToAttach
@@ -445,5 +493,60 @@ export class ContactService {
     this.logger.log(
       `Notification email sent to ${adminEmail} (replyTo: ${msg.email || 'none'})`,
     );
+  }
+
+  private async persistImages(
+    images: AttachedImage[],
+  ): Promise<AttachedImage[]> {
+    const extensionByMime: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+    };
+    const storedKeys: string[] = [];
+
+    try {
+      const stored: AttachedImage[] = [];
+      for (const image of images) {
+        const extension = extensionByMime[image.mime];
+        if (!extension || typeof image.data !== 'string') {
+          throw new BadRequestException('Invalid contact image');
+        }
+        const data = image.data.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
+        const bytes = Buffer.from(data, 'base64');
+        if (!bytes.length)
+          throw new BadRequestException('Invalid contact image');
+
+        const objectKey = `contact/${crypto.randomUUID()}.${extension}`;
+        storedKeys.push(objectKey);
+        await this.uploadStorage.put(objectKey, bytes, image.mime);
+        stored.push({
+          mime: image.mime,
+          objectKey,
+          ...(image.name !== undefined ? { name: image.name } : {}),
+          ...(image.size !== undefined ? { size: image.size } : {}),
+          ...(image.width !== undefined ? { width: image.width } : {}),
+          ...(image.height !== undefined ? { height: image.height } : {}),
+        });
+      }
+      return stored;
+    } catch (error) {
+      await this.deleteUploadKeysBestEffort(storedKeys);
+      throw error;
+    }
+  }
+
+  private async deleteUploadKeysBestEffort(keys: string[]): Promise<void> {
+    for (const key of keys) {
+      try {
+        await this.uploadStorage.delete(key);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'unknown error';
+        this.logger.warn(
+          `Could not clean up a contact image upload: ${detail}`,
+        );
+      }
+    }
   }
 }

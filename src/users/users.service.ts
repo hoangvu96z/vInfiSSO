@@ -3,6 +3,8 @@ import {
   ConflictException,
   NotFoundException,
   UnauthorizedException,
+  Inject,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -13,10 +15,39 @@ import { OAuthAccount } from './oauth-account.entity';
 import { Session } from './session.entity';
 import { MailService } from '../mail/mail.service';
 import * as crypto from 'node:crypto';
+import * as path from 'node:path';
+import type { ObjectStorage } from '../storage/object-storage';
+import { LocalObjectStorage } from '../storage/local-object-storage';
+import { LOCAL_UPLOAD_STORAGE } from '../storage/local-upload-storage.module';
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const SESSION_ROTATION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const SESSION_ROTATION_GRACE_MS = 2 * 60 * 1000;
+const AVATAR_STORAGE_REFERENCE_PREFIX = Buffer.from('\0vinfi-upload:v1:');
+
+function createAvatarStorageReference(storageKey: string): Buffer {
+  return Buffer.concat([
+    AVATAR_STORAGE_REFERENCE_PREFIX,
+    Buffer.from(storageKey, 'utf8'),
+  ]);
+}
+
+function parseAvatarStorageReference(value: Buffer): string | null {
+  if (
+    value.length <= AVATAR_STORAGE_REFERENCE_PREFIX.length ||
+    !value
+      .subarray(0, AVATAR_STORAGE_REFERENCE_PREFIX.length)
+      .equals(AVATAR_STORAGE_REFERENCE_PREFIX)
+  ) {
+    return null;
+  }
+  const key = value.subarray(AVATAR_STORAGE_REFERENCE_PREFIX.length).toString('utf8');
+  return /^avatars\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|gif|webp)$/.test(
+    key,
+  )
+    ? key
+    : null;
+}
 
 export interface ResolvedSession {
   user: User;
@@ -25,6 +56,8 @@ export interface ResolvedSession {
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @InjectRepository(User)
     private readonly usersRepo: Repository<User>,
@@ -38,6 +71,10 @@ export class UsersService {
     private readonly mailService: MailService,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
+    @Inject(LOCAL_UPLOAD_STORAGE)
+    private readonly uploadStorage: ObjectStorage = new LocalObjectStorage(
+      path.join(process.cwd(), 'uploads'),
+    ),
   ) {}
 
   private getSessionRotationSecret(): string | null {
@@ -185,11 +222,28 @@ export class UsersService {
     const user = await this.findById(userId);
     if (!user) throw new NotFoundException('User not found');
 
-    user.avatar = buffer;
+    const extensionByMime: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+    };
+    const extension = extensionByMime[contentType];
+    if (!extension) throw new ConflictException('Unsupported avatar format');
+
+    const storageKey = `avatars/${crypto.randomUUID()}.${extension}`;
+    await this.uploadStorage.put(storageKey, buffer, contentType);
+
+    user.avatar = createAvatarStorageReference(storageKey);
     user.avatarContentType = contentType;
     user.avatarUrl = null;
 
-    return this.usersRepo.save(user);
+    try {
+      return await this.usersRepo.save(user);
+    } catch (error) {
+      await this.deleteUploadBestEffort(storageKey);
+      throw error;
+    }
   }
 
   async findAvatar(
@@ -197,7 +251,24 @@ export class UsersService {
   ): Promise<{ buffer: Buffer | null; contentType: string | null } | null> {
     const user = await this.findById(userId);
     if (!user || !user.avatar) return null;
+
+    const storageKey = parseAvatarStorageReference(user.avatar);
+    if (storageKey) {
+      const buffer = await this.uploadStorage.get(storageKey);
+      if (!buffer) return null;
+      return { buffer, contentType: user.avatarContentType };
+    }
+
     return { buffer: user.avatar, contentType: user.avatarContentType };
+  }
+
+  private async deleteUploadBestEffort(key: string): Promise<void> {
+    try {
+      await this.uploadStorage.delete(key);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'unknown error';
+      this.logger.warn(`Could not clean up an avatar upload: ${detail}`);
+    }
   }
 
   // ─── OAuth ────────────────────────────────────────────────────────────────

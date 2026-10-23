@@ -186,7 +186,8 @@ export class SsoController {
       displayName: body.displayName,
       avatarUrl: body.avatarUrl,
     });
-    return { success: true, user: updated };
+    const responseUser = { ...updated, avatar: null };
+    return { success: true, user: responseUser };
   }
 
   // ─── POST /sso/avatar (upload ảnh đại diện → lưu DB) ──────────
@@ -222,7 +223,8 @@ export class SsoController {
       file.buffer,
       file.mimetype,
     );
-    return { success: true, user: updated };
+    const responseUser = { ...updated, avatar: null };
+    return { success: true, user: responseUser };
   }
 
   // ─── GET /sso/avatar/:userId ──────────────────────────────────

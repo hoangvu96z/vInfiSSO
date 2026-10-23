@@ -4,6 +4,34 @@ import { SsoController } from './sso.controller';
 import type { User } from '../users/user.entity';
 
 describe('SsoController session response', () => {
+  it('does not return the internal avatar storage key from profile or upload responses', async () => {
+    const updatedUser = {
+      id: 'user-1',
+      email: 'member@example.test',
+      avatar: Buffer.from('\0vinfi-upload:v1:avatars/private.webp'),
+    } as unknown as User;
+    const ssoService = {
+      updateProfile: jest.fn().mockResolvedValue(updatedUser),
+      updateAvatar: jest.fn().mockResolvedValue(updatedUser),
+    };
+    const controller = new SsoController(
+      ssoService as any,
+      { get: jest.fn() } as any,
+    );
+
+    const profileResponse = await controller.updateProfile(
+      { id: 'user-1' } as User,
+      {},
+    );
+    const avatarResponse = await controller.uploadAvatar(
+      { id: 'user-1' } as User,
+      { buffer: Buffer.from('avatar'), mimetype: 'image/webp' } as any,
+    );
+
+    expect(profileResponse.user.avatar).toBeNull();
+    expect(avatarResponse.user.avatar).toBeNull();
+  });
+
   it('returns only the sanitized current user from GET /sso/me', () => {
     const user = {
       id: 'user-1',

@@ -165,14 +165,12 @@ export class SsoService {
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
   sanitizeUser(user: User): Partial<User> {
-    const {
-      passwordHash: _,
-      emailVerificationToken: __,
-      passwordResetToken: ___,
-      avatar: ____,
-      avatarContentType: _____,
-      ...safe
-    } = user as any;
+    const safe: Partial<User> = { ...user };
+    delete safe.passwordHash;
+    delete safe.emailVerificationToken;
+    delete safe.passwordResetToken;
+    delete safe.avatar;
+    delete safe.avatarContentType;
     return safe;
   }
 

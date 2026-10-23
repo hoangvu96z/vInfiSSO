@@ -4,6 +4,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { MailService } from '../mail/mail.service';
 import type { ContactMessage } from './contact-message.entity';
 import { BadRequestException } from '@nestjs/common';
+import type { ObjectStorage } from '../storage/object-storage';
 
 describe('ContactService guest session token', () => {
   const service = new ContactService(
@@ -25,11 +26,16 @@ describe('ContactService guest session token', () => {
 });
 
 describe('ContactService contact image persistence', () => {
-  it('stores multi-image uploads once in the images column', async () => {
+  it('stores multi-image uploads in private storage and writes only keys to the database', async () => {
     const images = [
       { data: 'first-base64', mime: 'image/jpeg' },
       { data: 'second-base64', mime: 'image/webp' },
     ];
+    const storage = {
+      put: jest.fn().mockResolvedValue(undefined),
+      get: jest.fn(),
+      delete: jest.fn().mockResolvedValue(undefined),
+    } satisfies ObjectStorage;
     const repository = {
       create: jest.fn((message: ContactMessage) => message),
       save: jest.fn((message: ContactMessage) => Promise.resolve(message)),
@@ -38,6 +44,7 @@ describe('ContactService contact image persistence', () => {
       repository as unknown as Repository<ContactMessage>,
       {} as unknown as MailService,
       { get: () => undefined } as unknown as ConfigService,
+      storage,
     );
     jest
       .spyOn(service as any, 'sendNotificationEmail')
@@ -50,24 +57,44 @@ describe('ContactService contact image persistence', () => {
       images,
     });
 
-    expect(repository.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        images,
-        imageData: null,
-        imageMime: 'image/jpeg',
-      }),
+    const createdMessage = repository.create.mock.calls[0][0];
+    expect(storage.put).toHaveBeenCalledTimes(2);
+    expect(storage.put).toHaveBeenNthCalledWith(
+      1,
+      expect.stringMatching(/^contact\/[0-9a-f-]+\.jpg$/),
+      Buffer.from('first-base64', 'base64'),
+      'image/jpeg',
     );
+    expect(createdMessage.images).toEqual([
+      expect.objectContaining({
+        mime: 'image/jpeg',
+        objectKey: expect.any(String),
+      }),
+      expect.objectContaining({
+        mime: 'image/webp',
+        objectKey: expect.any(String),
+      }),
+    ]);
+    expect(createdMessage.images?.[0]).not.toHaveProperty('data');
+    expect(createdMessage.imageData).toBeNull();
+    expect(createdMessage.imageMime).toBe('image/jpeg');
   });
 
-  it('keeps legacy single-image uploads in the legacy columns', async () => {
+  it('moves the legacy single-image input to private storage for new messages', async () => {
     const repository = {
       create: jest.fn((message: ContactMessage) => message),
       save: jest.fn((message: ContactMessage) => Promise.resolve(message)),
     };
+    const storage = {
+      put: jest.fn().mockResolvedValue(undefined),
+      get: jest.fn(),
+      delete: jest.fn().mockResolvedValue(undefined),
+    } satisfies ObjectStorage;
     const service = new ContactService(
       repository as unknown as Repository<ContactMessage>,
       {} as unknown as MailService,
       { get: () => undefined } as unknown as ConfigService,
+      storage,
     );
     jest
       .spyOn(service as any, 'sendNotificationEmail')
@@ -83,11 +110,170 @@ describe('ContactService contact image persistence', () => {
 
     expect(repository.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        images: null,
-        imageData: 'legacy-base64',
+        images: [
+          expect.objectContaining({
+            mime: 'image/jpeg',
+            objectKey: expect.any(String),
+          }),
+        ],
+        imageData: null,
         imageMime: 'image/jpeg',
       }),
     );
+  });
+
+  it('removes files if saving the message fails', async () => {
+    const repository = {
+      create: jest.fn((message: ContactMessage) => message),
+      save: jest.fn().mockRejectedValue(new Error('database unavailable')),
+    };
+    const storage = {
+      put: jest.fn().mockResolvedValue(undefined),
+      get: jest.fn(),
+      delete: jest.fn().mockResolvedValue(undefined),
+    } satisfies ObjectStorage;
+    const service = new ContactService(
+      repository as unknown as Repository<ContactMessage>,
+      {} as unknown as MailService,
+      { get: () => undefined } as unknown as ConfigService,
+      storage,
+    );
+
+    await expect(
+      service.createMessage({
+        sessionId: 'session-1',
+        name: 'Visitor',
+        message: 'Help',
+        images: [{ data: 'aGVsbG8=', mime: 'image/png' }],
+      }),
+    ).rejects.toThrow('database unavailable');
+    expect(storage.delete).toHaveBeenCalledWith(
+      expect.stringMatching(/^contact\/[0-9a-f-]+\.png$/),
+    );
+  });
+
+  it('hydrates private files only in the admin detail service result and hides storage keys', async () => {
+    const repository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'message-1',
+        images: [
+          { objectKey: 'contact/image.jpg', mime: 'image/jpeg', width: 10 },
+        ],
+      }),
+    };
+    const storage = {
+      put: jest.fn(),
+      get: jest.fn().mockResolvedValue(Buffer.from('private image')),
+      delete: jest.fn(),
+    } satisfies ObjectStorage;
+    const service = new ContactService(
+      repository as unknown as Repository<ContactMessage>,
+      {} as unknown as MailService,
+      {} as unknown as ConfigService,
+      storage,
+    );
+
+    await expect(service.getMessageById('message-1')).resolves.toEqual({
+      id: 'message-1',
+      images: [
+        {
+          mime: 'image/jpeg',
+          width: 10,
+          data: Buffer.from('private image').toString('base64'),
+        },
+      ],
+    });
+    expect(storage.get).toHaveBeenCalledWith('contact/image.jpg');
+  });
+
+  it('keeps legacy base64 image records readable without storage access', async () => {
+    const image = { data: 'legacy-base64', mime: 'image/png' };
+    const repository = {
+      findOne: jest
+        .fn()
+        .mockResolvedValue({ id: 'message-1', images: [image] }),
+    };
+    const storage = {
+      put: jest.fn(),
+      get: jest.fn(),
+      delete: jest.fn(),
+    } satisfies ObjectStorage;
+    const service = new ContactService(
+      repository as unknown as Repository<ContactMessage>,
+      {} as unknown as MailService,
+      {} as unknown as ConfigService,
+      storage,
+    );
+
+    await expect(service.getMessageById('message-1')).resolves.toEqual({
+      id: 'message-1',
+      images: [image],
+    });
+    expect(storage.get).not.toHaveBeenCalled();
+  });
+
+  it('loads private contact files into notification email attachments', async () => {
+    const imageBytes = Buffer.from('email image');
+    const sendMail = jest.fn().mockResolvedValue(undefined);
+    const storage = {
+      put: jest.fn(),
+      get: jest.fn().mockResolvedValue(imageBytes),
+      delete: jest.fn(),
+    } satisfies ObjectStorage;
+    const service = new ContactService(
+      {} as unknown as Repository<ContactMessage>,
+      { sendMail } as unknown as MailService,
+      {
+        get: (_key: string, fallback?: string) => fallback,
+      } as unknown as ConfigService,
+      storage,
+    );
+
+    await (service as any).sendNotificationEmail({
+      sessionId: 'session-1',
+      name: 'Visitor',
+      message: 'Help',
+      images: [{ objectKey: 'contact/private.png', mime: 'image/png' }],
+      createdAt: new Date('2026-10-23T00:00:00Z'),
+    });
+
+    expect(storage.get).toHaveBeenCalledWith('contact/private.png');
+    expect(sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [
+          expect.objectContaining({
+            content: imageBytes,
+            contentType: 'image/png',
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('retains files after database deletion so sequential backups can restore older DB snapshots', async () => {
+    const storage = {
+      put: jest.fn(),
+      get: jest.fn(),
+      delete: jest.fn().mockResolvedValue(undefined),
+    } satisfies ObjectStorage;
+    const repository = {
+      delete: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+    const service = new ContactService(
+      repository as unknown as Repository<ContactMessage>,
+      {} as unknown as MailService,
+      {} as unknown as ConfigService,
+      storage,
+    );
+
+    await service.deleteMessage('message-1');
+    expect(storage.delete).not.toHaveBeenCalled();
+
+    repository.delete.mockRejectedValue(new Error('database unavailable'));
+    await expect(service.deleteMessage('message-1')).rejects.toThrow(
+      'database unavailable',
+    );
+    expect(storage.delete).not.toHaveBeenCalled();
   });
 });
 
@@ -117,10 +303,9 @@ describe('ContactService admin message filters', () => {
       dateTo: '2026-11-01T00:00:00.000Z',
     });
 
-    expect(query.andWhere).toHaveBeenCalledWith(
-      'message.isRead = :isRead',
-      { isRead: false },
-    );
+    expect(query.andWhere).toHaveBeenCalledWith('message.isRead = :isRead', {
+      isRead: false,
+    });
     expect(query.andWhere).toHaveBeenCalledWith(
       expect.stringContaining('LOWER(message.name)'),
       { search: '%hello%' },
@@ -129,10 +314,9 @@ describe('ContactService admin message filters', () => {
       'message.createdAt >= :dateFrom',
       { dateFrom: new Date('2026-10-01T00:00:00.000Z') },
     );
-    expect(query.andWhere).toHaveBeenCalledWith(
-      'message.createdAt < :dateTo',
-      { dateTo: new Date('2026-11-01T00:00:00.000Z') },
-    );
+    expect(query.andWhere).toHaveBeenCalledWith('message.createdAt < :dateTo', {
+      dateTo: new Date('2026-11-01T00:00:00.000Z'),
+    });
     expect(query.skip).toHaveBeenCalledWith(25);
     expect(query.take).toHaveBeenCalledWith(25);
     expect(query.addOrderBy).toHaveBeenCalledWith('message.id', 'ASC');
@@ -166,10 +350,9 @@ describe('ContactService admin message filters', () => {
       'message.createdAt >= :dateFrom',
       { dateFrom: new Date('2026-10-31T00:00:00.000Z') },
     );
-    expect(query.andWhere).toHaveBeenCalledWith(
-      'message.createdAt < :dateTo',
-      { dateTo: new Date('2026-11-01T00:00:00.000Z') },
-    );
+    expect(query.andWhere).toHaveBeenCalledWith('message.createdAt < :dateTo', {
+      dateTo: new Date('2026-11-01T00:00:00.000Z'),
+    });
   });
 
   it('rejects an invalid date range before querying', async () => {

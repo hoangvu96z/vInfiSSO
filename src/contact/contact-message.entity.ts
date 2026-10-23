@@ -8,7 +8,10 @@ import {
 } from 'typeorm';
 
 export interface AttachedImage {
-  data: string; // Base64 without data URI prefix
+  /** Legacy base64 payload; new uploads store bytes under objectKey instead. */
+  data?: string;
+  /** Relative key under the private uploads directory for new uploads. */
+  objectKey?: string;
   mime: string; // e.g. "image/jpeg"
   name?: string; // original file name
   size?: number; // compressed size in bytes

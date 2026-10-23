@@ -6,9 +6,14 @@ import { Session } from './session.entity';
 import { AuditLog } from './audit-log.entity';
 import { UsersService } from './users.service';
 import { MailModule } from '../mail/mail.module';
+import { LocalUploadStorageModule } from '../storage/local-upload-storage.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, OAuthAccount, Session, AuditLog]), MailModule],
+  imports: [
+    TypeOrmModule.forFeature([User, OAuthAccount, Session, AuditLog]),
+    MailModule,
+    LocalUploadStorageModule,
+  ],
   providers: [UsersService],
   exports: [UsersService, TypeOrmModule],
 })
