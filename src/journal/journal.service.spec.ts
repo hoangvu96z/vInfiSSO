@@ -215,8 +215,10 @@ describe('JournalService', () => {
       expect(journalWhere.userId).toBe(userId);
       expect(journalWhere.createdAt).toBeDefined();
       expect(journalWhere).not.toHaveProperty('tags');
+      expect(journalWhere.reading).toEqual({ userId, app: 'iching' });
     }
-    const readingFindOptions = readingsRepo.find.mock.calls[1]?.[0];
+    expect(readingsRepo.find).toHaveBeenCalledTimes(1);
+    const readingFindOptions = readingsRepo.find.mock.calls[0]?.[0];
     expect(readingFindOptions?.where).toMatchObject({ app: 'iching', userId });
     expect(readingFindOptions?.select).toEqual({
       id: true,
@@ -227,22 +229,33 @@ describe('JournalService', () => {
   });
 
   it('paginates topic filters after decrypting tags stored in the payload', async () => {
-    const entries = ['one', 'two', 'three'].map((id, index) => ({
-      id,
-      userId,
-      readingId: `${readingId}-${id}`,
-      encryptedPayload: encryption.encryptJournalPayload(
-        {
-          reflection: `Reflection ${id}`,
-          tags: index === 1 ? ['career'] : ['love'],
-        },
-        userId,
+    const matchingIndexes = new Set([2, 100, 203]);
+    const entries = Array.from({ length: 205 }, (_, index) => {
+      const id = `entry-${index}`;
+      return {
         id,
-      ),
-      createdAt: new Date(`2026-10-2${3 - index}T09:00:00.000Z`),
-      updatedAt: new Date('2026-10-21T09:00:00.000Z'),
-    }));
-    journalRepo.find.mockResolvedValue(entries);
+        userId,
+        readingId: `${readingId}-${index}`,
+        encryptedPayload: encryption.encryptJournalPayload(
+          {
+            reflection: `Reflection ${id}`,
+            tags: matchingIndexes.has(index) ? ['career'] : ['love'],
+          },
+          userId,
+          id,
+        ),
+        createdAt: new Date(Date.UTC(2026, 9, 23, 9) - index * 1000),
+        updatedAt: new Date('2026-10-21T09:00:00.000Z'),
+      };
+    });
+    journalRepo.find.mockImplementation((options) => {
+      const skip = options?.skip ?? 0;
+      const take = options?.take;
+      if (!take || take > 100) {
+        throw new Error('Expected a bounded journal scan');
+      }
+      return Promise.resolve(entries.slice(skip, skip + take));
+    });
     readingsRepo.find.mockResolvedValue(
       entries.map((entry) => ({
         id: entry.readingId,
@@ -253,15 +266,23 @@ describe('JournalService', () => {
     );
 
     const result = await service.listEntries(userId, {
-      tag: 'love',
+      tag: 'career',
       offset: 1,
       limit: 1,
     });
 
     expect(result).toHaveLength(1);
-    expect(result[0].tags).toEqual(['love']);
-    expect(journalRepo.find.mock.calls[0]?.[0]).not.toHaveProperty('take');
-    expect(journalRepo.find.mock.calls[0]?.[0]).not.toHaveProperty('skip');
+    expect(result[0].id).toBe('entry-100');
+    expect(result[0].tags).toEqual(['career']);
+    expect(
+      journalRepo.find.mock.calls.map(([options]) => ({
+        skip: options?.skip,
+        take: options?.take,
+      })),
+    ).toEqual([
+      { skip: 0, take: 100 },
+      { skip: 100, take: 100 },
+    ]);
   });
 
   it('does not allow editing or deleting another user’s reflection', async () => {

@@ -31,6 +31,7 @@ import {
 const MAX_REFLECTION_LENGTH = 2000;
 const MAX_TAGS = 5;
 const MAX_LIST_SIZE = 500;
+const TAG_FILTER_SCAN_SIZE = 100;
 
 type JournalReadingSummary = Pick<Reading, 'id' | 'app' | 'type' | 'createdAt'>;
 
@@ -80,14 +81,7 @@ export class JournalService {
     if (from && to) where.createdAt = And(from, to);
     else if (from) where.createdAt = from;
     else if (to) where.createdAt = to;
-    if (filters.app) {
-      const appReadings = await this.readingsRepo.find({
-        where: { userId, app: filters.app },
-        select: { id: true },
-      });
-      if (!appReadings.length) return [];
-      where.readingId = In(appReadings.map((reading) => reading.id));
-    }
+    if (filters.app) where.reading = { userId, app: filters.app };
 
     const query = {
       where,
@@ -95,19 +89,41 @@ export class JournalService {
     };
     const offset = filters.offset ?? 0;
     const limit = Math.min(filters.limit ?? MAX_LIST_SIZE, MAX_LIST_SIZE);
-    const rows = await this.journalRepo.find(
-      filters.tag ? query : { ...query, skip: offset, take: limit },
-    );
-    if (!rows.length) return [];
+    let page: Array<{ entry: JournalEntry; payload: JournalPayload }>;
+    if (filters.tag) {
+      page = [];
+      let scanOffset = 0;
+      let matchingRowsToSkip = offset;
+      let reachedEnd = false;
 
-    const candidates = rows
-      .map((entry) => ({ entry, payload: this.decrypt(entry) }))
-      .filter(
-        ({ payload }) => !filters.tag || payload.tags.includes(filters.tag),
-      );
-    const page = filters.tag
-      ? candidates.slice(offset, offset + limit)
-      : candidates;
+      while (page.length < limit && !reachedEnd) {
+        const batch = await this.journalRepo.find({
+          ...query,
+          skip: scanOffset,
+          take: TAG_FILTER_SCAN_SIZE,
+        });
+        scanOffset += batch.length;
+        reachedEnd = batch.length < TAG_FILTER_SCAN_SIZE;
+
+        for (const entry of batch) {
+          const payload = this.decrypt(entry);
+          if (!payload.tags.includes(filters.tag)) continue;
+          if (matchingRowsToSkip > 0) {
+            matchingRowsToSkip -= 1;
+            continue;
+          }
+          page.push({ entry, payload });
+          if (page.length === limit) break;
+        }
+      }
+    } else {
+      const rows = await this.journalRepo.find({
+        ...query,
+        skip: offset,
+        take: limit,
+      });
+      page = rows.map((entry) => ({ entry, payload: this.decrypt(entry) }));
+    }
     if (!page.length) return [];
 
     const readingIds = page.map(({ entry }) => entry.readingId);
