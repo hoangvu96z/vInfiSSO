@@ -4,14 +4,17 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { MoreThan, DataSource } from 'typeorm';
-import { randomBytes } from 'node:crypto';
+import { DataSource, MoreThan, type EntityManager } from 'typeorm';
+import { createHash, randomBytes } from 'node:crypto';
 import { Plan } from '../plans/plan.entity';
 import { User } from '../users/user.entity';
 import { UserSubscription } from '../plans/user-subscription.entity';
 import { AuditLog } from '../users/audit-log.entity';
 import { PaymentOrder } from './payment-order.entity';
 import { PaymentSettings } from './payment-settings.entity';
+import { PaymentWebhookEvent } from './payment-webhook-event.entity';
+import { SePayWebhookDto } from './dto/sepay-webhook.dto';
+import { extractSePayPaymentReference } from './sepay-webhook.util';
 import { createVietQrQuickLink } from './vietqr-link.util';
 import type { UpdatePaymentSettingsDto } from './dto/update-payment-settings.dto';
 import { parseAdminDateRange } from '../common/admin-date-range.util';
@@ -323,46 +326,11 @@ export class PaymentsService {
         return { order: this.toAdminOrder(order), alreadyPaid: true };
       }
 
-      const now = new Date();
-      const userRepo = manager.getRepository(User);
-      const user = await userRepo.findOne({
-        where: { id: order.userId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!user)
-        throw new NotFoundException('Không tìm thấy người dùng của đơn');
-
-      const subscriptions = manager.getRepository(UserSubscription);
-      const current = await subscriptions.findOne({
-        where: {
-          userId: order.userId,
-          planName: order.planName,
-          expiresAt: MoreThan(now),
-        },
-        order: { expiresAt: 'DESC' },
-        lock: { mode: 'pessimistic_write' },
-      });
-      const startsAt =
-        current?.expiresAt && current.expiresAt > now ? current.expiresAt : now;
-      const expiresAt = new Date(
-        startsAt.getTime() + order.durationDays * 24 * 60 * 60 * 1000,
+      const { savedOrder, subscription } = await this.fulfillPaymentOrder(
+        manager,
+        order,
+        adminId,
       );
-      const subscription = await subscriptions.save(
-        subscriptions.create({
-          userId: order.userId,
-          planName: order.planName,
-          startedAt: startsAt,
-          expiresAt,
-          grantedByAdmin: false,
-          grantedByCoupon: null,
-        }),
-      );
-      await userRepo.update(order.userId, { planName: order.planName });
-
-      order.status = 'paid';
-      order.paidAt = now;
-      order.reviewedBy = adminId;
-      const savedOrder = await orderRepo.save(order);
       await manager.getRepository(AuditLog).save({
         userId: adminId,
         action: 'payment_order_marked_paid',
@@ -390,6 +358,198 @@ export class PaymentsService {
         },
       };
     });
+  }
+
+  async processSePayWebhook(
+    payload: SePayWebhookDto,
+    rawBody: Buffer,
+    signatureTimestamp: number,
+    ipAddress: string | null,
+    userAgent: string | null,
+  ): Promise<{ success: true }> {
+    if (!Number.isSafeInteger(payload.id) || payload.id <= 0) {
+      throw new BadRequestException('SePay transaction ID must be positive');
+    }
+
+    const reference = extractSePayPaymentReference(
+      payload.code,
+      payload.content,
+    );
+    const payloadSha256 = createHash('sha256').update(rawBody).digest('hex');
+
+    return this.dataSource.transaction(async (manager) => {
+      const eventRepo = manager.getRepository(PaymentWebhookEvent);
+      const insertResult = await eventRepo
+        .createQueryBuilder()
+        .insert()
+        .into(PaymentWebhookEvent)
+        .values(
+          eventRepo.create({
+            provider: 'sepay',
+            providerTransactionId: String(payload.id),
+            paymentOrderId: null,
+            transferType: payload.transferType,
+            gateway: payload.gateway,
+            reference,
+            amount: String(payload.transferAmount),
+            accountLast4: payload.accountNumber.slice(-4),
+            signatureTimestamp: String(signatureTimestamp),
+            payloadSha256,
+            outcome: 'received',
+            rejectionReason: null,
+          }),
+        )
+        .orIgnore()
+        .returning(['id'])
+        .execute();
+
+      const insertedEvent = (
+        insertResult.raw as Array<{ id?: string }> | undefined
+      )?.[0];
+      if (!insertedEvent?.id) {
+        // A unique (provider, transaction ID) constraint makes simultaneous
+        // deliveries converge here after the first transaction commits.
+        return { success: true };
+      }
+
+      const orderRepo = manager.getRepository(PaymentOrder);
+      let order: PaymentOrder | null = null;
+      let rejectionReason: string | null = null;
+
+      if (payload.transferType !== 'in') {
+        rejectionReason = 'transfer_not_incoming';
+      } else if (!reference) {
+        rejectionReason = 'invalid_reference';
+      } else {
+        order = await orderRepo.findOne({
+          where: { reference },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!order) {
+          rejectionReason = 'order_not_found';
+        } else if (order.status !== 'pending') {
+          rejectionReason =
+            order.status === 'paid'
+              ? 'order_already_paid'
+              : 'order_not_pending';
+        } else if (order.expiresAt.getTime() <= Date.now()) {
+          rejectionReason = 'order_expired';
+        } else if (payload.accountNumber !== order.accountNumber) {
+          rejectionReason = 'account_mismatch';
+        } else if (
+          !Number.isSafeInteger(Number(order.amount)) ||
+          payload.transferAmount !== Number(order.amount)
+        ) {
+          rejectionReason = 'amount_mismatch';
+        }
+      }
+
+      const auditRepo = manager.getRepository(AuditLog);
+      if (rejectionReason || !order) {
+        await eventRepo.update(insertedEvent.id, {
+          paymentOrderId: order?.id ?? null,
+          outcome: 'ignored',
+          rejectionReason: rejectionReason ?? 'order_not_found',
+        });
+        await auditRepo.save({
+          userId: order?.userId ?? null,
+          action: 'payment_sepay_event_ignored',
+          app: 'sso',
+          ipAddress,
+          userAgent,
+          metadata: {
+            provider: 'sepay',
+            providerEventId: insertedEvent.id,
+            providerTransactionId: String(payload.id),
+            orderId: order?.id ?? null,
+            reference,
+            amount: payload.transferAmount,
+            outcome: 'ignored',
+            reason: rejectionReason ?? 'order_not_found',
+            payloadSha256,
+          },
+        });
+        return { success: true };
+      }
+
+      const { savedOrder, subscription } = await this.fulfillPaymentOrder(
+        manager,
+        order,
+        null,
+      );
+      await eventRepo.update(insertedEvent.id, {
+        paymentOrderId: order.id,
+        outcome: 'paid',
+        rejectionReason: null,
+      });
+      await auditRepo.save({
+        userId: order.userId,
+        action: 'payment_sepay_event_paid',
+        app: 'sso',
+        ipAddress,
+        userAgent,
+        metadata: {
+          provider: 'sepay',
+          providerEventId: insertedEvent.id,
+          providerTransactionId: String(payload.id),
+          orderId: savedOrder.id,
+          reference: savedOrder.reference,
+          amount: payload.transferAmount,
+          planName: savedOrder.planName,
+          subscriptionId: subscription.id,
+          payloadSha256,
+        },
+      });
+
+      return { success: true };
+    });
+  }
+
+  private async fulfillPaymentOrder(
+    manager: EntityManager,
+    order: PaymentOrder,
+    reviewedBy: string | null,
+  ) {
+    const now = new Date();
+    const userRepo = manager.getRepository(User);
+    const user = await userRepo.findOne({
+      where: { id: order.userId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!user) throw new NotFoundException('Không tìm thấy người dùng của đơn');
+
+    const subscriptions = manager.getRepository(UserSubscription);
+    const current = await subscriptions.findOne({
+      where: {
+        userId: order.userId,
+        planName: order.planName,
+        expiresAt: MoreThan(now),
+      },
+      order: { expiresAt: 'DESC' },
+      lock: { mode: 'pessimistic_write' },
+    });
+    const startsAt =
+      current?.expiresAt && current.expiresAt > now ? current.expiresAt : now;
+    const expiresAt = new Date(
+      startsAt.getTime() + order.durationDays * 24 * 60 * 60 * 1000,
+    );
+    const subscription = await subscriptions.save(
+      subscriptions.create({
+        userId: order.userId,
+        planName: order.planName,
+        startedAt: startsAt,
+        expiresAt,
+        grantedByAdmin: false,
+        grantedByCoupon: null,
+      }),
+    );
+    await userRepo.update(order.userId, { planName: order.planName });
+
+    order.status = 'paid';
+    order.paidAt = now;
+    order.reviewedBy = reviewedBy;
+    const savedOrder = await manager.getRepository(PaymentOrder).save(order);
+    return { savedOrder, subscription };
   }
 
   private toUserOrder(order: PaymentOrder) {

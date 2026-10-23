@@ -32,6 +32,7 @@ import { validateApplicationEnvironment } from './config/environment';
 import { PaymentsModule } from './payments/payments.module';
 import { PaymentOrder } from './payments/payment-order.entity';
 import { PaymentSettings } from './payments/payment-settings.entity';
+import { PaymentWebhookEvent } from './payments/payment-webhook-event.entity';
 import { JournalEntry } from './journal/journal-entry.entity';
 import { JournalModule } from './journal/journal.module';
 import { StreakState } from './streak/streak-state.entity';
@@ -75,6 +76,7 @@ import { SystemStatusModule } from './system-status/system-status.module';
           NoteInvite,
           PaymentOrder,
           PaymentSettings,
+          PaymentWebhookEvent,
           JournalEntry,
           StreakState,
         ],
