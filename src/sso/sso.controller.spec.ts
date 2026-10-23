@@ -250,7 +250,10 @@ describe('SsoController session response', () => {
       get: jest.fn((_key: string, fallback: string) => fallback),
     };
     const controller = createController(ssoService, configService);
-    const response = { cookie: jest.fn(), setHeader: jest.fn() } as unknown as Response;
+    const response = {
+      cookie: jest.fn(),
+      setHeader: jest.fn(),
+    } as unknown as Response;
 
     await expect(
       controller.exchangeOAuthCode(
@@ -270,7 +273,10 @@ describe('SsoController session response', () => {
       createSessionForUser: jest.fn().mockResolvedValue('session-token'),
       sanitizeUser: jest.fn().mockReturnValue({ id: 'user-1' }),
     };
-    const response = { cookie: jest.fn(), setHeader: jest.fn() } as unknown as Response;
+    const response = {
+      cookie: jest.fn(),
+      setHeader: jest.fn(),
+    } as unknown as Response;
     const productionConfig = {
       get: jest.fn((key: string) =>
         key === 'NODE_ENV' ? 'production' : undefined,
