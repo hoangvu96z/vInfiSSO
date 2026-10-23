@@ -18,6 +18,7 @@ describe('UsersService password reset', () => {
     | 'passwordResetTokenExpiresAt'
   >;
   let currentUser: ResetTestUser | null;
+  let queriedTokenDigest: string | null;
   const userQuery = {
     setLock: jest.fn<unknown, [string]>(),
     where: jest.fn<unknown, [string, Record<string, unknown>]>(),
@@ -68,10 +69,20 @@ describe('UsersService password reset', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    queriedTokenDigest = null;
     userQuery.setLock.mockImplementation(() => userQuery);
-    userQuery.where.mockImplementation(() => userQuery);
+    userQuery.where.mockImplementation((_sql, params) => {
+      queriedTokenDigest =
+        typeof params?.tokenDigest === 'string' ? params.tokenDigest : null;
+      return userQuery;
+    });
     userQuery.getOne.mockImplementation(() =>
-      Promise.resolve(currentUser?.passwordResetToken ? currentUser : null),
+      Promise.resolve(
+        currentUser?.passwordResetToken &&
+          currentUser.passwordResetToken === queriedTokenDigest
+          ? currentUser
+          : null,
+      ),
     );
     sessionQuery.delete.mockImplementation(() => sessionQuery);
     sessionQuery.where.mockImplementation(() => sessionQuery);
@@ -121,15 +132,12 @@ describe('UsersService password reset', () => {
 
     expect(userQuery.setLock).toHaveBeenCalledWith('pessimistic_write');
     expect(userQuery.where).toHaveBeenCalledWith(
-      'user.passwordResetToken IN (:...candidates)',
+      'user.passwordResetToken = :tokenDigest',
       {
-        candidates: [
-          crypto
-            .createHash('sha256')
-            .update('one-time-reset-token')
-            .digest('hex'),
-          'one-time-reset-token',
-        ],
+        tokenDigest: crypto
+          .createHash('sha256')
+          .update('one-time-reset-token')
+          .digest('hex'),
       },
     );
     expect(updated.passwordResetToken).toBeNull();
@@ -139,6 +147,28 @@ describe('UsersService password reset', () => {
     expect(sessionQuery.where).toHaveBeenCalledWith('user_id = :userId', {
       userId: 'user-1',
     });
+  });
+
+  it('rejects the stored password reset digest when presented as a raw token', async () => {
+    const storedDigest = currentUser?.passwordResetToken;
+    if (!storedDigest) throw new Error('Expected stored digest');
+
+    await expect(
+      service.resetPassword(storedDigest, 'new-password-123'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(userRepository.save).not.toHaveBeenCalled();
+    expect(sessionQuery.delete).not.toHaveBeenCalled();
+  });
+
+  it('rejects an expired password reset token without revoking sessions', async () => {
+    if (!currentUser) throw new Error('Expected test user');
+    currentUser.passwordResetTokenExpiresAt = new Date(Date.now() - 1_000);
+
+    await expect(
+      service.resetPassword('one-time-reset-token', 'new-password-123'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(userRepository.save).not.toHaveBeenCalled();
+    expect(sessionQuery.delete).not.toHaveBeenCalled();
   });
 
   it('rejects replay after the token has been cleared', async () => {
@@ -261,5 +291,117 @@ describe('UsersService action token storage', () => {
       rawToken,
       user.displayName,
     );
+  });
+});
+
+describe('UsersService email verification', () => {
+  let verificationUser: User | null;
+  const sessionQuery = {
+    delete: jest.fn<unknown, []>(),
+    where: jest.fn<unknown, [string, Record<string, unknown>]>(),
+    execute: jest
+      .fn<Promise<{ affected: number }>, []>()
+      .mockResolvedValue({ affected: 1 }),
+  };
+  const sessionRepository = {
+    createQueryBuilder: jest.fn(() => sessionQuery),
+  };
+  const userRepository = {
+    findOne: jest.fn<
+      Promise<User | null>,
+      [{ where?: { emailVerificationToken?: string } }?]
+    >(),
+    save: jest.fn<Promise<User>, [User]>((user) => {
+      verificationUser = user;
+      return Promise.resolve(user);
+    }),
+  };
+  const service = new UsersService(
+    userRepository as unknown as Repository<User>,
+    {} as unknown as Repository<OAuthAccount>,
+    sessionRepository as unknown as Repository<Session>,
+    {} as unknown as MailService,
+    {} as unknown as import('typeorm').DataSource,
+    {
+      get: jest.fn<unknown, [string]>(() => 'x'.repeat(32)),
+    } as unknown as ConfigService,
+  );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    sessionQuery.delete.mockImplementation(() => sessionQuery);
+    sessionQuery.where.mockImplementation(() => sessionQuery);
+    verificationUser = Object.assign(new User(), {
+      id: 'verify-user-1',
+      email: 'verify@example.test',
+      isVerified: false,
+      emailVerificationToken: crypto
+        .createHash('sha256')
+        .update('one-time-verify-token')
+        .digest('hex'),
+      emailVerificationTokenExpiresAt: new Date(Date.now() + 60_000),
+    });
+    userRepository.findOne.mockImplementation((options) => {
+      const requestedToken = options?.where?.emailVerificationToken;
+      if (
+        verificationUser?.emailVerificationToken &&
+        requestedToken === verificationUser.emailVerificationToken
+      ) {
+        return Promise.resolve(verificationUser);
+      }
+      return Promise.resolve(null);
+    });
+  });
+
+  it('verifies email with a valid raw token, clears the token, and revokes existing sessions', async () => {
+    const verified = await service.verifyEmail('one-time-verify-token');
+
+    expect(userRepository.findOne).toHaveBeenCalledWith({
+      where: {
+        emailVerificationToken: crypto
+          .createHash('sha256')
+          .update('one-time-verify-token')
+          .digest('hex'),
+      },
+    });
+    expect(verified?.isVerified).toBe(true);
+    expect(verified?.emailVerificationToken).toBeNull();
+    expect(verified?.emailVerificationTokenExpiresAt).toBeNull();
+    expect(sessionQuery.delete).toHaveBeenCalled();
+    expect(sessionQuery.where).toHaveBeenCalledWith('user_id = :userId', {
+      userId: 'verify-user-1',
+    });
+  });
+
+  it('rejects the stored email verification digest when presented as a raw token', async () => {
+    const storedDigest = verificationUser?.emailVerificationToken;
+    if (!storedDigest) throw new Error('Expected stored digest');
+
+    await expect(service.verifyEmail(storedDigest)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(userRepository.save).not.toHaveBeenCalled();
+    expect(sessionQuery.delete).not.toHaveBeenCalled();
+  });
+
+  it('rejects an expired email verification token', async () => {
+    if (!verificationUser) throw new Error('Expected verification user');
+    verificationUser.emailVerificationTokenExpiresAt = new Date(
+      Date.now() - 1_000,
+    );
+
+    await expect(
+      service.verifyEmail('one-time-verify-token'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(userRepository.save).not.toHaveBeenCalled();
+    expect(sessionQuery.delete).not.toHaveBeenCalled();
+  });
+
+  it('rejects replay after the email verification token has been cleared', async () => {
+    await service.verifyEmail('one-time-verify-token');
+    await expect(
+      service.verifyEmail('one-time-verify-token'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(userRepository.save).toHaveBeenCalledTimes(1);
   });
 });

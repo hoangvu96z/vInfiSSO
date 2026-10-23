@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import * as bcryptjs from 'bcryptjs';
 import { User } from './user.entity';
 import { OAuthAccount } from './oauth-account.entity';
@@ -556,9 +556,10 @@ export class UsersService {
   // ─── Email Verification ───────────────────────────────────────────────────
 
   async verifyEmail(token: string): Promise<User | null> {
+    const tokenDigest = this.digestActionToken(token);
     const user = await this.usersRepo.findOne({
       where: {
-        emailVerificationToken: In([this.digestActionToken(token), token]),
+        emailVerificationToken: tokenDigest,
       },
     });
 
@@ -661,13 +662,13 @@ export class UsersService {
     }
 
     const passwordHash = await bcryptjs.hash(newPassword, 12);
+    const tokenDigest = this.digestActionToken(token);
     return this.dataSource.transaction(async (manager) => {
-      const candidates = [this.digestActionToken(token), token];
       const user = await manager
         .getRepository(User)
         .createQueryBuilder('user')
         .setLock('pessimistic_write')
-        .where('user.passwordResetToken IN (:...candidates)', { candidates })
+        .where('user.passwordResetToken = :tokenDigest', { tokenDigest })
         .getOne();
       if (!user) throw new NotFoundException('Token không hợp lệ');
       if (
