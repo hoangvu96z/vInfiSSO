@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Response } from 'express';
+import request from 'supertest';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -67,6 +68,21 @@ describe('AppController', () => {
       'text/html; charset=utf-8',
     );
     expect(responseMock.send).toHaveBeenCalledWith('<html>SSO</html>');
+  });
+
+  it('does not expose the retired standalone SSO page route', async () => {
+    const moduleFixture = await Test.createTestingModule({
+      controllers: [AppController],
+      providers: [AppService],
+    }).compile();
+    const app = moduleFixture.createNestApplication();
+
+    try {
+      await app.init();
+      await request(app.getHttpServer()).get('/sso/sso-page.html').expect(404);
+    } finally {
+      await app.close();
+    }
   });
 
   it('serves React assets from the deployed application root', () => {
