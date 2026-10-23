@@ -7,10 +7,8 @@ import { User } from '../users/user.entity';
 import { AuditLog } from '../users/audit-log.entity';
 import { PaymentOrder } from './payment-order.entity';
 import { PaymentSettings } from './payment-settings.entity';
-import { PaymentWebhookEvent } from './payment-webhook-event.entity';
 import { AdminPaymentsController } from './admin-payments.controller';
 import { PaymentsController } from './payments.controller';
-import { SePayWebhookController } from './sepay-webhook.controller';
 import { PaymentOriginGuard } from './payment-origin.guard';
 import { PaymentsService } from './payments.service';
 
@@ -19,7 +17,6 @@ import { PaymentsService } from './payments.service';
     TypeOrmModule.forFeature([
       PaymentOrder,
       PaymentSettings,
-      PaymentWebhookEvent,
       Plan,
       UserSubscription,
       User,
@@ -27,11 +24,7 @@ import { PaymentsService } from './payments.service';
     ]),
     SsoModule,
   ],
-  controllers: [
-    PaymentsController,
-    AdminPaymentsController,
-    SePayWebhookController,
-  ],
+  controllers: [PaymentsController, AdminPaymentsController],
   providers: [PaymentsService, PaymentOriginGuard],
 })
 export class PaymentsModule {}
