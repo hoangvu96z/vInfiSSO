@@ -2,6 +2,12 @@ import { MigrationExecutor, type QueryRunner } from 'typeorm';
 import migrationDataSource from '../src/database/data-source';
 
 export const STREAK_MIGRATION_NAME = 'UserStreaks1792886400000';
+export const SEPAY_MIGRATION_NAME = 'SePayWebhookEvents1792800000000';
+
+const BACKUP_GATED_MIGRATIONS = [
+  SEPAY_MIGRATION_NAME,
+  STREAK_MIGRATION_NAME,
+] as const;
 
 class StreakMigrationGateError extends Error {
   readonly code = 'STREAK_MIGRATION_GUARD';
@@ -101,17 +107,24 @@ export function safeStreakMigrationDiagnostic(
   };
 }
 
-function requireOnlyStreakPending(names: string[]): void {
-  const unexpected = names.filter((name) => name !== STREAK_MIGRATION_NAME);
+function requireOnlyBackupGatedMigrationsPending(names: string[]): void {
+  const unexpected = names.filter(
+    (name) =>
+      !BACKUP_GATED_MIGRATIONS.includes(
+        name as (typeof BACKUP_GATED_MIGRATIONS)[number],
+      ),
+  );
   if (unexpected.length) {
     throw new StreakMigrationGateError(
       `Refusing schema change: ${unexpected.length} unexpected pending migration(s).`,
     );
   }
-  if (names.filter((name) => name === STREAK_MIGRATION_NAME).length > 1) {
-    throw new StreakMigrationGateError(
-      'Refusing schema change: streak migration is duplicated.',
-    );
+  for (const allowedName of BACKUP_GATED_MIGRATIONS) {
+    if (names.filter((name) => name === allowedName).length > 1) {
+      throw new StreakMigrationGateError(
+        'Refusing schema change: an expected migration is duplicated.',
+      );
+    }
   }
 }
 
@@ -208,18 +221,114 @@ export async function verifyStreakSchema(
   }
 }
 
+export async function verifySePayWebhookEventSchema(
+  queryRunner: Pick<QueryRunner, 'query'>,
+): Promise<void> {
+  const columns = (await queryRunner.query(
+    `SELECT column_name, udt_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'payment_webhook_events'`,
+  )) as Array<{ column_name: string; udt_name: string }>;
+  const types = new Map(
+    columns.map(({ column_name, udt_name }) => [column_name, udt_name]),
+  );
+  const expectedColumns: Record<string, string> = {
+    id: 'uuid',
+    provider: 'varchar',
+    provider_transaction_id: 'varchar',
+    payment_order_id: 'uuid',
+    transfer_type: 'varchar',
+    gateway: 'varchar',
+    reference: 'varchar',
+    amount: 'int8',
+    account_last4: 'varchar',
+    signature_timestamp: 'int8',
+    payload_sha256: 'varchar',
+    outcome: 'varchar',
+    rejection_reason: 'varchar',
+    received_at: 'timestamp',
+  };
+  for (const [name, type] of Object.entries(expectedColumns)) {
+    if (types.get(name) !== type) {
+      throw new StreakMigrationGateError(
+        `SePay schema verification failed: payment_webhook_events.${name} is missing or has the wrong type.`,
+      );
+    }
+  }
+
+  const constraints = (await queryRunner.query(
+    `SELECT conrelid::regclass::text AS table_name, conname AS name,
+            pg_get_constraintdef(oid) AS definition
+       FROM pg_constraint
+      WHERE conrelid = to_regclass('public.payment_webhook_events')`,
+  )) as Array<{ table_name: string; name: string; definition: string }>;
+  const definitions = constraints.map(({ table_name, name, definition }) =>
+    `${table_name} ${name} ${definition}`.toLowerCase().replaceAll('"', ''),
+  );
+  const requiredConstraints: Array<(definition: string) => boolean> = [
+    (definition) =>
+      definition.includes('unique (provider, provider_transaction_id)'),
+    (definition) =>
+      definition.includes('foreign key (payment_order_id)') &&
+      definition.includes('references payment_orders(id)') &&
+      definition.includes('on delete set null'),
+    (definition) =>
+      definition.includes('check') && definition.includes('amount > 0'),
+    (definition) =>
+      definition.includes('check') &&
+      definition.includes('account_last4') &&
+      definition.includes('~'),
+    (definition) =>
+      definition.includes('check') &&
+      definition.includes('payload_sha256') &&
+      definition.includes('~'),
+    (definition) =>
+      definition.includes('check') &&
+      definition.includes('outcome') &&
+      ['received', 'paid', 'ignored'].every((value) =>
+        definition.includes(value),
+      ),
+  ];
+  for (const matches of requiredConstraints) {
+    if (!definitions.some(matches)) {
+      throw new StreakMigrationGateError(
+        'SePay schema verification failed: a required event constraint is missing.',
+      );
+    }
+  }
+
+  const indexes = (await queryRunner.query(
+    `SELECT indexname FROM pg_indexes
+      WHERE schemaname = 'public' AND tablename = 'payment_webhook_events'`,
+  )) as Array<{ indexname: string }>;
+  if (
+    !indexes.some(
+      ({ indexname }) =>
+        indexname === 'IDX_payment_webhook_events_order_received',
+    )
+  ) {
+    throw new StreakMigrationGateError(
+      'SePay schema verification failed: event audit index is missing.',
+    );
+  }
+}
+
 export async function applyOnlyStreakMigration(
   executor: MigrationExecutorLike,
   queryRunner: TransactionalQueryRunner,
 ): Promise<'applied' | 'already_applied'> {
   const beforePending = await executor.getPendingMigrations();
-  requireOnlyStreakPending(beforePending.map(({ name }) => name));
-  if (beforePending.length > 1) {
+  const pendingNames = beforePending.map(({ name }) => name);
+  requireOnlyBackupGatedMigrationsPending(pendingNames);
+  const beforeExecuted = await executor.getExecutedMigrations();
+  const knownMigrationNames = new Set([
+    ...pendingNames,
+    ...beforeExecuted.map(({ name }) => name),
+  ]);
+  if (BACKUP_GATED_MIGRATIONS.some((name) => !knownMigrationNames.has(name))) {
     throw new StreakMigrationGateError(
-      'Refusing schema change: more than one migration is pending.',
+      'Migration runner could not find every expected migration in its registry or history.',
     );
   }
-  const beforeExecuted = await executor.getExecutedMigrations();
   const targetWasExecuted = beforeExecuted.some(
     ({ name }) => name === STREAK_MIGRATION_NAME,
   );
@@ -228,20 +337,28 @@ export async function applyOnlyStreakMigration(
     await queryRunner.startTransaction();
     try {
       const pending = await executor.getPendingMigrations();
-      requireOnlyStreakPending(pending.map(({ name }) => name));
-      if (pending.length !== 1 || pending[0].name !== STREAK_MIGRATION_NAME) {
+      const transactionPendingNames = pending.map(({ name }) => name);
+      requireOnlyBackupGatedMigrationsPending(transactionPendingNames);
+      if (
+        transactionPendingNames.length !== pendingNames.length ||
+        transactionPendingNames.some((name) => !pendingNames.includes(name)) ||
+        pendingNames.some((name) => !transactionPendingNames.includes(name))
+      ) {
         throw new StreakMigrationGateError(
-          'Refusing schema change: streak migration is no longer the only pending migration.',
+          'Refusing schema change: pending migrations changed before the transaction began.',
         );
       }
-      const applied = await executor.executeMigration(pending[0]);
-      if (applied.name !== STREAK_MIGRATION_NAME) {
-        throw new StreakMigrationGateError(
-          'Migration runner did not apply the expected streak migration.',
-        );
+      for (const migration of pending) {
+        const applied = await executor.executeMigration(migration);
+        if (applied.name !== migration.name) {
+          throw new StreakMigrationGateError(
+            'Migration runner did not apply the expected backup-gated migration.',
+          );
+        }
       }
-      await verifyMigrationHistory(executor, beforeExecuted, false);
+      await verifyMigrationHistory(executor, beforeExecuted, pendingNames);
       await verifyStreakSchema(queryRunner);
+      await verifySePayWebhookEventSchema(queryRunner);
       await queryRunner.commitTransaction();
       return 'applied';
     } catch (error) {
@@ -250,8 +367,14 @@ export async function applyOnlyStreakMigration(
     }
   }
 
-  await verifyMigrationHistory(executor, beforeExecuted, targetWasExecuted);
+  await verifyMigrationHistory(executor, beforeExecuted, []);
   await verifyStreakSchema(queryRunner);
+  await verifySePayWebhookEventSchema(queryRunner);
+  if (!targetWasExecuted) {
+    throw new StreakMigrationGateError(
+      'Streak migration verification failed: expected migration is not recorded.',
+    );
+  }
   return 'already_applied';
 }
 
@@ -260,10 +383,10 @@ async function verifyMigrationHistory(
   beforeExecuted: Awaited<
     ReturnType<MigrationExecutor['getExecutedMigrations']>
   >,
-  targetWasExecuted: boolean,
+  expectedNewlyExecuted: string[],
 ): Promise<void> {
   const pending = await executor.getPendingMigrations();
-  requireOnlyStreakPending(pending.map(({ name }) => name));
+  requireOnlyBackupGatedMigrationsPending(pending.map(({ name }) => name));
   if (pending.length) {
     throw new StreakMigrationGateError(
       'Streak migration verification failed: a migration remains pending.',
@@ -273,18 +396,24 @@ async function verifyMigrationHistory(
   const added = afterExecuted.filter(
     ({ id }) => !beforeExecuted.some((before) => before.id === id),
   );
-  const expectedAdded = targetWasExecuted ? 0 : 1;
+  const addedNames = added.map(({ name }) => name);
   if (
-    added.length !== expectedAdded ||
-    added.some(({ name }) => name !== STREAK_MIGRATION_NAME)
+    addedNames.length !== expectedNewlyExecuted.length ||
+    addedNames.some((name) => !expectedNewlyExecuted.includes(name)) ||
+    expectedNewlyExecuted.some((name) => !addedNames.includes(name))
   ) {
     throw new StreakMigrationGateError(
       'Streak migration verification failed: migration history changed unexpectedly.',
     );
   }
-  if (!afterExecuted.some(({ name }) => name === STREAK_MIGRATION_NAME)) {
+  if (
+    BACKUP_GATED_MIGRATIONS.some(
+      (expectedName) =>
+        !afterExecuted.some(({ name }) => name === expectedName),
+    )
+  ) {
     throw new StreakMigrationGateError(
-      'Streak migration verification failed: expected migration is not recorded.',
+      'Migration verification failed: an expected migration is not recorded.',
     );
   }
 }
@@ -307,7 +436,9 @@ async function main(): Promise<void> {
     }
     const executor = new MigrationExecutor(migrationDataSource, queryRunner);
     const result = await applyOnlyStreakMigration(executor, queryRunner);
-    console.log(`Streak migration ${result}; expected schema verified.`);
+    console.log(
+      `Backup-gated SePay/streak migrations ${result}; both schemas verified.`,
+    );
   } finally {
     if (locked) {
       await queryRunner.query(

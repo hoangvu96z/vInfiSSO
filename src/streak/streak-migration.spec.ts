@@ -3,8 +3,155 @@ import { UserStreaks1792886400000 } from '../database/migrations/1792886400000-U
 import {
   applyOnlyStreakMigration,
   safeStreakMigrationDiagnostic,
+  SEPAY_MIGRATION_NAME,
   STREAK_MIGRATION_NAME,
 } from '../../scripts/deploy-streak-migration';
+
+const validStateColumns = [
+  ['user_id', 'uuid'],
+  ['app_id', 'varchar'],
+  ['current_streak', 'int4'],
+  ['longest_streak', 'int4'],
+  ['total_readings', 'int4'],
+  ['last_active_date', 'date'],
+  ['streak_freeze_used', 'bool'],
+  ['daily_card_date', 'date'],
+  ['daily_card_id', 'jsonb'],
+  ['updated_at', 'timestamp'],
+].map(([column_name, udt_name]) => ({ column_name, udt_name }));
+
+const validActivityColumns = [
+  ['user_id', 'uuid'],
+  ['app_id', 'varchar'],
+  ['event_id', 'uuid'],
+  ['activity_date', 'date'],
+  ['created_at', 'timestamp'],
+].map(([column_name, udt_name]) => ({ column_name, udt_name }));
+
+const validSePayColumns = [
+  ['id', 'uuid'],
+  ['provider', 'varchar'],
+  ['provider_transaction_id', 'varchar'],
+  ['payment_order_id', 'uuid'],
+  ['transfer_type', 'varchar'],
+  ['gateway', 'varchar'],
+  ['reference', 'varchar'],
+  ['amount', 'int8'],
+  ['account_last4', 'varchar'],
+  ['signature_timestamp', 'int8'],
+  ['payload_sha256', 'varchar'],
+  ['outcome', 'varchar'],
+  ['rejection_reason', 'varchar'],
+  ['received_at', 'timestamp'],
+].map(([column_name, udt_name]) => ({ column_name, udt_name }));
+
+const validConstraints = [
+  ['user_streaks', 'pk_user_streaks', 'PRIMARY KEY (user_id, app_id)'],
+  ['user_streaks', 'chk_user_streaks_counters', 'CHECK (current_streak >= 0)'],
+  ['user_streaks', 'chk_user_streaks_app', "CHECK (app_id IN ('iching'))"],
+  [
+    'user_streaks',
+    'chk_user_streaks_active_date',
+    'CHECK (last_active_date IS NOT NULL)',
+  ],
+  [
+    'user_streaks',
+    'chk_user_streaks_daily_card',
+    'CHECK (daily_card_id IS NULL)',
+  ],
+  [
+    'streak_activity_events',
+    'pk_streak_activity_events',
+    'PRIMARY KEY (user_id, app_id, event_id)',
+  ],
+  [
+    'streak_activity_events',
+    'fk_streak_activity_events_streak',
+    'FOREIGN KEY (user_id, app_id) REFERENCES user_streaks(user_id, app_id)',
+  ],
+  [
+    'payment_webhook_events',
+    'uq_payment_webhook_events_provider_transaction',
+    'UNIQUE (provider, provider_transaction_id)',
+  ],
+  [
+    'payment_webhook_events',
+    'payment_webhook_events_order_fk',
+    'FOREIGN KEY (payment_order_id) REFERENCES payment_orders(id) ON DELETE SET NULL',
+  ],
+  [
+    'payment_webhook_events',
+    'payment_webhook_events_amount_check',
+    'CHECK ((amount > 0))',
+  ],
+  [
+    'payment_webhook_events',
+    'payment_webhook_events_account_check',
+    "CHECK (((account_last4)::text ~ '^[A-Za-z0-9]{4}$'::text))",
+  ],
+  [
+    'payment_webhook_events',
+    'payment_webhook_events_payload_check',
+    "CHECK (((payload_sha256)::text ~ '^[a-f0-9]{64}$'::text))",
+  ],
+  [
+    'payment_webhook_events',
+    'payment_webhook_events_outcome_check',
+    "CHECK (outcome = ANY (ARRAY['received', 'paid', 'ignored']))",
+  ],
+].map(([table_name, name, definition]) => ({ table_name, name, definition }));
+
+function createVerifiedSchemaQueryRunner() {
+  return {
+    query: jest.fn((sql: string) => {
+      if (sql.includes("table_name = 'user_streaks'")) {
+        return Promise.resolve(validStateColumns);
+      }
+      if (sql.includes("table_name = 'streak_activity_events'")) {
+        return Promise.resolve(validActivityColumns);
+      }
+      if (sql.includes("table_name = 'payment_webhook_events'")) {
+        return Promise.resolve(validSePayColumns);
+      }
+      if (sql.includes('FROM pg_constraint')) {
+        return Promise.resolve(validConstraints);
+      }
+      if (sql.includes("tablename = 'streak_activity_events'")) {
+        return Promise.resolve([
+          { indexname: 'IDX_streak_activity_events_created' },
+        ]);
+      }
+      if (sql.includes("tablename = 'payment_webhook_events'")) {
+        return Promise.resolve([
+          { indexname: 'IDX_payment_webhook_events_order_received' },
+        ]);
+      }
+      return Promise.resolve([]);
+    }),
+    startTransaction: jest.fn(),
+    commitTransaction: jest.fn(),
+    rollbackTransaction: jest.fn(),
+  };
+}
+
+function createMigrationExecutor(
+  pendingNames: string[],
+  executedNames: string[],
+) {
+  let nextId = 100;
+  let pending = pendingNames.map((name) => ({ name, timestamp: nextId++ }));
+  let executed = executedNames.map((name) => ({ name, id: nextId++ }));
+  return {
+    getPendingMigrations: jest.fn(() => Promise.resolve(pending)),
+    getExecutedMigrations: jest.fn(() => Promise.resolve(executed)),
+    executeMigration: jest.fn((migration: { name: string }) => {
+      pending = pending.filter(({ name }) => name !== migration.name);
+      const applied = { name: migration.name, id: nextId++ };
+      executed = [...executed, applied];
+      return Promise.resolve(migration);
+    }),
+  };
+}
 
 describe('UserStreaks migration', () => {
   it('creates owner-scoped state and event tables with aggregate constraints', async () => {
@@ -38,11 +185,12 @@ describe('UserStreaks migration', () => {
     );
   });
 
-  it('refuses unexpected pending migrations before opening a transaction', async () => {
+  it('allows SePay and refuses every unexpected pending migration before opening a transaction', async () => {
     const executor = {
-      getPendingMigrations: jest
-        .fn()
-        .mockResolvedValue([{ name: 'UnexpectedMigration', timestamp: 1 }]),
+      getPendingMigrations: jest.fn().mockResolvedValue([
+        { name: SEPAY_MIGRATION_NAME, timestamp: 1 },
+        { name: 'UnexpectedMigration', timestamp: 2 },
+      ]),
       getExecutedMigrations: jest.fn(),
       executeMigration: jest.fn(),
     };
@@ -57,6 +205,47 @@ describe('UserStreaks migration', () => {
     ).rejects.toThrow('unexpected pending migration');
     expect(queryRunner.startTransaction).not.toHaveBeenCalled();
     expect(executor.executeMigration).not.toHaveBeenCalled();
+  });
+
+  it('applies the pending SePay migration after the existing streak migration and verifies both schemas', async () => {
+    const executor = createMigrationExecutor(
+      [SEPAY_MIGRATION_NAME],
+      [STREAK_MIGRATION_NAME],
+    );
+    const queryRunner = createVerifiedSchemaQueryRunner();
+
+    await expect(
+      applyOnlyStreakMigration(executor as never, queryRunner as never),
+    ).resolves.toBe('applied');
+
+    expect(executor.executeMigration).toHaveBeenCalledTimes(1);
+    expect(executor.executeMigration).toHaveBeenCalledWith(
+      expect.objectContaining({ name: SEPAY_MIGRATION_NAME }),
+    );
+    expect(queryRunner.startTransaction).toHaveBeenCalledTimes(1);
+    expect(queryRunner.commitTransaction).toHaveBeenCalledTimes(1);
+    expect(queryRunner.rollbackTransaction).not.toHaveBeenCalled();
+    expect(queryRunner.query).toHaveBeenCalledWith(
+      expect.stringContaining("table_name = 'payment_webhook_events'"),
+    );
+  });
+
+  it('applies only the known SePay and streak migrations when both are pending', async () => {
+    const executor = createMigrationExecutor(
+      [SEPAY_MIGRATION_NAME, STREAK_MIGRATION_NAME],
+      [],
+    );
+    const queryRunner = createVerifiedSchemaQueryRunner();
+
+    await expect(
+      applyOnlyStreakMigration(executor as never, queryRunner as never),
+    ).resolves.toBe('applied');
+
+    expect(
+      executor.executeMigration.mock.calls.map(([migration]) => migration.name),
+    ).toEqual([SEPAY_MIGRATION_NAME, STREAK_MIGRATION_NAME]);
+    expect(queryRunner.commitTransaction).toHaveBeenCalledTimes(1);
+    expect(queryRunner.rollbackTransaction).not.toHaveBeenCalled();
   });
 
   it('suppresses SQL and parameter details in database failure logs', () => {

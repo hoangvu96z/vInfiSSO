@@ -44,6 +44,7 @@ jobs:
           test -f dist/scripts/encrypt-readings.js &&
           test -f dist/scripts/deploy-streak-migration.js &&
           test -f dist/scripts/deploy-journal-migration.js &&
+          test -f dist/src/database/migrations/1792800000000-SePayWebhookEvents.js &&
           test -f dist/src/database/migrations/1792886400000-UserStreaks.js &&
           test -f dist/src/database/migrations/1792800000000-SpiritualJournal.js
 
@@ -186,7 +187,7 @@ jobs:
           source: 'dist/**,admin-ui/dist/**,package.json,package-lock.json'
           target: '/var/www/sso.vunph.click'
 
-      # ── 5. Apply the backup-gated streak migration, verify Journal, then restart ──
+      # ── 5. Apply backup-gated SePay/streak migrations, verify Journal, then restart ──
       - name: Apply Journal migration and restart PM2 on VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -222,7 +223,7 @@ jobs:
               echo "Deploy failed: Node.js is not available to run the guarded migration."
               exit 1
             fi
-            echo "Running guarded streak migration before PM2 restart..."
+            echo "Running backup-gated SePay/streak migrations before PM2 restart..."
             "$NODE_BIN" dist/scripts/deploy-streak-migration.js
             echo "Verifying guarded Journal migration before PM2 restart..."
             "$NODE_BIN" dist/scripts/deploy-journal-migration.js
