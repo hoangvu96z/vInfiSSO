@@ -71,7 +71,87 @@ jobs:
               echo "Preflight failed: vInfiSSO requires Node.js >= 22.13.0; VPS has $NODE_VERSION."
               exit 1
             fi
+            BACKUP_STAGE_DIR=/tmp/vinfi-backup-script-stage
+            if [ -L "$BACKUP_STAGE_DIR" ] || { [ -e "$BACKUP_STAGE_DIR" ] && [ ! -d "$BACKUP_STAGE_DIR" ]; }; then
+              echo "Preflight failed: backup script staging path is unsafe."
+              exit 1
+            fi
+            mkdir -p -m 700 -- "$BACKUP_STAGE_DIR"
+            chmod 700 -- "$BACKUP_STAGE_DIR"
+            if [ "$(stat -c '%U' "$BACKUP_STAGE_DIR")" != "$(id -un)" ]; then
+              echo "Preflight failed: backup script staging directory has the wrong owner."
+              exit 1
+            fi
+            rm -f -- "$BACKUP_STAGE_DIR/backup-vinfi.sh"
             echo "Preflight passed: VPS app runtime is Node.js $NODE_VERSION."
+
+      # Stage only the reviewed backup runner. It is installed root-owned before
+      # the existing backup gate; app artifacts and migrations remain afterward.
+      - name: Stage checked-in backup runner
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST || '43.128.116.69' }}
+          username: ${{ secrets.SSH_USER || 'ubuntu' }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          source: 'scripts/backup-vinfi.sh'
+          target: '/tmp/vinfi-backup-script-stage'
+          strip_components: 1
+          overwrite: true
+
+      - name: Install checked-in backup runner as root
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST || '43.128.116.69' }}
+          username: ${{ secrets.SSH_USER || 'ubuntu' }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -eu
+            BACKUP_STAGE_DIR=/tmp/vinfi-backup-script-stage
+            STAGED_SCRIPT="$BACKUP_STAGE_DIR/backup-vinfi.sh"
+            INSTALLED_SCRIPT=/usr/local/sbin/backup-vinfi.sh
+            TEMP_SCRIPT=/usr/local/sbin/.backup-vinfi.sh.install
+            if [ -L "$BACKUP_STAGE_DIR" ] || [ ! -d "$BACKUP_STAGE_DIR" ] || [ "$(stat -c '%U:%a' "$BACKUP_STAGE_DIR")" != "$(id -un):700" ]; then
+              echo "Backup runner install failed: staging directory is unsafe."
+              exit 1
+            fi
+            if [ -L "$STAGED_SCRIPT" ] || [ ! -f "$STAGED_SCRIPT" ] || [ "$(stat -c '%U' "$STAGED_SCRIPT")" != "$(id -un)" ]; then
+              echo "Backup runner install failed: staged file is missing or unsafe."
+              exit 1
+            fi
+            if [ -L "$INSTALLED_SCRIPT" ]; then
+              echo "Backup runner install failed: installed path is a symlink."
+              exit 1
+            fi
+            if [ -L "$TEMP_SCRIPT" ] || { [ -e "$TEMP_SCRIPT" ] && [ ! -f "$TEMP_SCRIPT" ]; }; then
+              echo "Backup runner install failed: temporary install path is unsafe."
+              exit 1
+            fi
+            if ! sudo -n /usr/bin/install -o root -g root -m 0750 -- "$STAGED_SCRIPT" "$TEMP_SCRIPT"; then
+              echo "Backup runner install failed: root install permission is unavailable."
+              exit 1
+            fi
+            TEMP_META="$(stat -c '%U:%G:%a' "$TEMP_SCRIPT")"
+            if [ "$TEMP_META" != "root:root:750" ]; then
+              echo "Backup runner install failed: temporary ownership or mode is unexpected."
+              exit 1
+            fi
+            if [ -L "$TEMP_SCRIPT" ] || [ -L "$INSTALLED_SCRIPT" ]; then
+              echo "Backup runner install failed: a protected install path became a symlink."
+              exit 1
+            fi
+            if ! sudo -n /usr/bin/mv -T -- "$TEMP_SCRIPT" "$INSTALLED_SCRIPT"; then
+              echo "Backup runner install failed: atomic activation failed."
+              exit 1
+            fi
+            INSTALLED_META="$(stat -c '%U:%G:%a' "$INSTALLED_SCRIPT")"
+            if [ "$INSTALLED_META" != "root:root:750" ]; then
+              echo "Backup runner install failed: activated ownership or mode is unexpected."
+              exit 1
+            fi
+            rm -f -- "$STAGED_SCRIPT"
+            echo "Checked-in backup runner installed and verified."
 
       # The existing app stays live while this fresh encrypted offsite copy is
       # created and verified. A local-only or stale backup stops the deploy.

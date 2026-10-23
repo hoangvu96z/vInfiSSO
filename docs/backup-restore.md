@@ -18,7 +18,7 @@ configured, and the standard `bash`, `tar`, `python3`, `flock`, and `runuser`
 utilities. Copy the script and config template, then create a root-owned config:
 
 ```bash
-sudo install -o root -g root -m 700 scripts/backup-vinfi.sh /usr/local/sbin/backup-vinfi.sh
+sudo install -o root -g root -m 750 scripts/backup-vinfi.sh /usr/local/sbin/backup-vinfi.sh
 sudo install -o root -g root -m 600 config/vinfi-backup.conf.example /etc/vinfi-backup.conf
 sudoedit /etc/vinfi-backup.conf
 ```
@@ -52,6 +52,15 @@ encrypted local artifacts are complete but no rclone remote is configured,
 local backup succeeded but an offsite step failed, or `failed` when the local
 backup did not complete. The file is atomically replaced and mode `600`.
 
+The Admin UI reads a separate, allow-listed summary at
+`/var/lib/vinfi-sso/backup-summary.json`. The backup script creates the
+directory as `root:ubuntu` mode `750` and atomically replaces the summary as
+`root:ubuntu` mode `640`. It contains only the status, timestamp, and local and
+offsite readiness booleans; it never contains run IDs, stages, failure codes,
+paths, logs, or backup contents. Publishing this UI summary is best-effort and
+cannot fail the encrypted backup. The full status file and encrypted artifacts
+remain private under `/var/backups/vinfi`.
+
 After the manual run succeeds, install the root cron schedule:
 
 ```bash
@@ -64,8 +73,17 @@ removed after a new local backup is checksummed. When rclone is configured,
 daily remote copies are retained for 30 days and monthly copies for 365 days;
 remote retention runs only after the new daily upload is verified. Cron failures
 are appended to `/var/log/vinfi-backup.log`; logrotate retains 12 weekly files.
-The status file is not exposed through the application API; monitoring
-integration is a separate task.
+The full status file is not exposed through the application API. The protected
+Admin system-status page reads only the separate sanitized summary and reports
+missing, invalid, or older-than-26-hour summaries as unknown or stale.
+
+The GitHub deployment workflow stages the checked-in backup script, installs it
+as a `root:root` mode `750` sibling temporary file, verifies it, and atomically
+renames it over the installed runner. It then runs the existing offsite backup
+gate before copying application artifacts or applying migrations. The SSH
+deployment account must be allowed to run
+`/usr/bin/install -o root -g root -m 0750` and `/usr/bin/mv -T` non-interactively,
+and to invoke the fixed backup runner through `sudo -n`.
 
 ## Restore check
 

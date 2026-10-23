@@ -7,6 +7,7 @@ umask 077
 readonly DEFAULT_CONFIG_FILE=/etc/vinfi-backup.conf
 readonly CONFIG_FILE="${BACKUP_CONFIG_FILE:-$DEFAULT_CONFIG_FILE}"
 readonly LOCK_FILE=/run/lock/vinfi-backup.lock
+readonly UI_BACKUP_STATUS_FILE=/var/lib/vinfi-sso/backup-summary.json
 MODE=run
 
 usage() {
@@ -29,6 +30,92 @@ for arg in "$@"; do
     *) printf 'Unknown option. Use --help for usage.\n' >&2; exit 2 ;;
   esac
 done
+
+# Publish only an allow-listed operational summary for the Admin UI. The
+# encrypted backup details and the full status.json remain root-only. This
+# helper is deliberately best-effort and never prints failures into backup logs.
+write_ui_backup_summary() {
+  python3 - "$UI_BACKUP_STATUS_FILE" "${1:-failed}" "${2:-false}" "${3:-false}" <<'PY'
+import datetime
+import grp
+import json
+import os
+import pathlib
+import stat
+import sys
+import tempfile
+
+path = pathlib.Path(sys.argv[1])
+directory = path.parent
+status = sys.argv[2]
+local_ready = sys.argv[3] == "true"
+offsite_ready = sys.argv[4] == "true"
+allowed_statuses = {"running", "failed", "offsite_failed", "local_only", "offsite_ok"}
+temporary_path = None
+
+try:
+    parent_info = directory.parent.lstat()
+    if not stat.S_ISDIR(parent_info.st_mode) or parent_info.st_uid != 0:
+        raise OSError("unsafe parent")
+
+    directory.mkdir(mode=0o750, exist_ok=True)
+    directory_info = directory.lstat()
+    if not stat.S_ISDIR(directory_info.st_mode) or directory_info.st_uid != 0:
+        raise OSError("unsafe directory")
+
+    ubuntu_gid = grp.getgrnam("ubuntu").gr_gid
+    os.chown(directory, 0, ubuntu_gid)
+    os.chmod(directory, 0o750)
+
+    try:
+        existing = path.lstat()
+        if not stat.S_ISREG(existing.st_mode) or existing.st_uid != 0:
+            raise OSError("unsafe summary")
+    except FileNotFoundError:
+        pass
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    payload = {
+        "schemaVersion": 1,
+        "status": status if status in allowed_statuses else "unknown",
+        "updatedAtUtc": now.isoformat(),
+        "localBackupReady": local_ready,
+        "offsiteBackupReady": offsite_ready,
+    }
+    fd, temporary_name = tempfile.mkstemp(prefix=".backup-summary.", dir=directory)
+    temporary_path = pathlib.Path(temporary_name)
+    try:
+        os.fchown(fd, 0, ubuntu_gid)
+        os.fchmod(fd, 0o640)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, separators=(",", ":"))
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        raise
+    os.replace(temporary_path, path)
+    directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+except Exception:
+    pass
+finally:
+    if temporary_path is not None:
+        try:
+            temporary_path.unlink()
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+PY
+}
 
 fail() {
   printf 'Backup configuration error: %s\n' "$1" >&2
@@ -81,6 +168,7 @@ finally:
     except FileNotFoundError:
         pass
 PY
+  write_ui_backup_summary failed false false || true
 }
 
 file_owner_and_mode() {
@@ -270,6 +358,7 @@ finally:
     except FileNotFoundError:
         pass
 PY
+  write_ui_backup_summary "$BACKUP_STATUS" "$LOCAL_READY" "$OFFSITE_READY" || true
 }
 
 on_error() {

@@ -36,6 +36,7 @@ import { JournalEntry } from './journal/journal-entry.entity';
 import { JournalModule } from './journal/journal.module';
 import { StreakState } from './streak/streak-state.entity';
 import { StreakModule } from './streak/streak.module';
+import { SystemStatusModule } from './system-status/system-status.module';
 
 @Module({
   imports: [
@@ -98,6 +99,7 @@ import { StreakModule } from './streak/streak.module';
     PaymentsModule,
     JournalModule,
     StreakModule,
+    SystemStatusModule,
   ],
   controllers: [AppController],
   providers: [AppService],

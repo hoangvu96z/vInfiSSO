@@ -6,7 +6,7 @@ import {
   BarChartOutlined, UserOutlined, AuditOutlined, RobotOutlined,
   CrownOutlined, TagOutlined, LogoutOutlined, SunOutlined, MoonOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined, MessageOutlined, GlobalOutlined,
-  BankOutlined,
+  BankOutlined, DesktopOutlined,
 } from '@ant-design/icons';
 
 // Child View Components
@@ -19,6 +19,7 @@ import PlansView from '../components/admin/PlansView';
 import CouponsView from '../components/admin/CouponsView';
 import ContactMessagesView from '../components/admin/ContactMessagesView';
 import PaymentsView from '../components/admin/PaymentsView';
+import SystemStatusView from '../components/admin/SystemStatusView';
 
 // Utilities
 import { DEFAULT_TIMEZONE, TIMEZONE_OPTIONS, getTimezoneLabel } from '../utils/dateUtils';
@@ -98,6 +99,7 @@ export default function AdminPage({ user, onLogout }) {
     plans: '💎 Gói Dịch Vụ & Hạn Mức',
     coupons: '🎟️ Quản Lý Mã Khuyến Mãi',
     payments: '⚙️ Cài Đặt Thanh Toán',
+    'system-status': '🖥️ Trạng Thái Hệ Thống',
   };
 
   return (
@@ -185,6 +187,7 @@ export default function AdminPage({ user, onLogout }) {
               { key: 'plans', icon: <CrownOutlined />, label: 'Gói Dịch Vụ' },
               { key: 'coupons', icon: <TagOutlined />, label: 'Mã Khuyến Mãi' },
               { key: 'payments', icon: <BankOutlined />, label: 'Thanh Toán & Ngân Hàng' },
+              { key: 'system-status', icon: <DesktopOutlined />, label: 'Trạng Thái Hệ Thống' },
             ]}
           />
         </Sider>
@@ -273,6 +276,7 @@ export default function AdminPage({ user, onLogout }) {
             {currentRoute === 'plans' && <PlansView isDarkMode={isDarkMode} />}
             {currentRoute === 'coupons' && <CouponsView isDarkMode={isDarkMode} />}
             {currentRoute === 'payments' && <PaymentsView />}
+            {currentRoute === 'system-status' && <SystemStatusView />}
             {currentRoute === 'contact' && (
               <ContactMessagesView
                 isDarkMode={isDarkMode}
