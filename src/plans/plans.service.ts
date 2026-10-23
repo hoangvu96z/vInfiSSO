@@ -63,7 +63,7 @@ export class PlansService {
         description: null,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as Plan;
+      };
     }
 
     // Lấy subscription hiện tại của user
@@ -244,7 +244,7 @@ export class PlansService {
         month,
         app: normalizedApp,
       })
-      .getRawOne();
+      .getRawOne<{ total: string | null }>();
     const monthlyCount = parseInt(monthlyUsage?.total ?? '0', 10);
 
     const dailyLimit = plan.dailyLimit;
@@ -318,7 +318,7 @@ export class PlansService {
             app: normalizedApp,
           },
         )
-        .getRawOne();
+        .getRawOne<{ total: string | null }>();
       const monthlyUsed = Number.parseInt(monthlyRaw?.total ?? '0', 10) || 0;
       const dailyExceeded =
         plan.dailyLimit !== -1 &&
@@ -530,7 +530,7 @@ export class PlansService {
       // Keep the cap enforced by a single conditional database update. The
       // transaction rolls back the redemption and subscription if no use is
       // available by the time this statement runs.
-      const claimedUse = (await manager.query(
+      const claimedUse: unknown = await manager.query(
         `UPDATE "coupons"
          SET "usedCount" = "usedCount" + 1,
              "updatedAt" = CURRENT_TIMESTAMP
@@ -538,8 +538,8 @@ export class PlansService {
            AND ("maxUses" = -1 OR "usedCount" < "maxUses")
          RETURNING "usedCount"`,
         [coupon.id],
-      )) as Array<{ usedCount: number }>;
-      if (!claimedUse.length)
+      );
+      if (!Array.isArray(claimedUse) || claimedUse.length === 0)
         throw new BadRequestException('Mã khuyến mãi đã được sử dụng hết');
 
       await subscriptions.save(
@@ -737,7 +737,12 @@ export class PlansService {
     await this.userRepo.update(userId, { planName: 'free' });
   }
 
-  async getQuotaStats(): Promise<any> {
+  async getQuotaStats(): Promise<{
+    today: number;
+    thisMonth: number;
+    planDistribution: Array<{ plan: string; count: string }>;
+    topUsers: AiUsage[];
+  }> {
     const today = this.today();
     const month = this.currentMonth();
 
@@ -745,20 +750,20 @@ export class PlansService {
       .createQueryBuilder('u')
       .select('SUM(u.dailyCount)', 'total')
       .where('u.date = :today', { today })
-      .getRawOne();
+      .getRawOne<{ total: string | null }>();
 
     const monthlyStats = await this.usageRepo
       .createQueryBuilder('u')
       .select('SUM(u.dailyCount)', 'total')
       .where('u.month = :month', { month })
-      .getRawOne();
+      .getRawOne<{ total: string | null }>();
 
     const planCounts = await this.userRepo
       .createQueryBuilder('u')
       .select('u.planName', 'plan')
       .addSelect('COUNT(*)', 'count')
       .groupBy('u.planName')
-      .getRawMany();
+      .getRawMany<{ plan: string; count: string }>();
 
     const topUsers = await this.usageRepo
       .createQueryBuilder('u')

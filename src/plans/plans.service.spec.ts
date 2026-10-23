@@ -1,21 +1,51 @@
 import { ForbiddenException } from '@nestjs/common';
+import type { DataSource, Repository } from 'typeorm';
 import { PlansService } from './plans.service';
 import { AiUsage } from './ai-usage.entity';
+import { Plan } from './plan.entity';
+import { UserSubscription } from './user-subscription.entity';
+import { Coupon } from './coupon.entity';
+import { User } from '../users/user.entity';
 
 describe('PlansService quota transactions', () => {
-  let usage: any;
-  let insertQuery: any;
-  let monthlyQuery: any;
-  let manager: any;
+  type UsageState = Pick<
+    AiUsage,
+    | 'userId'
+    | 'app'
+    | 'date'
+    | 'month'
+    | 'dailyCount'
+    | 'monthlyCount'
+    | 'bonusRemaining'
+    | 'bonusUsedToday'
+  >;
+  type TransactionManagerStub = {
+    query: jest.Mock;
+    getRepository: jest.Mock;
+  };
+  let usage: UsageState;
+  let insertQuery: {
+    insert: jest.Mock;
+    values: jest.Mock;
+    orIgnore: jest.Mock;
+    execute: jest.Mock;
+  };
+  let monthlyQuery: {
+    select: jest.Mock;
+    where: jest.Mock;
+    getRawOne: jest.Mock;
+  };
+  let manager: TransactionManagerStub;
   let service: PlansService;
   const usageRepo = {
     createQueryBuilder: jest.fn(),
     findOne: jest.fn(),
-    save: jest.fn(async (value) => value),
+    save: jest.fn((value: UsageState) => Promise.resolve(value)),
   };
   const dataSource = {
-    transaction: jest.fn((callback: (manager: any) => unknown) =>
-      callback(manager),
+    transaction: jest.fn(
+      (callback: (manager: TransactionManagerStub) => unknown) =>
+        callback(manager),
     ),
   };
 
@@ -54,21 +84,29 @@ describe('PlansService quota transactions', () => {
       }),
     };
     service = new PlansService(
-      {} as any,
-      {} as any,
-      usageRepo as any,
-      {} as any,
-      {} as any,
-      dataSource as any,
+      {} as unknown as Repository<Plan>,
+      {} as unknown as Repository<UserSubscription>,
+      usageRepo as unknown as Repository<AiUsage>,
+      {} as unknown as Repository<Coupon>,
+      {} as unknown as Repository<User>,
+      dataSource as unknown as DataSource,
     );
     jest.spyOn(service, 'getEffectivePlan').mockResolvedValue({
       name: 'premium',
+      label: 'Premium',
       dailyLimit: 1,
       monthlyLimit: 30,
       canBonus: true,
       bonusAmount: 5,
       bonusMaxPerDay: 1,
-    } as any);
+      isActive: true,
+      overrideFreeToLite: false,
+      overrideFreeToPremium: false,
+      price: 0,
+      description: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } satisfies Plan);
   });
 
   it('serializes quota consumption under the normalized app lock and records bonus use atomically', async () => {

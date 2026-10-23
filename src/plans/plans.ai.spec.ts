@@ -13,6 +13,8 @@ import { PlansController } from './plans.controller';
 import { PlansService } from './plans.service';
 import { PlansAiDto } from './dto/plan-write.dto';
 import { SsoAuthGuard } from '../auth/auth.guard';
+import { User } from '../users/user.entity';
+import type { Response } from 'express';
 
 describe('PlansController POST /plans/ai', () => {
   it('requires authentication and limits each client to 10 requests per minute', () => {
@@ -34,19 +36,26 @@ describe('PlansController POST /plans/ai', () => {
   const checkQuota = jest.fn();
   const refundQuota = jest.fn();
   const originalFetch = global.fetch;
+  const fetchMock: jest.MockedFunction<typeof fetch> = jest.fn();
   const originalAiKey = process.env.AI_API_KEY;
   const originalTuviKey = process.env.TUVI_AI_API_KEY;
   const originalAiBaseUrl = process.env.AI_BASE_URL;
   const originalTuviAiBaseUrl = process.env.TUVI_AI_BASE_URL;
   let controller: PlansController;
-  const user = { id: 'user-1' } as any;
-  const response = {
-    status: jest.fn(),
+  const user = Object.assign(new User(), { id: 'user-1' });
+  const response: {
+    status: jest.Mock;
+    setHeader: jest.Mock;
+    write: jest.Mock;
+    end: jest.Mock;
+    destroyed: boolean;
+  } = {
+    status: jest.fn().mockReturnThis(),
     setHeader: jest.fn(),
     write: jest.fn(),
     end: jest.fn(),
     destroyed: false,
-  } as any;
+  };
   const body: PlansAiDto = {
     app: 'iching',
     model: 'combo1',
@@ -60,7 +69,7 @@ describe('PlansController POST /plans/ai', () => {
     delete process.env.TUVI_AI_API_KEY;
     delete process.env.AI_BASE_URL;
     delete process.env.TUVI_AI_BASE_URL;
-    global.fetch = jest.fn() as unknown as typeof fetch;
+    global.fetch = fetchMock;
     consumeQuota.mockResolvedValue({
       app: 'ichingnow',
       date: '2026-10-22',
@@ -92,15 +101,19 @@ describe('PlansController POST /plans/ai', () => {
     const chunk = new TextEncoder().encode(
       'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
     );
-    (global.fetch as jest.Mock).mockResolvedValue({
-      ok: true,
-      headers: { get: () => 'text/event-stream' },
-      body: (async function* () {
-        yield chunk;
-      })(),
-    });
+    fetchMock.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(stream) {
+            stream.enqueue(chunk);
+            stream.close();
+          },
+        }),
+        { headers: { 'content-type': 'text/event-stream' } },
+      ),
+    );
 
-    await controller.proxyAi(user, body, response);
+    await controller.proxyAi(user, body, response as unknown as Response);
 
     expect(consumeQuota).toHaveBeenCalledWith('user-1', 'ichingnow');
     expect(global.fetch).toHaveBeenCalledWith(
@@ -118,7 +131,7 @@ describe('PlansController POST /plans/ai', () => {
     process.env.AI_BASE_URL = 'http://43.128.116.69:20128/v1';
 
     await expect(
-      controller.proxyAi(user, body, response),
+      controller.proxyAi(user, body, response as unknown as Response),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
 
     expect(consumeQuota).not.toHaveBeenCalled();
@@ -126,14 +139,10 @@ describe('PlansController POST /plans/ai', () => {
   });
 
   it('returns an upstream failure before streaming and refunds the reserved quota', async () => {
-    (global.fetch as jest.Mock).mockResolvedValue({
-      ok: false,
-      status: 503,
-      body: null,
-    });
+    fetchMock.mockResolvedValue(new Response(null, { status: 503 }));
 
     await expect(
-      controller.proxyAi(user, body, response),
+      controller.proxyAi(user, body, response as unknown as Response),
     ).rejects.toBeInstanceOf(BadGatewayException);
 
     expect(consumeQuota).toHaveBeenCalledWith('user-1', 'ichingnow');
@@ -153,7 +162,7 @@ describe('PlansController POST /plans/ai', () => {
     );
 
     try {
-      await controller.proxyAi(user, body, response);
+      await controller.proxyAi(user, body, response as unknown as Response);
       throw new Error('Expected quota rejection');
     } catch (error) {
       expect(error).toBeInstanceOf(ForbiddenException);

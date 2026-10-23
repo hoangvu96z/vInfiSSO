@@ -33,14 +33,18 @@ export class MailService {
           rejectUnauthorized: false,
         },
       });
-      this.logger.log(`Configured external SMTP: ${host}:${port} (secure: ${isSecure})`);
+      this.logger.log(
+        `Configured external SMTP: ${host}:${port} (secure: ${isSecure})`,
+      );
     } else {
       this.transporter = nodemailer.createTransport({
         host,
         port: port || 25,
         ignoreTLS: true,
       });
-      this.logger.log(`Configured local Mail Server on VPS (${host}:${port || 25})`);
+      this.logger.log(
+        `Configured local Mail Server on VPS (${host}:${port || 25})`,
+      );
     }
   }
 
@@ -48,7 +52,11 @@ export class MailService {
     await this.transporter.sendMail(options);
   }
 
-  async sendVerificationEmail(email: string, displayNameOrToken: string, token?: string): Promise<void> {
+  async sendVerificationEmail(
+    email: string,
+    displayNameOrToken: string,
+    token?: string,
+  ): Promise<void> {
     let displayName = displayNameOrToken;
     let verifyToken = token;
     if (!token) {
@@ -56,9 +64,15 @@ export class MailService {
       displayName = email;
     }
 
-    const ssoBaseUrl = this.configService.get<string>('SSO_BASE_URL', 'https://sso.vunph.click');
+    const ssoBaseUrl = this.configService.get<string>(
+      'SSO_BASE_URL',
+      'https://sso.vunph.click',
+    );
     const verifyLink = `${ssoBaseUrl}/sso/verify-email?token=${verifyToken}`;
-    const fromAddress = this.configService.get<string>('SMTP_FROM', '"vInfi SSO" <admin@vunph.id.vn>');
+    const fromAddress = this.configService.get<string>(
+      'SMTP_FROM',
+      '"vInfi SSO" <admin@vunph.id.vn>',
+    );
 
     const htmlContent = `
     <!DOCTYPE html>
@@ -103,15 +117,26 @@ export class MailService {
       });
       this.logger.log(`Verification email sent successfully to ${email}`);
     } catch (error) {
-      this.logger.error(`Failed to send email to ${email}: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to send email to ${email}: ${message}`);
       this.logger.log(`[VERIFICATION LINK] ${email}: ${verifyLink}`);
     }
   }
 
-  async sendPasswordResetEmail(email: string, token: string, displayName?: string): Promise<void> {
-    const ssoBaseUrl = this.configService.get<string>('SSO_BASE_URL', 'https://sso.vunph.click');
+  async sendPasswordResetEmail(
+    email: string,
+    token: string,
+    displayName?: string,
+  ): Promise<void> {
+    const ssoBaseUrl = this.configService.get<string>(
+      'SSO_BASE_URL',
+      'https://sso.vunph.click',
+    );
     const resetLink = `${ssoBaseUrl}/ui/sso?reset_token=${token}`;
-    const fromAddress = this.configService.get<string>('SMTP_FROM', '"vInfi SSO" <admin@vunph.id.vn>');
+    const fromAddress = this.configService.get<string>(
+      'SMTP_FROM',
+      '"vInfi SSO" <admin@vunph.id.vn>',
+    );
 
     const htmlContent = `
     <!DOCTYPE html>
@@ -156,7 +181,10 @@ export class MailService {
       });
       this.logger.log(`Password reset email sent successfully to ${email}`);
     } catch (error) {
-      this.logger.error(`Failed to send password reset email to ${email}: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Failed to send password reset email to ${email}: ${message}`,
+      );
     }
   }
 }

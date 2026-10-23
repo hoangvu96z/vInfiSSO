@@ -1,17 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, MoreThanOrEqual, In } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import type { Request } from 'express';
 import { PageVisit } from './page-visit.entity';
 import { RecordVisitDto } from './dto/record-visit.dto';
-import { parseUserAgent, lookupIpLocation } from '../contact/device-detector.util';
+import {
+  parseUserAgent,
+  lookupIpLocation,
+} from '../contact/device-detector.util';
 
 /**
  * Detect common bot/crawler/preview user agents to filter them out of real visitor stats
  */
 function isBotUserAgent(ua = ''): boolean {
   if (!ua) return false;
-  return /bot|crawler|spider|crawling|slurp|facebookexternalhit|whatsapp|telegrambot|googlebot|bingbot|yandex|duckduckbot|bytespider|gptbot|headlesschrome/i.test(ua);
+  return /bot|crawler|spider|crawling|slurp|facebookexternalhit|whatsapp|telegrambot|googlebot|bingbot|yandex|duckduckbot|bytespider|gptbot|headlesschrome/i.test(
+    ua,
+  );
 }
 
 /**
@@ -64,20 +69,26 @@ export class AnalyticsService {
     private readonly visitRepo: Repository<PageVisit>,
   ) {
     // Periodic cleanup of recentPings map every 5 minutes
-    setInterval(() => {
-      const now = Date.now();
-      for (const [key, ts] of this.recentPings.entries()) {
-        if (now - ts > 30000) {
-          this.recentPings.delete(key);
+    setInterval(
+      () => {
+        const now = Date.now();
+        for (const [key, ts] of this.recentPings.entries()) {
+          if (now - ts > 30000) {
+            this.recentPings.delete(key);
+          }
         }
-      }
-    }, 5 * 60 * 1000);
+      },
+      5 * 60 * 1000,
+    );
   }
 
   /**
    * Record an incoming page visit
    */
-  async recordVisit(dto: RecordVisitDto, req: Request): Promise<{ ok: boolean }> {
+  async recordVisit(
+    dto: RecordVisitDto,
+    req: Request,
+  ): Promise<{ ok: boolean }> {
     try {
       const ip = extractClientIp(req);
       const ua = req.headers['user-agent'] || '';
@@ -120,7 +131,9 @@ export class AnalyticsService {
 
       await this.visitRepo.save(visit);
     } catch (err) {
-      this.logger.warn(`Failed to record page visit: ${err instanceof Error ? err.message : err}`);
+      this.logger.warn(
+        `Failed to record page visit: ${err instanceof Error ? err.message : err}`,
+      );
     }
 
     return { ok: true };
@@ -143,7 +156,8 @@ export class AnalyticsService {
     startOfYesterday.setDate(startOfYesterday.getDate() - 1);
 
     // Build base query
-    const qb = this.visitRepo.createQueryBuilder('v')
+    const qb = this.visitRepo
+      .createQueryBuilder('v')
       .where('v.isBot = :isBot', { isBot: false })
       .andWhere('v.createdAt >= :sinceDate', { sinceDate });
 
@@ -151,17 +165,19 @@ export class AnalyticsService {
       qb.andWhere('v.app = :app', { app: appFilter.toLowerCase() });
     }
 
-    const visits = await qb.select([
-      'v.id',
-      'v.app',
-      'v.ipAddress',
-      'v.device',
-      'v.browser',
-      'v.os',
-      'v.location',
-      'v.referrer',
-      'v.createdAt',
-    ]).getMany();
+    const visits = await qb
+      .select([
+        'v.id',
+        'v.app',
+        'v.ipAddress',
+        'v.device',
+        'v.browser',
+        'v.os',
+        'v.location',
+        'v.referrer',
+        'v.createdAt',
+      ])
+      .getMany();
 
     // Summary calculations
     let todayVisits = 0;
@@ -235,7 +251,8 @@ export class AnalyticsService {
         .map(([name, count]) => ({
           name,
           count,
-          percentage: totalCount > 0 ? Math.round((count / totalCount) * 1000) / 10 : 0,
+          percentage:
+            totalCount > 0 ? Math.round((count / totalCount) * 1000) / 10 : 0,
         }))
         .sort((a, b) => b.count - a.count)
         .slice(0, limit);
@@ -279,7 +296,8 @@ export class AnalyticsService {
     const safeLimit = Math.min(Math.max(1, limit), 100);
     const skip = (safePage - 1) * safeLimit;
 
-    const qb = this.visitRepo.createQueryBuilder('v')
+    const qb = this.visitRepo
+      .createQueryBuilder('v')
       .where('v.isBot = :isBot', { isBot: false })
       .orderBy('v.createdAt', 'DESC')
       .addOrderBy('v.id', 'ASC')

@@ -7,14 +7,35 @@ import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { PlansController } from './plans.controller';
 import { PlansService } from './plans.service';
 import { SsoAuthGuard } from '../auth/auth.guard';
+import { User } from '../users/user.entity';
+
+type UpstreamAiRequest = {
+  messages: Array<{ content: string }>;
+};
+
+function isUpstreamAiRequest(value: unknown): value is UpstreamAiRequest {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'messages' in value &&
+    Array.isArray(value.messages) &&
+    value.messages.every(
+      (message: unknown) =>
+        typeof message === 'object' &&
+        message !== null &&
+        'content' in message &&
+        typeof message.content === 'string',
+    )
+  );
+}
 
 describe('TuVi AI SSO integration', () => {
   const consumeQuota = jest.fn();
   const refundQuota = jest.fn();
-  const fetchMock = jest.fn();
+  const fetchMock: jest.MockedFunction<typeof fetch> = jest.fn();
   const originalFetch = global.fetch;
   let controller: PlansController;
-  const user = { id: 'user-1' } as any;
+  const user = Object.assign(new User(), { id: 'user-1' });
   const body = {
     model: 'combo1',
     messages: [{ role: 'user', content: 'Lá số mẫu' }],
@@ -89,6 +110,7 @@ describe('TuVi AI SSO integration', () => {
       throw new Error('Expected unavailable service');
     } catch (error) {
       expect(error).toBeInstanceOf(ServiceUnavailableException);
+      if (!(error instanceof ServiceUnavailableException)) throw error;
       expect(error.getResponse().code).toBe('AI_NOT_CONFIGURED');
     }
     expect(consumeQuota).not.toHaveBeenCalled();
@@ -119,13 +141,10 @@ describe('TuVi AI SSO integration', () => {
   });
   it('retries upstream once but consumes the tuvinow quota only once', async () => {
     fetchMock
-      .mockResolvedValueOnce({ ok: false, status: 503 })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          choices: [{ message: { content: 'Luận giải' } }],
-        }),
-      });
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(
+        Response.json({ choices: [{ message: { content: 'Luận giải' } }] }),
+      );
     await expect(controller.interpretTuvi(user, body)).resolves.toEqual({
       content: 'Luận giải',
     });
@@ -133,14 +152,22 @@ describe('TuVi AI SSO integration', () => {
     expect(consumeQuota).toHaveBeenCalledWith('user-1', 'tuvinow');
     expect(refundQuota).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    const sent = JSON.parse(fetchMock.mock.calls[1][1].body);
+    const requestInit = fetchMock.mock.calls[1]?.[1];
+    if (typeof requestInit?.body !== 'string') {
+      throw new Error('Expected a serialized AI request body');
+    }
+    const parsedRequest: unknown = JSON.parse(requestInit.body);
+    if (!isUpstreamAiRequest(parsedRequest)) {
+      throw new Error('Expected an AI request with messages');
+    }
+    const sent = parsedRequest;
     expect(sent.messages[1]).toEqual(body.messages[0]);
     expect(sent.messages[0].content).toContain('chỉ trả JSON hợp lệ');
   });
   it('refunds the reserved quota after upstream retries fail', async () => {
     fetchMock
-      .mockResolvedValueOnce({ ok: false, status: 503 })
-      .mockResolvedValueOnce({ ok: false, status: 503 });
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }));
 
     await expect(controller.interpretTuvi(user, body)).rejects.toBeInstanceOf(
       BadGatewayException,
@@ -166,17 +193,14 @@ describe('TuVi AI SSO integration', () => {
     expect(refundQuota).toHaveBeenCalledTimes(1);
   });
   it('does not leak upstream errors or retry authentication failures', async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 401 });
+    fetchMock.mockResolvedValue(new Response(null, { status: 401 }));
     await expect(controller.interpretTuvi(user, body)).rejects.toBeInstanceOf(
       BadGatewayException,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
   it('rejects empty model responses', async () => {
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({ choices: [] }),
-    });
+    fetchMock.mockResolvedValue(Response.json({ choices: [] }));
     await expect(controller.interpretTuvi(user, body)).rejects.toBeInstanceOf(
       BadGatewayException,
     );

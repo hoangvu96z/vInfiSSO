@@ -17,7 +17,12 @@ import { PlansService } from './plans.service';
 import { SsoAuthGuard } from '../auth/auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { User } from '../users/user.entity';
-import { AppQuotaDto, ApplyCouponDto, PlansAiDto, TuviAiDto } from './dto/plan-write.dto';
+import {
+  AppQuotaDto,
+  ApplyCouponDto,
+  PlansAiDto,
+  TuviAiDto,
+} from './dto/plan-write.dto';
 import { resolveLocalAiBaseUrl } from './ai-upstream.util';
 
 const DEFAULT_AI_MODELS = [
@@ -46,13 +51,11 @@ function getAllowedAiModels(): string[] {
 
 @Controller('plans')
 export class PlansController {
-  constructor(
-    private readonly plansService: PlansService,
-  ) {}
+  constructor(private readonly plansService: PlansService) {}
 
-  private extractAppName(req: Request, body?: any): string {
+  private extractAppName(req: Request, body?: AppQuotaDto): string {
     const qApp = req.query.app as string;
-    const bApp = body?.app as string;
+    const bApp = body?.app;
     const hApp = (req.headers['x-app-name'] || req.headers['app']) as string;
     return (bApp || qApp || hApp || 'default').trim().toLowerCase();
   }
@@ -214,7 +217,7 @@ export class PlansController {
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('X-Quota-Remaining', String(quota.remaining));
       responseStarted = true;
-      for await (const chunk of upstream.body as any) {
+      for await (const chunk of upstream.body) {
         if (res.destroyed) break;
         res.write(chunk);
       }
@@ -250,10 +253,7 @@ export class PlansController {
 
   @Post('tuvi-ai')
   @UseGuards(SsoAuthGuard)
-  async interpretTuvi(
-    @CurrentUser() user: User,
-    @Body() body: TuviAiDto,
-  ) {
+  async interpretTuvi(@CurrentUser() user: User, @Body() body: TuviAiDto) {
     const { models } = this.getTuviAiConfig();
     const model = body?.model || models[0];
     const messages = body?.messages;
@@ -369,10 +369,7 @@ export class PlansController {
   // POST /plans/apply-coupon — Nhập mã khuyến mãi
   @Post('apply-coupon')
   @UseGuards(SsoAuthGuard)
-  async applyCoupon(
-    @CurrentUser() user: User,
-    @Body() body: ApplyCouponDto,
-  ) {
+  async applyCoupon(@CurrentUser() user: User, @Body() body: ApplyCouponDto) {
     if (!body.code) {
       throw new UnauthorizedException('Vui lòng nhập mã khuyến mãi');
     }

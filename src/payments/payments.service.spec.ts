@@ -9,8 +9,9 @@ import { UserSubscription } from '../plans/user-subscription.entity';
 import { PaymentOrder } from './payment-order.entity';
 import { PaymentSettings } from './payment-settings.entity';
 import { PaymentsService } from './payments.service';
+import type { DataSource } from 'typeorm';
 
-function transactionHarness(repositories: Map<unknown, any>) {
+function transactionHarness(repositories: Map<unknown, unknown>) {
   const manager = {
     getRepository: jest.fn((entity: unknown) => repositories.get(entity)),
   };
@@ -60,26 +61,32 @@ describe('PaymentsService', () => {
       ]),
     };
     const countQuery = { getCount: jest.fn().mockResolvedValue(31) };
-    const query: any = {
+    const query = {
       innerJoin: jest.fn(),
       select: jest.fn(),
       addSelect: jest.fn(),
       orderBy: jest.fn(),
       addOrderBy: jest.fn(),
       andWhere: jest.fn(),
-      clone: jest.fn()
+      clone: jest
+        .fn()
         .mockReturnValueOnce(pageQuery)
         .mockReturnValueOnce(countQuery),
     };
-    for (const method of ['innerJoin', 'select', 'addSelect', 'orderBy', 'addOrderBy', 'andWhere']) {
-      query[method].mockReturnValue(query);
-    }
+    query.innerJoin.mockReturnValue(query);
+    query.select.mockReturnValue(query);
+    query.addSelect.mockReturnValue(query);
+    query.orderBy.mockReturnValue(query);
+    query.addOrderBy.mockReturnValue(query);
+    query.andWhere.mockReturnValue(query);
     const orderRepo = { createQueryBuilder: jest.fn().mockReturnValue(query) };
     const dataSource = {
       getRepository: jest.fn().mockReturnValue(orderRepo),
     };
 
-    const result = await new PaymentsService(dataSource as any).getAdminOrdersPage(
+    const result = await new PaymentsService(
+      dataSource as unknown as DataSource,
+    ).getAdminOrdersPage(
       3,
       10,
       'pending',
@@ -98,7 +105,7 @@ describe('PaymentsService', () => {
     );
     expect(query.andWhere).toHaveBeenCalledWith(
       'paymentOrder.expiresAt > :now',
-      { now: expect.any(Date) },
+      { now: expect.any(Date) as unknown },
     );
     expect(query.andWhere).toHaveBeenCalledWith(
       '(paymentUser.email ILIKE :search OR paymentOrder.reference ILIKE :search)',
@@ -134,19 +141,21 @@ describe('PaymentsService', () => {
     };
     const savedAudit = jest.fn().mockResolvedValue(undefined);
     const auditRepo = { save: savedAudit };
-    const savedOrder = jest.fn(async (order: Partial<PaymentOrder>) => ({
-      ...order,
-      id: 'order-id',
-      createdAt: new Date(),
-      paidAt: null,
-      reviewedBy: null,
-    }));
+    const savedOrder = jest.fn((order: Partial<PaymentOrder>) =>
+      Promise.resolve({
+        ...order,
+        id: 'order-id',
+        createdAt: new Date(),
+        paidAt: null,
+        reviewedBy: null,
+      }),
+    );
     const orderRepo = {
-      create: jest.fn((order) => order),
+      create: jest.fn((order: Partial<PaymentOrder>) => order),
       save: savedOrder,
     };
     const { dataSource } = transactionHarness(
-      new Map<unknown, any>([
+      new Map<unknown, unknown>([
         [Plan, planRepo],
         [PaymentSettings, settingsRepo],
         [PaymentOrder, orderRepo],
@@ -154,12 +163,9 @@ describe('PaymentsService', () => {
       ]),
     );
 
-    const result = await new PaymentsService(dataSource as any).createOrder(
-      'customer-id',
-      'premium',
-      '203.0.113.1',
-      'test-agent',
-    );
+    const result = await new PaymentsService(
+      dataSource as unknown as DataSource,
+    ).createOrder('customer-id', 'premium', '203.0.113.1', 'test-agent');
 
     const inserted = savedOrder.mock.calls[0][0];
     expect(inserted).toMatchObject({
@@ -203,7 +209,7 @@ describe('PaymentsService', () => {
     };
     const orderRepo = { create: jest.fn(), save: jest.fn() };
     const { dataSource } = transactionHarness(
-      new Map<unknown, any>([
+      new Map<unknown, unknown>([
         [Plan, planRepo],
         [PaymentSettings, { findOne: jest.fn().mockResolvedValue(null) }],
         [PaymentOrder, orderRepo],
@@ -211,7 +217,7 @@ describe('PaymentsService', () => {
     );
 
     await expect(
-      new PaymentsService(dataSource as any).createOrder(
+      new PaymentsService(dataSource as unknown as DataSource).createOrder(
         'customer-id',
         'lite',
         null,
@@ -232,14 +238,14 @@ describe('PaymentsService', () => {
     };
     const orderRepo = { create: jest.fn(), save: jest.fn() };
     const { dataSource } = transactionHarness(
-      new Map<unknown, any>([
+      new Map<unknown, unknown>([
         [Plan, planRepo],
         [PaymentOrder, orderRepo],
       ]),
     );
 
     await expect(
-      new PaymentsService(dataSource as any).createOrder(
+      new PaymentsService(dataSource as unknown as DataSource).createOrder(
         'customer-id',
         'lite',
         null,
@@ -260,7 +266,7 @@ describe('PaymentsService', () => {
     };
     const orderRepo = { create: jest.fn(), save: jest.fn() };
     const { dataSource } = transactionHarness(
-      new Map<unknown, any>([
+      new Map<unknown, unknown>([
         [Plan, planRepo],
         [
           PaymentSettings,
@@ -271,7 +277,7 @@ describe('PaymentsService', () => {
     );
 
     await expect(
-      new PaymentsService(dataSource as any).createOrder(
+      new PaymentsService(dataSource as unknown as DataSource).createOrder(
         'customer-id',
         'premium',
         null,
@@ -304,7 +310,7 @@ describe('PaymentsService', () => {
     } as PaymentOrder;
     const orderRepo = {
       findOne: jest.fn().mockResolvedValue(order),
-      save: jest.fn(async (value) => value),
+      save: jest.fn((value: PaymentOrder) => Promise.resolve(value)),
     };
     const userRepo = {
       findOne: jest.fn().mockResolvedValue({ id: 'customer-id' }),
@@ -312,12 +318,14 @@ describe('PaymentsService', () => {
     };
     const subscriptionRepo = {
       findOne: jest.fn().mockResolvedValue(null),
-      create: jest.fn((value) => value),
-      save: jest.fn(async (value) => ({ ...value, id: 'subscription-id' })),
+      create: jest.fn((value: Partial<UserSubscription>) => value),
+      save: jest.fn((value: UserSubscription) =>
+        Promise.resolve({ ...value, id: 'subscription-id' }),
+      ),
     };
     const auditRepo = { save: jest.fn().mockResolvedValue(undefined) };
     const { dataSource } = transactionHarness(
-      new Map<unknown, any>([
+      new Map<unknown, unknown>([
         [PaymentOrder, orderRepo],
         [User, userRepo],
         [UserSubscription, subscriptionRepo],
@@ -325,12 +333,9 @@ describe('PaymentsService', () => {
       ]),
     );
 
-    const result = await new PaymentsService(dataSource as any).markOrderPaid(
-      'order-id',
-      'admin-id',
-      '203.0.113.2',
-      'admin-agent',
-    );
+    const result = await new PaymentsService(
+      dataSource as unknown as DataSource,
+    ).markOrderPaid('order-id', 'admin-id', '203.0.113.2', 'admin-agent');
 
     expect(order.status).toBe('paid');
     expect(order.reviewedBy).toBe('admin-id');
@@ -379,19 +384,16 @@ describe('PaymentsService', () => {
     };
     const subscriptionRepo = { save: jest.fn() };
     const { dataSource } = transactionHarness(
-      new Map<unknown, any>([
+      new Map<unknown, unknown>([
         [PaymentOrder, orderRepo],
         [User, { findOne: jest.fn() }],
         [UserSubscription, subscriptionRepo],
       ]),
     );
 
-    const result = await new PaymentsService(dataSource as any).markOrderPaid(
-      'order-id',
-      'admin-id',
-      null,
-      null,
-    );
+    const result = await new PaymentsService(
+      dataSource as unknown as DataSource,
+    ).markOrderPaid('order-id', 'admin-id', null, null);
 
     expect(result.alreadyPaid).toBe(true);
     expect(result.order.status).toBe('paid');

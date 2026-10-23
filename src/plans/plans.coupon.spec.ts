@@ -1,5 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
+import type { DataSource, Repository } from 'typeorm';
 import { PlansService } from './plans.service';
+import { Plan } from './plan.entity';
+import { AiUsage } from './ai-usage.entity';
 import { Coupon } from './coupon.entity';
 import { CouponRedemption } from './coupon-redemption.entity';
 import { UserSubscription } from './user-subscription.entity';
@@ -24,7 +27,7 @@ describe('PlansService coupon application', () => {
   const subscriptionRepo = {
     findOne: jest.fn(),
     save: jest.fn(),
-    create: jest.fn((value) => value),
+    create: jest.fn((value: Partial<UserSubscription>) => value),
   };
   const userRepo = { findOne: jest.fn(), save: jest.fn() };
   const manager = {
@@ -38,17 +41,17 @@ describe('PlansService coupon application', () => {
     query: jest.fn(),
   };
   const dataSource = {
-    transaction: jest.fn((callback: (manager: any) => unknown) =>
+    transaction: jest.fn((callback: (manager: typeof manager) => unknown) =>
       callback(manager),
     ),
   };
   const service = new PlansService(
-    {} as any,
-    {} as any,
-    {} as any,
-    {} as any,
-    {} as any,
-    dataSource as any,
+    {} as unknown as Repository<Plan>,
+    {} as unknown as Repository<UserSubscription>,
+    {} as unknown as Repository<AiUsage>,
+    couponRepo as unknown as Repository<Coupon>,
+    userRepo as unknown as Repository<User>,
+    dataSource as unknown as DataSource,
   );
 
   beforeEach(() => {
@@ -57,7 +60,9 @@ describe('PlansService coupon application', () => {
     redemptionRepo.findOne.mockResolvedValue(null);
     redemptionRepo.insert.mockResolvedValue(undefined);
     subscriptionRepo.findOne.mockResolvedValue(null);
-    subscriptionRepo.save.mockImplementation(async (value) => value);
+    subscriptionRepo.save.mockImplementation((value: UserSubscription) =>
+      Promise.resolve(value),
+    );
     userRepo.findOne.mockResolvedValue({ id: 'user-1', planName: 'free' });
     manager.query.mockResolvedValue([{ usedCount: 4 }]);
   });

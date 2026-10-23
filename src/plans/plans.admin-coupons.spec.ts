@@ -1,5 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
+import type { DataSource, Repository } from 'typeorm';
 import { PlansService } from './plans.service';
+import { Plan } from './plan.entity';
+import { UserSubscription } from './user-subscription.entity';
+import { AiUsage } from './ai-usage.entity';
+import { Coupon } from './coupon.entity';
+import { User } from '../users/user.entity';
 
 describe('PlansService admin coupon listing', () => {
   const query = {
@@ -24,12 +30,12 @@ describe('PlansService admin coupon listing', () => {
   }
 
   const service = new PlansService(
-    {} as any,
-    {} as any,
-    {} as any,
-    couponRepo as any,
-    {} as any,
-    {} as any,
+    {} as unknown as Repository<Plan>,
+    {} as unknown as Repository<UserSubscription>,
+    {} as unknown as Repository<AiUsage>,
+    couponRepo as unknown as Repository<Coupon>,
+    {} as unknown as Repository<User>,
+    {} as unknown as DataSource,
   );
 
   beforeEach(() => {
@@ -58,10 +64,9 @@ describe('PlansService admin coupon listing', () => {
       'coupon.createdAt >= :dateFrom',
       { dateFrom: new Date('2026-10-01T00:00:00.000Z') },
     );
-    expect(query.andWhere).toHaveBeenCalledWith(
-      'coupon.createdAt < :dateTo',
-      { dateTo: new Date('2026-11-01T00:00:00.000Z') },
-    );
+    expect(query.andWhere).toHaveBeenCalledWith('coupon.createdAt < :dateTo', {
+      dateTo: new Date('2026-11-01T00:00:00.000Z'),
+    });
     expect(query.skip).toHaveBeenCalledWith(10);
     expect(query.take).toHaveBeenCalledWith(10);
     expect(query.addOrderBy).toHaveBeenCalledWith('coupon.id', 'ASC');
@@ -75,9 +80,9 @@ describe('PlansService admin coupon listing', () => {
   });
 
   it('rejects invalid date filters', async () => {
-    await expect(service.getCoupons(1, 20, '', 'not-a-date')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(
+      service.getCoupons(1, 20, '', 'not-a-date'),
+    ).rejects.toBeInstanceOf(BadRequestException);
     expect(couponRepo.createQueryBuilder).not.toHaveBeenCalled();
   });
 });
