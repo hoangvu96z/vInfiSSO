@@ -244,6 +244,46 @@ describe('SsoController session response', () => {
     );
   });
 
+  it('preserves cookie and header token parsing with "=" values during POST /sso/logout and GET /sso/logout', async () => {
+    const ssoService = { logout: jest.fn().mockResolvedValue(undefined) };
+    const controller = createController(ssoService, {
+      get: jest.fn((key: string) =>
+        key === 'NODE_ENV' ? 'development' : undefined,
+      ),
+    });
+    const clearCookie = jest.fn();
+    const response = {
+      clearCookie,
+      redirect: jest.fn(),
+    } as unknown as Response;
+
+    // POST /sso/logout with cookie containing encoded '=' values
+    const reqWithCookie = {
+      headers: { cookie: 'other=val; sso_token=token%3Dwith%3Dequals%3D%3D' },
+      query: {},
+    } as unknown as Request;
+    await controller.logoutApi(reqWithCookie, response);
+    expect(ssoService.logout).toHaveBeenLastCalledWith('token=with=equals==');
+
+    // POST /sso/logout with Bearer token containing '=' values
+    const reqWithHeader = {
+      headers: { authorization: 'Bearer header=token=value==' },
+      query: {},
+    } as unknown as Request;
+    await controller.logoutApi(reqWithHeader, response);
+    expect(ssoService.logout).toHaveBeenLastCalledWith('header=token=value==');
+
+    // GET /sso/logout with cookie containing encoded '=' values
+    await controller.logoutRedirect(reqWithCookie, response);
+    expect(ssoService.logout).toHaveBeenLastCalledWith('token=with=equals==');
+
+    // GET /sso/logout with Bearer token containing '=' values
+    await controller.logoutRedirect(reqWithHeader, response);
+    expect(ssoService.logout).toHaveBeenLastCalledWith('header=token=value==');
+
+    expect(ssoService.logout).toHaveBeenCalledTimes(4);
+  });
+
   it('rejects code exchange when the Origin header is missing or not allowlisted', async () => {
     const ssoService = { consumeOAuthLoginCode: jest.fn() };
     const configService = {

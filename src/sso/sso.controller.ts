@@ -61,10 +61,6 @@ export class SsoController {
     private readonly configService: ConfigService,
   ) {}
 
-  private getToken(req: Request): string | undefined {
-    return extractSessionToken(req);
-  }
-
   private setSessionCookie(res: Response, token: string) {
     const cookieConfiguration = {
       nodeEnv:
@@ -275,7 +271,7 @@ export class SsoController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const token = this.getToken(req);
+    const token = extractSessionToken(req);
     if (token) {
       await this.ssoService.logout(token);
     }
@@ -294,7 +290,7 @@ export class SsoController {
     @Query('redirect') redirectQuery?: string,
     @Query('redirect_uri') redirectUriQuery?: string,
   ) {
-    const token = this.getToken(req);
+    const token = extractSessionToken(req);
     if (token) {
       await this.ssoService.logout(token);
     }
