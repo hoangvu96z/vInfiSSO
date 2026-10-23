@@ -100,6 +100,130 @@ describe('ContactController guest session access', () => {
     );
   });
 
+  it('supports x-guest-token supplied as an array header', async () => {
+    const contactService = {
+      isValidGuestSessionToken: jest.fn().mockReturnValue(true),
+      getMessagesBySession: jest.fn().mockResolvedValue([]),
+    };
+    const controller = new ContactController(
+      contactService as unknown as ContactService,
+    );
+
+    await expect(
+      controller.getSessionMessages('session-1', {
+        headers: { 'x-guest-token': ['signed-guest-token', 'other'] },
+      } as unknown as Request),
+    ).resolves.toEqual({ messages: [] });
+    expect(contactService.isValidGuestSessionToken).toHaveBeenCalledWith(
+      'session-1',
+      'signed-guest-token',
+    );
+  });
+
+  it('rejects invalid or blank sessionId parameters', async () => {
+    const contactService = {
+      isValidGuestSessionToken: jest.fn(),
+      getMessagesBySession: jest.fn(),
+    };
+    const controller = new ContactController(
+      contactService as unknown as ContactService,
+    );
+
+    await expect(
+      controller.getSessionMessages('', {
+        headers: { 'x-guest-token': 'token' },
+      } as unknown as Request),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    await expect(
+      controller.getSessionMessages('   ', {
+        headers: { 'x-guest-token': 'token' },
+      } as unknown as Request),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    await expect(
+      controller.getSessionMessages('a'.repeat(65), {
+        headers: { 'x-guest-token': 'token' },
+      } as unknown as Request),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(contactService.isValidGuestSessionToken).not.toHaveBeenCalled();
+    expect(contactService.getMessagesBySession).not.toHaveBeenCalled();
+  });
+
+  it('prevents anonymous callers from appending to existing sessions in createMessage', async () => {
+    const contactService = {
+      isValidGuestSessionToken: jest.fn().mockReturnValue(false),
+      hasMessagesBySession: jest.fn().mockResolvedValue(true),
+      createMessage: jest.fn(),
+    };
+    const controller = new ContactController(
+      contactService as unknown as ContactService,
+    );
+
+    await expect(
+      controller.createMessage({ headers: {} } as unknown as Request, {
+        sessionId: 'session-1',
+        name: 'Attacker',
+        message: 'Appending to existing session without token',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(contactService.hasMessagesBySession).toHaveBeenCalledWith(
+      'session-1',
+    );
+    expect(contactService.createMessage).not.toHaveBeenCalled();
+  });
+
+  it('allows anonymous callers to start a new session and returns a guest token', async () => {
+    const createdAt = new Date('2026-10-24T00:00:00.000Z');
+    const contactService = {
+      isValidGuestSessionToken: jest.fn().mockReturnValue(false),
+      hasMessagesBySession: jest.fn().mockResolvedValue(false),
+      createMessage: jest.fn().mockResolvedValue({
+        id: 'msg-1',
+        sessionId: 'session-new',
+        name: 'New Visitor',
+        email: 'visitor@example.test',
+        title: 'Inquiry',
+        message: 'Hello',
+        images: [],
+        createdAt,
+      }),
+      createGuestSessionToken: jest.fn().mockReturnValue('new-guest-token'),
+    };
+    const controller = new ContactController(
+      contactService as unknown as ContactService,
+    );
+
+    const result = await controller.createMessage(
+      { headers: {} } as unknown as Request,
+      {
+        sessionId: 'session-new',
+        name: 'New Visitor',
+        email: 'visitor@example.test',
+        title: 'Inquiry',
+        message: 'Hello',
+      },
+    );
+
+    expect(result).toEqual({
+      message: {
+        id: 'msg-1',
+        sessionId: 'session-new',
+        name: 'New Visitor',
+        email: 'visitor@example.test',
+        title: 'Inquiry',
+        message: 'Hello',
+        hasImage: false,
+        imageCount: 0,
+        createdAt,
+      },
+      guestToken: 'new-guest-token',
+    });
+    expect(contactService.createGuestSessionToken).toHaveBeenCalledWith(
+      'session-new',
+    );
+  });
+
   it('rejects contact images whose combined encoded size exceeds the body budget', async () => {
     const contactService = {
       isValidGuestSessionToken: jest.fn(),

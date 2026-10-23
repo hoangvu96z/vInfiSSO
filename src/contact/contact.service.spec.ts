@@ -5,6 +5,7 @@ import type { MailService } from '../mail/mail.service';
 import type { ContactMessage } from './contact-message.entity';
 import { BadRequestException } from '@nestjs/common';
 import type { ObjectStorage } from '../storage/object-storage';
+import * as crypto from 'node:crypto';
 
 type NotificationEmailService = {
   sendNotificationEmail(message: ContactMessage): Promise<void>;
@@ -34,6 +35,46 @@ describe('ContactService guest session token', () => {
     expect(
       service.isValidGuestSessionToken('session-1', `${token}tampered`),
     ).toBe(false);
+  });
+
+  it('rejects expired, overly distant, or malformed guest tokens', () => {
+    const secret = 'test-signing-secret-which-is-at-least-32-chars';
+    const now = Math.floor(Date.now() / 1000);
+
+    const expiredExpiresAt = now - 60;
+    const expiredSignature = crypto
+      .createHmac('sha256', secret)
+      .update(`session-1:${expiredExpiresAt}`)
+      .digest('base64url');
+    expect(
+      service.isValidGuestSessionToken(
+        'session-1',
+        `${expiredExpiresAt}.${expiredSignature}`,
+      ),
+    ).toBe(false);
+
+    const excessiveExpiresAt = now + 91 * 24 * 60 * 60;
+    const excessiveSignature = crypto
+      .createHmac('sha256', secret)
+      .update(`session-1:${excessiveExpiresAt}`)
+      .digest('base64url');
+    expect(
+      service.isValidGuestSessionToken(
+        'session-1',
+        `${excessiveExpiresAt}.${excessiveSignature}`,
+      ),
+    ).toBe(false);
+
+    expect(service.isValidGuestSessionToken('session-1', undefined)).toBe(
+      false,
+    );
+    expect(service.isValidGuestSessionToken('session-1', '')).toBe(false);
+    expect(
+      service.isValidGuestSessionToken('session-1', 'malformed-token'),
+    ).toBe(false);
+    expect(service.isValidGuestSessionToken('session-1', '12345.short')).toBe(
+      false,
+    );
   });
 });
 

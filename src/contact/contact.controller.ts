@@ -212,13 +212,14 @@ export class ContactController {
     @Param('sessionId') sessionId: string,
     @Req() req: Request,
   ) {
-    if (!sessionId || sessionId.length > 64) {
+    const normalizedSessionId = sessionId?.trim();
+    if (!normalizedSessionId || normalizedSessionId.length > 64) {
       throw new BadRequestException('Invalid sessionId');
     }
     const guestToken = req.headers['x-guest-token'];
     if (
       !this.contactService.isValidGuestSessionToken(
-        sessionId,
+        normalizedSessionId,
         Array.isArray(guestToken) ? guestToken[0] : guestToken,
       )
     ) {
@@ -226,7 +227,8 @@ export class ContactController {
         'Guest session access token is invalid or missing',
       );
     }
-    const messages = await this.contactService.getMessagesBySession(sessionId);
+    const messages =
+      await this.contactService.getMessagesBySession(normalizedSessionId);
     return {
       messages: messages.map((m) => ({
         id: m.id,
