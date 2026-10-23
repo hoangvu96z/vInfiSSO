@@ -1,8 +1,8 @@
-import { createCipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { ReadingEncryption } from './reading-encryption';
+import { LEGACY_CLIENT_SALT, ReadingEncryption } from './reading-encryption';
 import {
   assertLocalRecoveryDatabaseUrl,
   assertPrivateRecoverySocketDirectory,
@@ -10,10 +10,13 @@ import {
   containsLegacyClientCiphertext,
   createEncryptedRecoveryArtifactRecord,
   createRecoveryArtifact,
+  decryptLegacyReadingForDefaultUser,
+  decryptLegacyReadingForOwner,
   decryptLegacyClientTreeWithKey,
   readProtectedLegacyKeyFile,
   writeRecoveryArtifactFile,
 } from './offline-legacy-reading-recovery';
+import { parseRecoveryOptions } from '../../scripts/recover-legacy-readings';
 
 const LEGACY_PREFIX = 'enc_v1::';
 
@@ -28,6 +31,12 @@ function encryptLegacyValue(value: unknown, key: Buffer): string {
     cipher.getAuthTag(),
   ]);
   return `${LEGACY_PREFIX}${iv.toString('base64')}:${ciphertext.toString('base64')}`;
+}
+
+function deriveLegacyUserKey(userId: string): Buffer {
+  return createHash('sha256')
+    .update(`${userId}:${LEGACY_CLIENT_SALT}`, 'utf8')
+    .digest();
 }
 
 describe('offline legacy reading recovery', () => {
@@ -80,11 +89,11 @@ describe('offline legacy reading recovery', () => {
     }
   });
 
-  it('rewraps a synthetic legacy row into a V3 encrypted sidecar record', () => {
-    const key = randomBytes(32);
+  it('rewraps owner-derived legacy values into a V3 encrypted sidecar record', () => {
+    const userId = '123e4567-e89b-42d3-a456-426614174000';
+    const key = deriveLegacyUserKey(userId);
     const serverKey = randomBytes(32);
     const readingId = 'reading-1';
-    const userId = 'user-1';
     const privateQuestion = 'synthetic private question';
     const privateTitle = 'synthetic private title';
     const privateAnswer = 'synthetic private answer';
@@ -109,7 +118,7 @@ describe('offline legacy reading recovery', () => {
           },
           createdAt: '2026-01-01T00:00:00.000Z',
         },
-        key,
+        (value) => decryptLegacyReadingForOwner(value, userId),
         encryption,
       );
 
@@ -129,6 +138,82 @@ describe('offline legacy reading recovery', () => {
       key.fill(0);
       serverKey.fill(0);
     }
+  });
+
+  it('supports only an explicit default_user compatibility derivation', () => {
+    const legacyKey = deriveLegacyUserKey('default_user');
+    const serverKey = randomBytes(32);
+    const userId = '123e4567-e89b-42d3-a456-426614174000';
+    const readingId = 'reading-default-user';
+    const encryption = new ReadingEncryption(
+      `test:${serverKey.toString('base64')}`,
+      'test',
+    );
+    try {
+      const record = createEncryptedRecoveryArtifactRecord(
+        {
+          id: readingId,
+          userId,
+          app: 'iching',
+          type: 'mai-hoa',
+          question: encryptLegacyValue('synthetic fallback question', legacyKey),
+          title: 'Legacy title',
+          data: { answer: 'synthetic fallback answer' },
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+        decryptLegacyReadingForDefaultUser,
+        encryption,
+      );
+
+      expect(
+        encryption.decryptEnvelope(record.data, userId, readingId),
+      ).toEqual({
+        question: 'synthetic fallback question',
+        title: 'Legacy title',
+        data: { answer: 'synthetic fallback answer' },
+      });
+    } finally {
+      legacyKey.fill(0);
+      serverKey.fill(0);
+    }
+  });
+
+  it('defaults recovery to owner ID and requires explicit raw-key mode', () => {
+    const common = [
+      '--user-id=123e4567-e89b-42d3-a456-426614174000',
+      '--output-file=/tmp/recovered.json',
+    ];
+    expect(parseRecoveryOptions(common)).toEqual({
+      keyFile: null,
+      legacyMode: 'owner-id',
+      outputFile: '/tmp/recovered.json',
+      userId: '123e4567-e89b-42d3-a456-426614174000',
+    });
+    expect(
+      parseRecoveryOptions([...common, '--legacy-mode=default-user']).legacyMode,
+    ).toBe('default-user');
+    expect(() =>
+      parseRecoveryOptions([
+        ...common,
+        '--key-file=/tmp/key.hex',
+      ]),
+    ).toThrow('raw key mode also requires');
+    expect(() =>
+      parseRecoveryOptions([
+        ...common,
+        '--legacy-mode=raw-localstorage-key',
+      ]),
+    ).toThrow('raw key mode also requires');
+    expect(
+      parseRecoveryOptions([
+        ...common,
+        '--legacy-mode=raw-localstorage-key',
+        '--key-file=/tmp/key.hex',
+      ]).legacyMode,
+    ).toBe('raw-localstorage-key');
+    expect(() =>
+      parseRecoveryOptions([...common, '--legacy-mode=arbitrary-user-id']),
+    ).toThrow('Invalid legacy recovery mode');
   });
 
   it('accepts only localhost restore databases and validates the connected server', () => {

@@ -14,12 +14,21 @@ import {
   containsLegacyClientCiphertext,
   createEncryptedRecoveryArtifactRecord,
   createRecoveryArtifact,
+  decryptLegacyReadingForDefaultUser,
+  decryptLegacyReadingForOwner,
+  decryptLegacyClientTreeWithKey,
   readProtectedLegacyKeyFile,
   writeRecoveryArtifactFile,
 } from '../src/readings/offline-legacy-reading-recovery';
 
+export type LegacyDecryptMode =
+  | 'owner-id'
+  | 'default-user'
+  | 'raw-localstorage-key';
+
 interface RecoveryOptions {
-  keyFile: string;
+  keyFile: string | null;
+  legacyMode: LegacyDecryptMode;
   outputFile: string;
   userId: string;
 }
@@ -36,7 +45,7 @@ export function parseRecoveryOptions(args: string[]): RecoveryOptions {
     const name = arg.slice(2, separator);
     const value = arg.slice(separator + 1).trim();
     if (
-      !['key-file', 'output-file', 'user-id'].includes(name) ||
+      !['key-file', 'legacy-mode', 'output-file', 'user-id'].includes(name) ||
       !value ||
       values.has(name)
     ) {
@@ -45,20 +54,33 @@ export function parseRecoveryOptions(args: string[]): RecoveryOptions {
     values.set(name, value);
   }
 
-  const keyFile = values.get('key-file');
+  const requestedMode = values.get('legacy-mode') || 'owner-id';
+  if (
+    !['owner-id', 'default-user', 'raw-localstorage-key'].includes(
+      requestedMode,
+    )
+  ) {
+    throw new Error('Invalid legacy recovery mode');
+  }
+  const legacyMode = requestedMode as LegacyDecryptMode;
+  const keyFile = values.get('key-file') || null;
   const outputFile = values.get('output-file');
   const userId = values.get('user-id');
   if (
-    !keyFile ||
     !outputFile ||
     !userId ||
     !USER_ID_PATTERN.test(userId) ||
-    ![keyFile, outputFile].every((filePath) => filePath.startsWith('/')) ||
-    resolve(keyFile) === resolve(outputFile)
+    !outputFile.startsWith('/') ||
+    (keyFile !== null && !keyFile.startsWith('/')) ||
+    (legacyMode === 'raw-localstorage-key' && !keyFile) ||
+    (legacyMode !== 'raw-localstorage-key' && keyFile !== null) ||
+    (keyFile !== null && resolve(keyFile) === resolve(outputFile))
   ) {
-    throw new Error('A key file, output file, and valid user ID are required');
+    throw new Error(
+      'A valid user ID and output file are required; raw key mode also requires a separate key file',
+    );
   }
-  return { keyFile, outputFile, userId };
+  return { keyFile, legacyMode, outputFile, userId };
 }
 
 function createReadOnlyDataSource(
@@ -106,13 +128,18 @@ async function recover(options: RecoveryOptions): Promise<void> {
     process.env.DATA_ENCRYPTION_ACTIVE_KEY_ID,
     true,
   );
-  if (resolve(options.keyFile) === resolve(options.outputFile)) {
+  if (
+    options.keyFile &&
+    resolve(options.keyFile) === resolve(options.outputFile)
+  ) {
     throw new Error('Recovery output must be separate from its inputs');
   }
   await assertOutputDoesNotExist(options.outputFile);
-  const legacyKey = await readProtectedLegacyKeyFile(options.keyFile);
-
   const dataSource = createReadOnlyDataSource(databaseUrl!, socketDirectory);
+  const legacyKey =
+    options.legacyMode === 'raw-localstorage-key' && options.keyFile
+      ? await readProtectedLegacyKeyFile(options.keyFile)
+      : null;
   let queryRunner;
   let artifactRecords: ReturnType<typeof createEncryptedRecoveryArtifactRecord>[] = [];
   let scanned = 0;
@@ -156,7 +183,11 @@ async function recover(options: RecoveryOptions): Promise<void> {
         artifactRecords.push(
           createEncryptedRecoveryArtifactRecord(
             reading,
-            legacyKey,
+            options.legacyMode === 'owner-id'
+              ? (value) => decryptLegacyReadingForOwner(value, reading.userId)
+              : options.legacyMode === 'default-user'
+                ? decryptLegacyReadingForDefaultUser
+                : (value) => decryptLegacyClientTreeWithKey(value, legacyKey!),
             encryption,
           ),
         );
@@ -171,7 +202,7 @@ async function recover(options: RecoveryOptions): Promise<void> {
     }
     await queryRunner?.release().catch(() => undefined);
     await dataSource.destroy().catch(() => undefined);
-    legacyKey.fill(0);
+    legacyKey?.fill(0);
   }
 
   if (failed > 0) {
@@ -188,7 +219,7 @@ async function recover(options: RecoveryOptions): Promise<void> {
   console.log(
     JSON.stringify({
       mode: 'read-only-recovery-artifact',
-      database: databaseName,
+      legacyDecryptMode: options.legacyMode,
       scanned,
       candidates,
       recovered: artifactRecords.length,

@@ -11,11 +11,18 @@ is not part of this command.
   `_recovery` or `_restore` suffix (for example, `vinfi_sso_recovery`). Keep the
   restored database offline from production. The tool rejects non-`localhost`
   URLs, other database names, and a server address that is not loopback.
-- The exact owner UUID for the candidate key.
-- A local file containing only the historical 32-byte AES key as 64 hex
-  characters, optionally followed by a newline. It must be owned by the current
-  user and have no group/world permissions (`chmod 600`). This matches the
-  original browser `vinfi_e2ee_key_<userId>` value.
+- The exact owner UUID for the readings. By default, the utility uses the
+  existing backend legacy decryptor with each row's `user_id` and the historical
+  deterministic derivation `SHA-256(userId + ':' + LEGACY_CLIENT_SALT)`.
+- Only if source history indicates the affected reading was written while the
+  frontend fell back to its historical `default_user` ID, explicitly select
+  `--legacy-mode=default-user`. The utility does not guess or enumerate IDs.
+- For records known to have been written by the earlier pre-July-29 frontend
+  that kept a random key in browser localStorage, raw-key recovery is opt-in:
+  select `--legacy-mode=raw-localstorage-key` and provide a local file with the
+  32-byte key as 64 hex characters, optionally followed by a newline. It must
+  be owned by the current user and have no group/world permissions (`chmod 600`).
+  Raw-key mode is never selected implicitly.
 - The `DATA_ENCRYPTION_KEYS` and `DATA_ENCRYPTION_ACTIVE_KEY_ID` values required
   to create V3 envelopes. Supply these and `RECOVERY_DATABASE_URL` through a
   protected runtime environment. The utility does not load `.env` files.
@@ -40,15 +47,19 @@ to the local process through the user's secure environment mechanism:
 npm run build
 npm run recover:legacy:readings -- \
   --user-id=<owner-uuid> \
-  --key-file=/absolute/private/path/legacy-key.hex \
   --output-file=/absolute/private/path/recovered-readings.json
 ```
 
-The command prints only aggregate counts and whether it created an artifact. If
-any candidate row fails authentication or payload validation, it writes no
-artifact. The sidecar contains row identifiers and metadata plus V3 encrypted
-payloads; it does not contain plaintext reading fields. Keep it private and do
-not commit or upload it.
+For the one historical default-ID compatibility attempt, add
+`--legacy-mode=default-user`. For a confirmed pre-July-29 random-localStorage
+key, add both `--legacy-mode=raw-localstorage-key` and
+`--key-file=/absolute/private/path/legacy-key.hex`.
+
+The command prints only aggregate counts, selected decrypt mode, and whether it
+created an artifact. If any candidate row fails authentication or payload
+validation, it writes no artifact. The sidecar contains row identifiers and
+metadata plus V3 encrypted payloads; it does not contain plaintext reading
+fields. Keep it private and do not commit or upload it.
 
 ## Safety limits
 

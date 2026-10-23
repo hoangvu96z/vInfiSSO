@@ -2,7 +2,11 @@ import { constants } from 'node:fs';
 import { open, unlink } from 'node:fs/promises';
 import { createDecipheriv } from 'node:crypto';
 import { isAbsolute } from 'node:path';
-import { ReadingEncryption, ReadingPayload } from './reading-encryption';
+import {
+  decryptLegacyClientTree,
+  ReadingEncryption,
+  ReadingPayload,
+} from './reading-encryption';
 
 const LEGACY_PREFIX = 'enc_v1::';
 const LEGACY_KEY_BYTES = 32;
@@ -37,6 +41,8 @@ export interface RecoveryArtifact {
   createdAt: string;
   records: RecoveryArtifactRecord[];
 }
+
+export type LegacyReadingDecryptor = (value: unknown) => unknown;
 
 export async function readProtectedLegacyKeyFile(
   filePath: string,
@@ -210,15 +216,12 @@ export function decryptLegacyClientTreeWithKey(
 
 export function createEncryptedRecoveryArtifactRecord(
   reading: RecoverableReading,
-  key: Buffer,
+  decryptLegacy: LegacyReadingDecryptor,
   encryption: ReadingEncryption,
 ): RecoveryArtifactRecord {
-  const questionValue = decryptLegacyClientTreeWithKey(
-    reading.question ?? null,
-    key,
-  );
-  const titleValue = decryptLegacyClientTreeWithKey(reading.title, key);
-  const data = decryptLegacyClientTreeWithKey(reading.data, key);
+  const questionValue = decryptLegacy(reading.question ?? null);
+  const titleValue = decryptLegacy(reading.title);
+  const data = decryptLegacy(reading.data);
   const question = toLegacyText(questionValue, true);
   const title = toLegacyText(titleValue, false);
   if (
@@ -246,6 +249,17 @@ export function createEncryptedRecoveryArtifactRecord(
     title: storageTitle,
     data: encryption.encryptPayload(payload, reading.userId, reading.id),
   };
+}
+
+export function decryptLegacyReadingForOwner(
+  value: unknown,
+  userId: string,
+): unknown {
+  return decryptLegacyClientTree(value, userId);
+}
+
+export function decryptLegacyReadingForDefaultUser(value: unknown): unknown {
+  return decryptLegacyClientTree(value, 'default_user');
 }
 
 export function createRecoveryArtifact(
