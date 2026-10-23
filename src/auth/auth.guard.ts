@@ -16,7 +16,10 @@ import {
 } from '../sso/session-cookie.util';
 import type { User } from '../users/user.entity';
 import type { AuthenticatedRequest } from './auth.types';
-import { extractSessionToken } from './session-token.util';
+import {
+  extractSessionToken,
+  SSO_SESSION_ROTATION_HEADER,
+} from './session-token.util';
 
 async function resolveRequestUser(
   context: ExecutionContext,
@@ -33,6 +36,13 @@ async function resolveRequestUser(
 
   if (resolved.rotatedToken) {
     const response = http.getResponse<Response>();
+    const authorization = request.headers.authorization;
+    if (
+      typeof authorization === 'string' &&
+      authorization.toLowerCase().startsWith('bearer ')
+    ) {
+      response.setHeader(SSO_SESSION_ROTATION_HEADER, resolved.rotatedToken);
+    }
     const cookieConfiguration = {
       nodeEnv: configService.get<string>('NODE_ENV') ?? process.env.NODE_ENV,
       cookieDomain: configService.get<string>('SSO_COOKIE_DOMAIN'),

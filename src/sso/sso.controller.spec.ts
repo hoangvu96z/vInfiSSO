@@ -188,7 +188,8 @@ describe('SsoController session response', () => {
         options,
       }),
     );
-    const response = { cookie } as unknown as Response;
+    const setHeader = jest.fn();
+    const response = { cookie, setHeader } as unknown as Response;
 
     const result = await controller.exchangeOAuthCode(
       { code: 'one-time-code' },
@@ -196,8 +197,11 @@ describe('SsoController session response', () => {
       response,
     );
 
-    expect(result).toEqual({ success: true, user });
-    expect(result).not.toHaveProperty('token');
+    expect(result).toEqual({
+      success: true,
+      user,
+      token: 'new-session-token',
+    });
     expect(ssoService.consumeOAuthLoginCode).toHaveBeenCalledWith(
       'one-time-code',
       'http://localhost:5173',
@@ -211,6 +215,7 @@ describe('SsoController session response', () => {
     expect(cookie.mock.calls[0][1]).toBe('new-session-token');
     expect(cookie.mock.calls[0][2].httpOnly).toBe(true);
     expect(typeof cookie.mock.calls[0][2].maxAge).toBe('number');
+    expect(setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store');
   });
 
   it('clears the host-only cookie on logout by default', async () => {
@@ -245,7 +250,7 @@ describe('SsoController session response', () => {
       get: jest.fn((_key: string, fallback: string) => fallback),
     };
     const controller = createController(ssoService, configService);
-    const response = { cookie: jest.fn() } as unknown as Response;
+    const response = { cookie: jest.fn(), setHeader: jest.fn() } as unknown as Response;
 
     await expect(
       controller.exchangeOAuthCode(
@@ -265,7 +270,7 @@ describe('SsoController session response', () => {
       createSessionForUser: jest.fn().mockResolvedValue('session-token'),
       sanitizeUser: jest.fn().mockReturnValue({ id: 'user-1' }),
     };
-    const response = { cookie: jest.fn() } as unknown as Response;
+    const response = { cookie: jest.fn(), setHeader: jest.fn() } as unknown as Response;
     const productionConfig = {
       get: jest.fn((key: string) =>
         key === 'NODE_ENV' ? 'production' : undefined,
@@ -300,6 +305,7 @@ describe('SsoController session response', () => {
     ).resolves.toEqual({
       success: true,
       user: { id: 'user-1' },
+      token: 'session-token',
     });
   });
 

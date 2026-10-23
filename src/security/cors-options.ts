@@ -1,3 +1,5 @@
+import { SSO_SESSION_ROTATION_HEADER } from '../auth/session-token.util';
+
 /**
  * Return the CORS allowlist for browser requests.
  * An unset or empty allowlist disables cross-origin access instead of falling
@@ -29,5 +31,6 @@ export function getCorsOptions(
       'Cookie',
       'x-guest-token',
     ],
+    exposedHeaders: [SSO_SESSION_ROTATION_HEADER],
   };
 }

@@ -444,7 +444,8 @@ export class SsoController {
     const user = await this.ssoService.consumeOAuthLoginCode(body.code, origin);
     const token = await this.ssoService.createSessionForUser(user.id, origin);
     this.setSessionCookie(res, token);
-    return { success: true, user: this.ssoService.sanitizeUser(user) };
+    res.setHeader('Cache-Control', 'no-store');
+    return { success: true, user: this.ssoService.sanitizeUser(user), token };
   }
 
   @Post('issue-code')

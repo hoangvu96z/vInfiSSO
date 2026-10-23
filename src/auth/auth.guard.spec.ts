@@ -106,7 +106,7 @@ describe('shared SSO authentication', () => {
         .fn()
         .mockResolvedValue({ user, rotatedToken: 'replacement-token' }),
     };
-    const response = { cookie: jest.fn() };
+    const response = { cookie: jest.fn(), setHeader: jest.fn() };
     const context = makeContext(
       makeRequest({ cookie: 'sso_token=old-token' }),
       response,
@@ -123,6 +123,38 @@ describe('shared SSO authentication', () => {
       'sso_token',
       'replacement-token',
       expect.objectContaining({ httpOnly: true, sameSite: 'lax' }),
+    );
+    expect(response.setHeader).not.toHaveBeenCalled();
+  });
+
+  it('exposes a rotated bearer token through the CORS-readable response header', async () => {
+    const user = { id: 'user-1', role: 'user' } as unknown as User;
+    const ssoService = {
+      resolveSessionForRequest: jest
+        .fn()
+        .mockResolvedValue({ user, rotatedToken: 'replacement-token' }),
+    };
+    const response = { cookie: jest.fn(), setHeader: jest.fn() };
+    const context = makeContext(
+      makeRequest({ authorization: 'Bearer old-token' }),
+      response,
+    );
+
+    await expect(
+      new OptionalSsoAuthGuard(
+        ssoService as unknown as SsoService,
+        configService,
+      ).canActivate(context),
+    ).resolves.toBe(true);
+
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'X-Sso-Session-Token',
+      'replacement-token',
+    );
+    expect(response.cookie).toHaveBeenCalledWith(
+      'sso_token',
+      'replacement-token',
+      expect.objectContaining({ httpOnly: true }),
     );
   });
 

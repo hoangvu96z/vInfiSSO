@@ -23,5 +23,6 @@ describe('CORS options', () => {
     ]);
     expect(options.origin).not.toContain('*');
     expect(options.credentials).toBe(true);
+    expect(options.exposedHeaders).toEqual(['X-Sso-Session-Token']);
   });
 });

@@ -1,6 +1,7 @@
 import type { Request } from 'express';
 
 const SESSION_COOKIE = 'sso_token';
+export const SSO_SESSION_ROTATION_HEADER = 'X-Sso-Session-Token';
 
 /** Extract the session token consistently from Bearer auth or the SSO cookie. */
 export function extractSessionToken(req: Request): string | undefined {
