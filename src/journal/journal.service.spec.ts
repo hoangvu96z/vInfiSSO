@@ -1,14 +1,50 @@
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import { Reading } from '../readings/reading.entity';
+import type {
+  DeepPartial,
+  FindManyOptions,
+  FindOneOptions,
+  Repository,
+} from 'typeorm';
+import type { Reading } from '../readings/reading.entity';
 import { ReadingEncryption } from '../readings/reading-encryption';
-import { JournalEntry } from './journal-entry.entity';
+import type { JournalEntry } from './journal-entry.entity';
 import { JournalService } from './journal.service';
+
+type TestReading = Pick<Reading, 'id' | 'app' | 'type' | 'createdAt'> &
+  Partial<Pick<Reading, 'userId'>>;
+type TestJournalEntry = Pick<
+  JournalEntry,
+  'id' | 'userId' | 'readingId' | 'encryptedPayload' | 'createdAt' | 'updatedAt'
+>;
+
+type JournalRepositoryMock = {
+  find: jest.Mock<
+    Promise<TestJournalEntry[]>,
+    [FindManyOptions<JournalEntry>?]
+  >;
+  findOne: jest.Mock<
+    Promise<Partial<JournalEntry> | null>,
+    [FindOneOptions<JournalEntry>]
+  >;
+  create: jest.Mock<TestJournalEntry, [DeepPartial<JournalEntry>]>;
+  save: jest.Mock<Promise<TestJournalEntry>, [TestJournalEntry]>;
+  delete: jest.Mock<Promise<{ affected: number }>, [Partial<JournalEntry>]>;
+};
+
+type ReadingRepositoryMock = {
+  find: jest.Mock<Promise<TestReading[]>, [FindManyOptions<Reading>?]>;
+  findOne: jest.Mock<Promise<TestReading | null>, [FindOneOptions<Reading>]>;
+};
 
 describe('JournalService', () => {
   const userId = 'user-a';
   const readingId = 'reading-a';
-  const reading = {
+  const reading: TestReading & Pick<Reading, 'question' | 'title'> = {
     id: readingId,
     userId,
     app: 'iching',
@@ -16,10 +52,10 @@ describe('JournalService', () => {
     question: 'private question must not be returned',
     title: 'private title must not be returned',
     createdAt: new Date('2026-10-20T08:30:00.000Z'),
-  } as Reading;
+  };
 
-  let journalRepo: any;
-  let readingsRepo: any;
+  let journalRepo: JournalRepositoryMock;
+  let readingsRepo: ReadingRepositoryMock;
   let service: JournalService;
   let encryption: ReadingEncryption;
 
@@ -29,24 +65,62 @@ describe('JournalService', () => {
       'test',
     );
     journalRepo = {
-      find: jest.fn(),
-      findOne: jest.fn(),
-      create: jest.fn((value) => value),
-      save: jest.fn(async (value) => ({
-        ...value,
-        createdAt: value.createdAt || new Date('2026-10-21T09:00:00.000Z'),
-        updatedAt: value.updatedAt || new Date('2026-10-21T09:00:00.000Z'),
-      })),
-      delete: jest.fn(),
+      find: jest.fn<
+        Promise<TestJournalEntry[]>,
+        [FindManyOptions<JournalEntry>?]
+      >(),
+      findOne: jest.fn<
+        Promise<Partial<JournalEntry> | null>,
+        [FindOneOptions<JournalEntry>]
+      >(),
+      create: jest.fn<TestJournalEntry, [DeepPartial<JournalEntry>]>(
+        (value) => {
+          if (
+            !value.id ||
+            !value.userId ||
+            !value.readingId ||
+            !value.encryptedPayload?._enc
+          ) {
+            throw new Error('Expected a complete journal entry');
+          }
+          return {
+            id: value.id,
+            userId: value.userId,
+            readingId: value.readingId,
+            encryptedPayload: { _enc: value.encryptedPayload._enc },
+            createdAt:
+              value.createdAt instanceof Date
+                ? value.createdAt
+                : new Date('2026-10-21T09:00:00.000Z'),
+            updatedAt:
+              value.updatedAt instanceof Date
+                ? value.updatedAt
+                : new Date('2026-10-21T09:00:00.000Z'),
+          };
+        },
+      ),
+      save: jest.fn<Promise<TestJournalEntry>, [TestJournalEntry]>((value) =>
+        Promise.resolve({
+          ...value,
+          createdAt: value.createdAt || new Date('2026-10-21T09:00:00.000Z'),
+          updatedAt: value.updatedAt || new Date('2026-10-21T09:00:00.000Z'),
+        }),
+      ),
+      delete: jest
+        .fn<Promise<{ affected: number }>, [Partial<JournalEntry>]>()
+        .mockResolvedValue({ affected: 1 }),
     };
     readingsRepo = {
-      find: jest.fn(),
-      findOne: jest.fn(),
+      find: jest.fn<Promise<TestReading[]>, [FindManyOptions<Reading>?]>(),
+      findOne: jest.fn<
+        Promise<TestReading | null>,
+        [FindOneOptions<Reading>]
+      >(),
     };
     service = new JournalService(
-      journalRepo,
-      readingsRepo,
-      encryption as any,
+      journalRepo as unknown as Repository<JournalEntry>,
+      readingsRepo as unknown as Repository<Reading>,
+      encryption,
     );
   });
 
@@ -60,16 +134,13 @@ describe('JournalService', () => {
       reflection: 'A private reflection',
     });
 
-    expect(journalRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userId,
-        readingId,
-        encryptedPayload: expect.objectContaining({ _enc: expect.stringMatching(/^v3:test:/) }),
-      }),
+    const saved = journalRepo.save.mock.calls[0]?.[0];
+    expect(saved).toMatchObject({ userId, readingId });
+    expect(saved?.encryptedPayload._enc).toMatch(/^v3:test:/);
+    expect(JSON.stringify(saved?.encryptedPayload)).not.toContain(
+      'A private reflection',
     );
-    const saved = journalRepo.save.mock.calls[0][0];
-    expect(JSON.stringify(saved.encryptedPayload)).not.toContain('A private reflection');
-    expect(JSON.stringify(saved.encryptedPayload)).not.toContain('career');
+    expect(JSON.stringify(saved?.encryptedPayload)).not.toContain('career');
     expect(saved).not.toHaveProperty('tags');
     expect(result.reflection).toBe('A private reflection');
     expect(result.reading).toEqual({
@@ -110,7 +181,6 @@ describe('JournalService', () => {
         id,
         userId,
         readingId,
-        tags: ['career'],
         encryptedPayload: encryption.encryptJournalPayload(
           { reflection: 'A private reflection', tags: ['career'] },
           userId,
@@ -121,7 +191,12 @@ describe('JournalService', () => {
       },
     ]);
     readingsRepo.find.mockResolvedValue([
-      { id: readingId, app: 'iching', type: 'luc-hao', createdAt: reading.createdAt },
+      {
+        id: readingId,
+        app: 'iching',
+        type: 'luc-hao',
+        createdAt: reading.createdAt,
+      },
     ]);
 
     const result = await service.listEntries(userId, {
@@ -133,21 +208,22 @@ describe('JournalService', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].reflection).toBe('A private reflection');
-    expect(journalRepo.find).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          userId,
-          createdAt: expect.anything(),
-        }),
-      }),
-    );
-    expect(journalRepo.find.mock.calls[0][0].where).not.toHaveProperty('tags');
-    expect(readingsRepo.find).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ app: 'iching', userId }),
-        select: { id: true, app: true, type: true, createdAt: true },
-      }),
-    );
+    const journalFindOptions = journalRepo.find.mock.calls[0]?.[0];
+    const journalWhere = journalFindOptions?.where;
+    expect(Array.isArray(journalWhere)).toBe(false);
+    if (journalWhere && !Array.isArray(journalWhere)) {
+      expect(journalWhere.userId).toBe(userId);
+      expect(journalWhere.createdAt).toBeDefined();
+      expect(journalWhere).not.toHaveProperty('tags');
+    }
+    const readingFindOptions = readingsRepo.find.mock.calls[1]?.[0];
+    expect(readingFindOptions?.where).toMatchObject({ app: 'iching', userId });
+    expect(readingFindOptions?.select).toEqual({
+      id: true,
+      app: true,
+      type: true,
+      createdAt: true,
+    });
   });
 
   it('paginates topic filters after decrypting tags stored in the payload', async () => {
@@ -156,7 +232,10 @@ describe('JournalService', () => {
       userId,
       readingId: `${readingId}-${id}`,
       encryptedPayload: encryption.encryptJournalPayload(
-        { reflection: `Reflection ${id}`, tags: index === 1 ? ['career'] : ['love'] },
+        {
+          reflection: `Reflection ${id}`,
+          tags: index === 1 ? ['career'] : ['love'],
+        },
         userId,
         id,
       ),
@@ -181,8 +260,8 @@ describe('JournalService', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].tags).toEqual(['love']);
-    expect(journalRepo.find.mock.calls[0][0]).not.toHaveProperty('take');
-    expect(journalRepo.find.mock.calls[0][0]).not.toHaveProperty('skip');
+    expect(journalRepo.find.mock.calls[0]?.[0]).not.toHaveProperty('take');
+    expect(journalRepo.find.mock.calls[0]?.[0]).not.toHaveProperty('skip');
   });
 
   it('does not allow editing or deleting another user’s reflection', async () => {

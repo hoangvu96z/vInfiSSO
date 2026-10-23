@@ -7,69 +7,177 @@ jest.mock('@nestjs/schedule', () => ({
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import {
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import type {
+  FindManyOptions,
+  FindOneOptions,
+  FindOptionsWhere,
+} from 'typeorm';
 import { NotesService } from './notes.service';
 import { Note } from './note.entity';
 import { NoteInvite } from './note-invite.entity';
 import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/users.service';
-import { ConfigService } from '@nestjs/config';
 import { OBJECT_STORAGE } from '../storage/object-storage';
+import type { User } from '../users/user.entity';
+
+type TestNote = Pick<Note, 'id'> & Partial<Note>;
+type TestInvite = Pick<NoteInvite, 'token'> & Partial<NoteInvite>;
+type TestUser = Pick<User, 'id' | 'email' | 'displayName'>;
+
+type NotesQueryBuilderMock = {
+  where: jest.Mock<NotesQueryBuilderMock, [string, Record<string, string>?]>;
+  andWhere: jest.Mock<NotesQueryBuilderMock, [string, Record<string, string>?]>;
+  orderBy: jest.Mock<NotesQueryBuilderMock, [string, string?]>;
+  getMany: jest.Mock<Promise<TestNote[]>, []>;
+};
+
+type NotesRepositoryMock = {
+  create: jest.Mock<Partial<Note>, [Partial<Note>]>;
+  save: jest.Mock<Promise<TestNote>, [Partial<Note>]>;
+  find: jest.Mock<Promise<TestNote[]>, [FindManyOptions<Note>?]>;
+  findOne: jest.Mock<Promise<Partial<Note> | null>, [FindOneOptions<Note>]>;
+  count: jest.Mock<Promise<number>, [FindManyOptions<Note>?]>;
+  delete: jest.Mock<
+    Promise<{ affected: number | null }>,
+    [string | FindOptionsWhere<Note>]
+  >;
+  update: jest.Mock<
+    Promise<{ affected: number | null }>,
+    [string | FindOptionsWhere<Note>, Partial<Note>]
+  >;
+  createQueryBuilder: jest.Mock<NotesQueryBuilderMock, [string?]>;
+};
+
+type InviteRepositoryMock = {
+  create: jest.Mock<Partial<NoteInvite>, [Partial<NoteInvite>]>;
+  save: jest.Mock<Promise<TestInvite>, [Partial<NoteInvite>]>;
+  findOne: jest.Mock<
+    Promise<Partial<NoteInvite> | null>,
+    [FindOneOptions<NoteInvite>]
+  >;
+  delete: jest.Mock<
+    Promise<{ affected: number | null }>,
+    [FindOptionsWhere<NoteInvite>]
+  >;
+};
+
+type UsersServiceMock = {
+  findByEmail: jest.Mock<Promise<TestUser | null>, [string]>;
+  findById: jest.Mock<Promise<TestUser | null>, [string]>;
+};
+
+type ConfigServiceMock = {
+  get: jest.Mock<string | undefined, [string, string?]>;
+};
+
+type ObjectStorageMock = {
+  put: jest.Mock<Promise<void>, [string, Buffer, string]>;
+  get: jest.Mock<Promise<Buffer | null>, [string]>;
+  delete: jest.Mock<Promise<void>, [string]>;
+};
 
 describe('NotesService', () => {
   let service: NotesService;
-  let mockNotesRepo: any;
-  let mockInviteRepo: any;
-  let mockMailService: any;
-  let mockUsersService: any;
-  let mockConfigService: any;
-  let mockObjectStorage: any;
+  let mockNotesRepo: NotesRepositoryMock;
+  let mockInviteRepo: InviteRepositoryMock;
+  let mockMailService: jest.Mocked<Pick<MailService, 'sendMail'>>;
+  let mockUsersService: UsersServiceMock;
+  let mockConfigService: ConfigServiceMock;
+  let mockObjectStorage: ObjectStorageMock;
 
   beforeEach(async () => {
+    const queryBuilder: NotesQueryBuilderMock = {
+      where: jest.fn<
+        NotesQueryBuilderMock,
+        [string, Record<string, string>?]
+      >(),
+      andWhere: jest.fn<
+        NotesQueryBuilderMock,
+        [string, Record<string, string>?]
+      >(),
+      orderBy: jest.fn<NotesQueryBuilderMock, [string, string?]>(),
+      getMany: jest.fn<Promise<TestNote[]>, []>().mockResolvedValue([]),
+    };
+    queryBuilder.where.mockReturnValue(queryBuilder);
+    queryBuilder.andWhere.mockReturnValue(queryBuilder);
+    queryBuilder.orderBy.mockReturnValue(queryBuilder);
+
     mockNotesRepo = {
-      create: jest.fn((dto) => ({ ...dto })),
-      save: jest.fn((entity) => Promise.resolve({ id: 'note-1', ...entity })),
-      find: jest.fn(() => Promise.resolve([])),
-      findOne: jest.fn(),
-      count: jest.fn(() => Promise.resolve(0)),
-      delete: jest.fn(() => Promise.resolve({ affected: 1 })),
-      update: jest.fn(() => Promise.resolve({ affected: 1 })),
-      createQueryBuilder: jest.fn(() => ({
-        where: jest.fn().mockReturnThis(),
-        andWhere: jest.fn().mockReturnThis(),
-        orderBy: jest.fn().mockReturnThis(),
-        getMany: jest.fn().mockResolvedValue([]),
-      })),
+      create: jest.fn<Partial<Note>, [Partial<Note>]>((dto) => ({ ...dto })),
+      save: jest.fn<Promise<TestNote>, [Partial<Note>]>((entity) =>
+        Promise.resolve({ ...entity, id: entity.id ?? 'note-1' }),
+      ),
+      find: jest
+        .fn<Promise<TestNote[]>, [FindManyOptions<Note>?]>()
+        .mockResolvedValue([]),
+      findOne: jest.fn<Promise<Partial<Note> | null>, [FindOneOptions<Note>]>(),
+      count: jest
+        .fn<Promise<number>, [FindManyOptions<Note>?]>()
+        .mockResolvedValue(0),
+      delete: jest
+        .fn<
+          Promise<{ affected: number | null }>,
+          [string | FindOptionsWhere<Note>]
+        >()
+        .mockResolvedValue({ affected: 1 }),
+      update: jest
+        .fn<
+          Promise<{ affected: number | null }>,
+          [string | FindOptionsWhere<Note>, Partial<Note>]
+        >()
+        .mockResolvedValue({ affected: 1 }),
+      createQueryBuilder: jest
+        .fn<NotesQueryBuilderMock, [string?]>()
+        .mockReturnValue(queryBuilder),
     };
 
     mockInviteRepo = {
-      create: jest.fn((dto) => ({ ...dto })),
-      save: jest.fn((entity) => Promise.resolve({ id: 'invite-1', ...entity })),
-      findOne: jest.fn(),
-      delete: jest.fn(() => Promise.resolve({ affected: 1 })),
+      create: jest.fn<Partial<NoteInvite>, [Partial<NoteInvite>]>((dto) => ({
+        ...dto,
+      })),
+      save: jest.fn<Promise<TestInvite>, [Partial<NoteInvite>]>((entity) =>
+        Promise.resolve({ ...entity, token: entity.token ?? 'invite-token' }),
+      ),
+      findOne: jest.fn<
+        Promise<Partial<NoteInvite> | null>,
+        [FindOneOptions<NoteInvite>]
+      >(),
+      delete: jest
+        .fn<
+          Promise<{ affected: number | null }>,
+          [FindOptionsWhere<NoteInvite>]
+        >()
+        .mockResolvedValue({ affected: 1 }),
     };
 
     mockMailService = {
-      sendMail: jest.fn().mockResolvedValue(true),
+      sendMail: jest
+        .fn<
+          ReturnType<MailService['sendMail']>,
+          Parameters<MailService['sendMail']>
+        >()
+        .mockResolvedValue(undefined),
     };
 
     mockUsersService = {
-      findByEmail: jest.fn(),
-      findById: jest.fn(),
+      findByEmail: jest.fn<Promise<TestUser | null>, [string]>(),
+      findById: jest.fn<Promise<TestUser | null>, [string]>(),
     };
 
     mockConfigService = {
-      get: jest.fn((key, def) => def),
+      get: jest.fn<string | undefined, [string, string?]>(
+        (_key, defaultValue) => defaultValue,
+      ),
     };
 
     mockObjectStorage = {
-      put: jest.fn().mockResolvedValue(undefined),
-      get: jest.fn().mockResolvedValue(null),
-      delete: jest.fn().mockResolvedValue(undefined),
+      put: jest
+        .fn<Promise<void>, [string, Buffer, string]>()
+        .mockResolvedValue(undefined),
+      get: jest.fn<Promise<Buffer | null>, [string]>().mockResolvedValue(null),
+      delete: jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -112,13 +220,10 @@ describe('NotesService', () => {
       'view',
     );
 
-    const token = mockInviteRepo.save.mock.calls[0][0].token;
-    expect(mockMailService.sendMail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        html: expect.stringContaining(
-          `https://vunph.click/note/invite/${token}`,
-        ),
-      }),
+    const token = mockInviteRepo.save.mock.calls[0]?.[0].token;
+    const sentMail = mockMailService.sendMail.mock.calls[0]?.[0];
+    expect(sentMail?.html).toContain(
+      `https://vunph.click/note/invite/${token}`,
     );
   });
 
@@ -230,12 +335,10 @@ describe('NotesService', () => {
 
       await service.createNote({ title: 'Note 31' }, 'user-1', undefined);
       // Verify rebalance called update with an expiry on note 31
-      expect(mockNotesRepo.update).toHaveBeenCalledWith(
-        'n-31',
-        expect.objectContaining({
-          expiresAt: expect.any(Date),
-        }),
+      const updatedNote = mockNotesRepo.update.mock.calls.find(
+        ([id]) => id === 'n-31',
       );
+      expect(updatedNote?.[1].expiresAt).toBeInstanceOf(Date);
     });
   });
 
