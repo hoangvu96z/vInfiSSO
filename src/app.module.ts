@@ -34,6 +34,8 @@ import { PaymentOrder } from './payments/payment-order.entity';
 import { PaymentSettings } from './payments/payment-settings.entity';
 import { JournalEntry } from './journal/journal-entry.entity';
 import { JournalModule } from './journal/journal.module';
+import { StreakState } from './streak/streak-state.entity';
+import { StreakModule } from './streak/streak.module';
 
 @Module({
   imports: [
@@ -73,6 +75,7 @@ import { JournalModule } from './journal/journal.module';
           PaymentOrder,
           PaymentSettings,
           JournalEntry,
+          StreakState,
         ],
         // Production schema changes must be applied through explicit migrations.
         synchronize: false,
@@ -94,6 +97,7 @@ import { JournalModule } from './journal/journal.module';
     NotesModule,
     PaymentsModule,
     JournalModule,
+    StreakModule,
   ],
   controllers: [AppController],
   providers: [AppService],
