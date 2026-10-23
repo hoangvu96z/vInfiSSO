@@ -41,7 +41,9 @@ function parseAvatarStorageReference(value: Buffer): string | null {
   ) {
     return null;
   }
-  const key = value.subarray(AVATAR_STORAGE_REFERENCE_PREFIX.length).toString('utf8');
+  const key = value
+    .subarray(AVATAR_STORAGE_REFERENCE_PREFIX.length)
+    .toString('utf8');
   return /^avatars\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|gif|webp)$/.test(
     key,
   )
@@ -361,12 +363,15 @@ export class UsersService {
     }
     const tokenHash = crypto.createHash('sha256').update(rawCode).digest('hex');
     const userId = await this.dataSource.transaction(async (manager) => {
-      const rows = await manager.query(
+      const rows = (await manager.query(
         'SELECT id, user_id, expires_at FROM sessions WHERE token_hash = $1 AND app_origin = $2 FOR UPDATE',
         [tokenHash, appOrigin],
-      );
-      const session = rows[0] as
-        { id: string; user_id: string; expires_at: Date } | undefined;
+      )) as unknown as Array<{
+        id: string;
+        user_id: string;
+        expires_at: Date;
+      }>;
+      const session = rows[0];
       if (!session || new Date(session.expires_at) <= new Date()) {
         throw new UnauthorizedException(
           'Mã đăng nhập không hợp lệ hoặc đã hết hạn',
@@ -437,18 +442,16 @@ export class UsersService {
     }
 
     return this.dataSource.transaction(async (manager) => {
-      const rows = await manager.query(
+      const rows = (await manager.query(
         'SELECT id, user_id, app_origin, expires_at FROM sessions WHERE token_hash = $1 FOR UPDATE',
         [tokenHash],
-      );
-      const session = rows[0] as
-        | {
-            id: string;
-            user_id: string;
-            app_origin: string | null;
-            expires_at: Date | string;
-          }
-        | undefined;
+      )) as unknown as Array<{
+        id: string;
+        user_id: string;
+        app_origin: string | null;
+        expires_at: Date | string;
+      }>;
+      const session = rows[0];
       if (!session) return null;
 
       const now = new Date();
@@ -473,10 +476,10 @@ export class UsersService {
         rotationSecret,
       );
       const rotatedTokenHash = this.hashSessionToken(rotatedToken);
-      const childRows = await manager.query(
+      const childRows = (await manager.query(
         'SELECT id FROM sessions WHERE token_hash = $1 AND user_id = $2 AND expires_at > $3',
         [rotatedTokenHash, session.user_id, now],
-      );
+      )) as unknown as Array<{ id: string }>;
       const hasActiveReplacement = childRows.length > 0;
 
       // An old token is still accepted briefly after rotation. Reissue exactly

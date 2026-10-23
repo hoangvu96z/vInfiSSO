@@ -42,9 +42,11 @@ export class CouponRedemptions1792627200000 implements MigrationInterface {
     );
   }
 
-  async down(_queryRunner: QueryRunner): Promise<void> {
-    throw new Error(
-      'This migration is forward-only to preserve coupon redemption history.',
+  down(): Promise<void> {
+    return Promise.reject(
+      new Error(
+        'This migration is forward-only to preserve coupon redemption history.',
+      ),
     );
   }
 }

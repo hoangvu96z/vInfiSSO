@@ -28,7 +28,11 @@ export class SsoService {
       password: string;
       displayName?: string;
     },
-    reqMeta?: { ipAddress?: string; userAgent?: string; metadata?: any },
+    reqMeta?: {
+      ipAddress?: string;
+      userAgent?: string;
+      metadata?: Record<string, unknown>;
+    },
   ): Promise<{ message: string; email: string }> {
     if (!dto.email || !dto.password) {
       throw new BadRequestException('Email và mật khẩu là bắt buộc');
@@ -68,7 +72,11 @@ export class SsoService {
       password: string;
       appOrigin?: string;
     },
-    reqMeta?: { ipAddress?: string; userAgent?: string; metadata?: any },
+    reqMeta?: {
+      ipAddress?: string;
+      userAgent?: string;
+      metadata?: Record<string, unknown>;
+    },
   ): Promise<{ token: string; user: Partial<User> }> {
     const user = await this.usersService.findByEmail(dto.email);
 
@@ -111,7 +119,11 @@ export class SsoService {
   async oauthLogin(
     user: User,
     appOrigin?: string,
-    reqMeta?: { ipAddress?: string; userAgent?: string; metadata?: any },
+    reqMeta?: {
+      ipAddress?: string;
+      userAgent?: string;
+      metadata?: Record<string, unknown>;
+    },
   ): Promise<{ token: string; user: Partial<User> }> {
     if (!user.isVerified) {
       await this.usersService.markAsVerified(user.id);

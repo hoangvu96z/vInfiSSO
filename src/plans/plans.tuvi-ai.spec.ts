@@ -111,7 +111,7 @@ describe('TuVi AI SSO integration', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(ServiceUnavailableException);
       if (!(error instanceof ServiceUnavailableException)) throw error;
-      expect(error.getResponse().code).toBe('AI_NOT_CONFIGURED');
+      expect(error.getResponse()).toMatchObject({ code: 'AI_NOT_CONFIGURED' });
     }
     expect(consumeQuota).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();

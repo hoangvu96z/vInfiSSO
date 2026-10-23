@@ -30,7 +30,11 @@ describe('PlansService coupon application', () => {
     create: jest.fn((value: Partial<UserSubscription>) => value),
   };
   const userRepo = { findOne: jest.fn(), save: jest.fn() };
-  const manager = {
+  type TransactionManagerMock = {
+    getRepository: jest.Mock;
+    query: jest.Mock;
+  };
+  const manager: TransactionManagerMock = {
     getRepository: jest.fn((entity: unknown) => {
       if (entity === Coupon) return couponRepo;
       if (entity === CouponRedemption) return redemptionRepo;
@@ -41,8 +45,9 @@ describe('PlansService coupon application', () => {
     query: jest.fn(),
   };
   const dataSource = {
-    transaction: jest.fn((callback: (manager: typeof manager) => unknown) =>
-      callback(manager),
+    transaction: jest.fn(
+      (callback: (transactionManager: TransactionManagerMock) => unknown) =>
+        callback(manager),
     ),
   };
   const service = new PlansService(

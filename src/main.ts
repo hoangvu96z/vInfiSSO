@@ -50,4 +50,4 @@ async function bootstrap() {
     `🚀 vInfiSSO running at http://localhost:${process.env.PORT ?? 3000}`,
   );
 }
-bootstrap();
+void bootstrap();

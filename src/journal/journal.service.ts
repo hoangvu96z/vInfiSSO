@@ -69,9 +69,7 @@ export class JournalService {
     const fromDate = filters.from
       ? this.parseDate(filters.from, false)
       : undefined;
-    const toDate = filters.to
-      ? this.parseDate(filters.to, false)
-      : undefined;
+    const toDate = filters.to ? this.parseDate(filters.to, false) : undefined;
     if (fromDate && toDate && fromDate > toDate) {
       throw new BadRequestException('Khoảng thời gian không hợp lệ');
     }
@@ -91,7 +89,10 @@ export class JournalService {
       where.readingId = In(appReadings.map((reading) => reading.id));
     }
 
-    const query = { where, order: { createdAt: 'DESC' as const, id: 'DESC' as const } };
+    const query = {
+      where,
+      order: { createdAt: 'DESC' as const, id: 'DESC' as const },
+    };
     const offset = filters.offset ?? 0;
     const limit = Math.min(filters.limit ?? MAX_LIST_SIZE, MAX_LIST_SIZE);
     const rows = await this.journalRepo.find(
@@ -101,7 +102,9 @@ export class JournalService {
 
     const candidates = rows
       .map((entry) => ({ entry, payload: this.decrypt(entry) }))
-      .filter(({ payload }) => !filters.tag || payload.tags.includes(filters.tag));
+      .filter(
+        ({ payload }) => !filters.tag || payload.tags.includes(filters.tag),
+      );
     const page = filters.tag
       ? candidates.slice(offset, offset + limit)
       : candidates;
@@ -116,7 +119,9 @@ export class JournalService {
       },
       select: { id: true, app: true, type: true, createdAt: true },
     });
-    const readingsById = new Map(readings.map((reading) => [reading.id, reading]));
+    const readingsById = new Map(
+      readings.map((reading) => [reading.id, reading]),
+    );
 
     return page
       .filter(({ entry }) => readingsById.has(entry.readingId))
@@ -157,7 +162,13 @@ export class JournalService {
     this.validateContent(dto.reflection, tags);
     const reading = await this.readingsRepo.findOne({
       where: { id: dto.readingId, userId },
-      select: { id: true, userId: true, app: true, type: true, createdAt: true },
+      select: {
+        id: true,
+        userId: true,
+        app: true,
+        type: true,
+        createdAt: true,
+      },
     });
     if (!reading) throw new NotFoundException('Không tìm thấy reading');
 
@@ -310,7 +321,10 @@ export class JournalService {
       throw new BadRequestException('Ngày phải có định dạng YYYY-MM-DD');
     }
     const date = new Date(`${value}T00:00:00.000Z`);
-    if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+    if (
+      Number.isNaN(date.getTime()) ||
+      date.toISOString().slice(0, 10) !== value
+    ) {
       throw new BadRequestException('Ngày không hợp lệ');
     }
     if (exclusiveEnd) date.setUTCDate(date.getUTCDate() + 1);
@@ -318,6 +332,11 @@ export class JournalService {
   }
 
   private isUniqueViolation(error: unknown): boolean {
-    return !!error && typeof error === 'object' && 'code' in error && error.code === '23505';
+    return (
+      !!error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === '23505'
+    );
   }
 }

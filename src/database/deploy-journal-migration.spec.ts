@@ -18,51 +18,55 @@ function createSchemaRunner(
     indexes?: unknown[];
   } = {},
 ) {
-  const query = jest.fn(async (sql: string) => {
-    if (sql.includes('information_schema.columns')) {
-      return (
-        overrides.columns ?? [
-          { column_name: 'id', udt_name: 'uuid' },
-          { column_name: 'user_id', udt_name: 'uuid' },
-          { column_name: 'reading_id', udt_name: 'uuid' },
-          { column_name: 'encrypted_payload', udt_name: 'jsonb' },
-          { column_name: 'created_at', udt_name: 'timestamp' },
-          { column_name: 'updated_at', udt_name: 'timestamp' },
-        ]
-      );
-    }
-    if (sql.includes('FROM pg_constraint')) {
-      return (
-        overrides.constraints ?? [
-          {
-            name: 'UQ_journal_entries_reading',
-            definition: 'UNIQUE (reading_id)',
-          },
-          {
-            name: 'CHK_journal_entries_encrypted_payload',
-            definition:
-              "CHECK (((jsonb_typeof(encrypted_payload) = 'object') AND (encrypted_payload ? '_enc')))",
-          },
-          {
-            name: 'journal_entries_user_id_fkey',
-            definition:
-              'FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE',
-          },
-          {
-            name: 'journal_entries_reading_id_fkey',
-            definition:
-              'FOREIGN KEY (reading_id) REFERENCES readings(id) ON DELETE CASCADE',
-          },
-        ]
-      );
-    }
-    if (sql.includes('FROM pg_indexes')) {
-      return (
-        overrides.indexes ?? [{ indexname: 'IDX_journal_entries_user_created' }]
-      );
-    }
-    throw new Error(`Unexpected schema query: ${sql}`);
-  });
+  const query = jest.fn<Promise<unknown[]>, [string, unknown[]?]>(
+    (sql: string) => {
+      if (sql.includes('information_schema.columns')) {
+        return Promise.resolve(
+          overrides.columns ?? [
+            { column_name: 'id', udt_name: 'uuid' },
+            { column_name: 'user_id', udt_name: 'uuid' },
+            { column_name: 'reading_id', udt_name: 'uuid' },
+            { column_name: 'encrypted_payload', udt_name: 'jsonb' },
+            { column_name: 'created_at', udt_name: 'timestamp' },
+            { column_name: 'updated_at', udt_name: 'timestamp' },
+          ],
+        );
+      }
+      if (sql.includes('FROM pg_constraint')) {
+        return Promise.resolve(
+          overrides.constraints ?? [
+            {
+              name: 'UQ_journal_entries_reading',
+              definition: 'UNIQUE (reading_id)',
+            },
+            {
+              name: 'CHK_journal_entries_encrypted_payload',
+              definition:
+                "CHECK (((jsonb_typeof(encrypted_payload) = 'object') AND (encrypted_payload ? '_enc')))",
+            },
+            {
+              name: 'journal_entries_user_id_fkey',
+              definition:
+                'FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE',
+            },
+            {
+              name: 'journal_entries_reading_id_fkey',
+              definition:
+                'FOREIGN KEY (reading_id) REFERENCES readings(id) ON DELETE CASCADE',
+            },
+          ],
+        );
+      }
+      if (sql.includes('FROM pg_indexes')) {
+        return Promise.resolve(
+          overrides.indexes ?? [
+            { indexname: 'IDX_journal_entries_user_created' },
+          ],
+        );
+      }
+      throw new Error(`Unexpected schema query: ${sql}`);
+    },
+  );
   return {
     query,
     startTransaction: jest.fn(),

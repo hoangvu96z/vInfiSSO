@@ -12,7 +12,10 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
   ) {
     super({
       clientID: configService.get<string>('FACEBOOK_APP_ID', 'placeholder'),
-      clientSecret: configService.get<string>('FACEBOOK_APP_SECRET', 'placeholder'),
+      clientSecret: configService.get<string>(
+        'FACEBOOK_APP_SECRET',
+        'placeholder',
+      ),
       callbackURL: configService.get<string>(
         'FACEBOOK_CALLBACK_URL',
         'http://localhost:3000/sso/oauth/facebook/callback',

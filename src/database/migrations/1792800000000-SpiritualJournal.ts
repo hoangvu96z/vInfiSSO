@@ -38,9 +38,11 @@ export class SpiritualJournal1792800000000 implements MigrationInterface {
     `);
   }
 
-  async down(_queryRunner: QueryRunner): Promise<void> {
-    throw new Error(
-      'This migration is forward-only to preserve user reflections. Review and restore from a backup if rollback is required.',
+  down(): Promise<void> {
+    return Promise.reject(
+      new Error(
+        'This migration is forward-only to preserve user reflections. Review and restore from a backup if rollback is required.',
+      ),
     );
   }
 }

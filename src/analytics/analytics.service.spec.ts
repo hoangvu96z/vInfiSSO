@@ -32,9 +32,10 @@ describe('AnalyticsService traffic log filters', () => {
     expect(query.skip).toHaveBeenCalledWith(20);
     expect(query.take).toHaveBeenCalledWith(20);
     expect(query.addOrderBy).toHaveBeenCalledWith('v.id', 'ASC');
+    const dateMatcher: unknown = expect.any(Date);
     expect(query.andWhere).toHaveBeenCalledWith(
       'v.createdAt >= :since',
-      expect.objectContaining({ since: expect.any(Date) }),
+      expect.objectContaining({ since: dateMatcher }),
     );
     expect(result).toMatchObject({ page: 2, limit: 20, days: 7, total: 0 });
   });

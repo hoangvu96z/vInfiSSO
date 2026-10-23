@@ -70,9 +70,11 @@ export class VietQrPaymentOrders1792713600000 implements MigrationInterface {
     );
   }
 
-  async down(_queryRunner: QueryRunner): Promise<void> {
-    throw new Error(
-      'This migration is forward-only to preserve payment and review history.',
+  down(): Promise<void> {
+    return Promise.reject(
+      new Error(
+        'This migration is forward-only to preserve payment and review history.',
+      ),
     );
   }
 }

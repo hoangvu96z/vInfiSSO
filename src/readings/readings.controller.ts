@@ -37,12 +37,11 @@ export class ReadingsController {
 
   // POST /readings
   @Post()
-  async create(
-    @CurrentUser() user: User,
-    @Body() body: CreateReadingDto,
-  ) {
+  async create(@CurrentUser() user: User, @Body() body: CreateReadingDto) {
     if (!body.app || !body.type || !body.title || !body.data) {
-      throw new BadRequestException('Thiếu trường bắt buộc: app, type, title, data');
+      throw new BadRequestException(
+        'Thiếu trường bắt buộc: app, type, title, data',
+      );
     }
     const reading = await this.readingsService.createReading(user.id, body);
     return { reading };
@@ -58,7 +57,11 @@ export class ReadingsController {
     if (!body.data) {
       throw new BadRequestException('Thiếu trường bắt buộc: data');
     }
-    const reading = await this.readingsService.updateReadingData(user.id, id, body.data);
+    const reading = await this.readingsService.updateReadingData(
+      user.id,
+      id,
+      body.data,
+    );
     return { reading };
   }
 

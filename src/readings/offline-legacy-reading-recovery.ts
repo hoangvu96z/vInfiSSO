@@ -62,7 +62,8 @@ export async function readProtectedLegacyKeyFile(
       !fileStat.isFile() ||
       fileStat.size > MAX_PRIVATE_KEY_FILE_BYTES ||
       (fileStat.mode & 0o077) !== 0 ||
-      (typeof process.getuid === 'function' && fileStat.uid !== process.getuid())
+      (typeof process.getuid === 'function' &&
+        fileStat.uid !== process.getuid())
     ) {
       throw new Error('Invalid protected key file');
     }

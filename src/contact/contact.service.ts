@@ -98,7 +98,7 @@ export class ContactService {
     images?: AttachedImage[];
     senderIp?: string | null;
     userAgent?: string | null;
-    clientMeta?: Record<string, any> | null;
+    clientMeta?: Record<string, unknown> | null;
   }): Promise<ContactMessage> {
     const { device, browser, os } = parseUserAgent(
       dto.userAgent || '',

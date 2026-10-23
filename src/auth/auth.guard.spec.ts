@@ -1,4 +1,5 @@
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import type { ConfigService } from '@nestjs/config';
 import type { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
@@ -28,10 +29,10 @@ function makeContext(
 }
 
 const configService = {
-  get: jest.fn((key: string) =>
+  get: jest.fn<unknown, [string]>((key: string) =>
     key === 'NODE_ENV' ? 'development' : undefined,
   ),
-} as any;
+} as unknown as ConfigService;
 
 describe('shared SSO authentication', () => {
   it('prefers Bearer credentials and parses cookie values containing equals', () => {

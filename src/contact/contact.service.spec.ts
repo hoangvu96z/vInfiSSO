@@ -6,11 +6,23 @@ import type { ContactMessage } from './contact-message.entity';
 import { BadRequestException } from '@nestjs/common';
 import type { ObjectStorage } from '../storage/object-storage';
 
+type NotificationEmailService = {
+  sendNotificationEmail(message: ContactMessage): Promise<void>;
+};
+
+function notificationEmailService(
+  service: ContactService,
+): NotificationEmailService {
+  return service as unknown as NotificationEmailService;
+}
+
 describe('ContactService guest session token', () => {
   const service = new ContactService(
-    {} as any,
-    {} as any,
-    { get: () => 'test-signing-secret-which-is-at-least-32-chars' } as any,
+    {} as unknown as Repository<ContactMessage>,
+    {} as unknown as MailService,
+    {
+      get: () => 'test-signing-secret-which-is-at-least-32-chars',
+    } as unknown as ConfigService,
   );
 
   it('binds a replayable 90-day HMAC token to one session id', () => {
@@ -47,7 +59,7 @@ describe('ContactService contact image persistence', () => {
       storage,
     );
     jest
-      .spyOn(service as any, 'sendNotificationEmail')
+      .spyOn(notificationEmailService(service), 'sendNotificationEmail')
       .mockResolvedValue(undefined);
 
     await service.createMessage({
@@ -57,7 +69,7 @@ describe('ContactService contact image persistence', () => {
       images,
     });
 
-    const createdMessage = repository.create.mock.calls[0][0];
+    const createdMessage = repository.create.mock.calls[0]?.[0];
     expect(storage.put).toHaveBeenCalledTimes(2);
     expect(storage.put).toHaveBeenNthCalledWith(
       1,
@@ -65,16 +77,11 @@ describe('ContactService contact image persistence', () => {
       Buffer.from('first-base64', 'base64'),
       'image/jpeg',
     );
-    expect(createdMessage.images).toEqual([
-      expect.objectContaining({
-        mime: 'image/jpeg',
-        objectKey: expect.any(String),
-      }),
-      expect.objectContaining({
-        mime: 'image/webp',
-        objectKey: expect.any(String),
-      }),
-    ]);
+    expect(createdMessage?.images).toHaveLength(2);
+    expect(createdMessage?.images?.[0]?.mime).toBe('image/jpeg');
+    expect(typeof createdMessage?.images?.[0]?.objectKey).toBe('string');
+    expect(createdMessage?.images?.[1]?.mime).toBe('image/webp');
+    expect(typeof createdMessage?.images?.[1]?.objectKey).toBe('string');
     expect(createdMessage.images?.[0]).not.toHaveProperty('data');
     expect(createdMessage.imageData).toBeNull();
     expect(createdMessage.imageMime).toBe('image/jpeg');
@@ -97,7 +104,7 @@ describe('ContactService contact image persistence', () => {
       storage,
     );
     jest
-      .spyOn(service as any, 'sendNotificationEmail')
+      .spyOn(notificationEmailService(service), 'sendNotificationEmail')
       .mockResolvedValue(undefined);
 
     await service.createMessage({
@@ -108,18 +115,12 @@ describe('ContactService contact image persistence', () => {
       imageMime: 'image/jpeg',
     });
 
-    expect(repository.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        images: [
-          expect.objectContaining({
-            mime: 'image/jpeg',
-            objectKey: expect.any(String),
-          }),
-        ],
-        imageData: null,
-        imageMime: 'image/jpeg',
-      }),
-    );
+    const createdMessage = repository.create.mock.calls[0]?.[0];
+    expect(createdMessage?.images).toHaveLength(1);
+    expect(createdMessage?.images?.[0]?.mime).toBe('image/jpeg');
+    expect(typeof createdMessage?.images?.[0]?.objectKey).toBe('string');
+    expect(createdMessage?.imageData).toBeNull();
+    expect(createdMessage?.imageMime).toBe('image/jpeg');
   });
 
   it('removes files if saving the message fails', async () => {
@@ -229,13 +230,13 @@ describe('ContactService contact image persistence', () => {
       storage,
     );
 
-    await (service as any).sendNotificationEmail({
+    await notificationEmailService(service).sendNotificationEmail({
       sessionId: 'session-1',
       name: 'Visitor',
       message: 'Help',
       images: [{ objectKey: 'contact/private.png', mime: 'image/png' }],
       createdAt: new Date('2026-10-23T00:00:00Z'),
-    });
+    } as unknown as ContactMessage);
 
     expect(storage.get).toHaveBeenCalledWith('contact/private.png');
     expect(sendMail).toHaveBeenCalledWith(

@@ -295,7 +295,6 @@ export class PaymentsService {
   }
 
   private mapAdminOrderRows(rows: AdminPaymentOrderRow[]) {
-
     const now = new Date();
     return rows.map((row) => ({
       ...row,

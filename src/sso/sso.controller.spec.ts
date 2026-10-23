@@ -1,7 +1,19 @@
 import { UnauthorizedException } from '@nestjs/common';
+import type { ConfigService } from '@nestjs/config';
 import type { CookieOptions, Request, Response } from 'express';
 import { SsoController } from './sso.controller';
+import type { SsoService } from './sso.service';
 import type { User } from '../users/user.entity';
+
+function createController(
+  service: object,
+  config: object = { get: jest.fn() },
+): SsoController {
+  return new SsoController(
+    service as unknown as SsoService,
+    config as unknown as ConfigService,
+  );
+}
 
 describe('SsoController session response', () => {
   it('does not return the internal avatar storage key from profile or upload responses', async () => {
@@ -14,10 +26,7 @@ describe('SsoController session response', () => {
       updateProfile: jest.fn().mockResolvedValue(updatedUser),
       updateAvatar: jest.fn().mockResolvedValue(updatedUser),
     };
-    const controller = new SsoController(
-      ssoService as any,
-      { get: jest.fn() } as any,
-    );
+    const controller = createController(ssoService);
 
     const profileResponse = await controller.updateProfile(
       { id: 'user-1' } as User,
@@ -25,7 +34,10 @@ describe('SsoController session response', () => {
     );
     const avatarResponse = await controller.uploadAvatar(
       { id: 'user-1' } as User,
-      { buffer: Buffer.from('avatar'), mimetype: 'image/webp' } as any,
+      {
+        buffer: Buffer.from('avatar'),
+        mimetype: 'image/webp',
+      } as unknown as Express.Multer.File,
     );
 
     expect(profileResponse.user.avatar).toBeNull();
@@ -40,10 +52,7 @@ describe('SsoController session response', () => {
     const ssoService = {
       sanitizeUser: jest.fn().mockReturnValue(user),
     };
-    const controller = new SsoController(
-      ssoService as any,
-      { get: jest.fn() } as any,
-    );
+    const controller = createController(ssoService);
     const response = controller.me(user);
 
     expect(response).toEqual({ user });
@@ -53,10 +62,7 @@ describe('SsoController session response', () => {
 
   it('keeps GET /sso/me available for unauthenticated visitors', () => {
     const ssoService = { sanitizeUser: jest.fn() };
-    const controller = new SsoController(
-      ssoService as any,
-      { get: jest.fn() } as any,
-    );
+    const controller = createController(ssoService);
 
     expect(controller.me(undefined)).toEqual({ user: null });
     expect(ssoService.sanitizeUser).not.toHaveBeenCalled();
@@ -67,18 +73,15 @@ describe('SsoController session response', () => {
     const ssoService = {
       login: jest.fn().mockResolvedValue({ token: 'raw-session-token', user }),
     };
-    const controller = new SsoController(
-      ssoService as any,
-      {
-        get: jest.fn((key: string) =>
-          key === 'NODE_ENV'
-            ? 'production'
-            : key === 'SSO_COOKIE_DOMAIN'
-              ? '.vunph.click'
-              : undefined,
-        ),
-      } as any,
-    );
+    const controller = createController(ssoService, {
+      get: jest.fn((key: string) =>
+        key === 'NODE_ENV'
+          ? 'production'
+          : key === 'SSO_COOKIE_DOMAIN'
+            ? '.vunph.click'
+            : undefined,
+      ),
+    });
     const cookie = jest.fn(
       (name: string, value: string, options: CookieOptions) => ({
         name,
@@ -128,10 +131,7 @@ describe('SsoController session response', () => {
       createSessionForUser: jest.fn().mockResolvedValue('raw-session-token'),
       sanitizeUser: jest.fn().mockReturnValue(user),
     };
-    const controller = new SsoController(
-      ssoService as any,
-      { get: jest.fn() } as any,
-    );
+    const controller = createController(ssoService);
     const cookie = jest.fn(
       (name: string, value: string, options: CookieOptions) => ({
         name,
@@ -177,10 +177,7 @@ describe('SsoController session response', () => {
           : fallback,
       ),
     };
-    const controller = new SsoController(
-      ssoService as any,
-      configService as any,
-    );
+    const controller = createController(ssoService, configService);
     const req = {
       headers: { origin: 'http://localhost:5173' },
     } as unknown as Request;
@@ -217,13 +214,13 @@ describe('SsoController session response', () => {
   });
 
   it('clears the host-only cookie on logout by default', async () => {
-    const controller = new SsoController(
-      { logout: jest.fn() } as any,
+    const controller = createController(
+      { logout: jest.fn() },
       {
         get: jest.fn((key: string) =>
           key === 'NODE_ENV' ? 'production' : undefined,
         ),
-      } as any,
+      },
     );
     const clearCookie = jest.fn();
     const response = { clearCookie } as unknown as Response;
@@ -247,16 +244,15 @@ describe('SsoController session response', () => {
     const configService = {
       get: jest.fn((_key: string, fallback: string) => fallback),
     };
-    const controller = new SsoController(
-      ssoService as any,
-      configService as any,
-    );
+    const controller = createController(ssoService, configService);
     const response = { cookie: jest.fn() } as unknown as Response;
 
     await expect(
       controller.exchangeOAuthCode(
         { code: 'one-time-code' },
-        { headers: { origin: 'https://evil.example.test' } } as any,
+        {
+          headers: { origin: 'https://evil.example.test' },
+        } as unknown as Request,
         response,
       ),
     ).rejects.toBeInstanceOf(UnauthorizedException);
@@ -275,10 +271,7 @@ describe('SsoController session response', () => {
         key === 'NODE_ENV' ? 'production' : undefined,
       ),
     };
-    const productionController = new SsoController(
-      ssoService as any,
-      productionConfig as any,
-    );
+    const productionController = createController(ssoService, productionConfig);
 
     await expect(
       productionController.exchangeOAuthCode(
@@ -289,18 +282,15 @@ describe('SsoController session response', () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
     expect(ssoService.consumeOAuthLoginCode).not.toHaveBeenCalled();
 
-    const explicitlyConfiguredController = new SsoController(
-      ssoService as any,
-      {
-        get: jest.fn((key: string) => {
-          if (key === 'NODE_ENV') return 'production';
-          if (key === 'ALLOWED_REDIRECT_ORIGINS') {
-            return 'http://localhost:5173';
-          }
-          return undefined;
-        }),
-      } as any,
-    );
+    const explicitlyConfiguredController = createController(ssoService, {
+      get: jest.fn((key: string) => {
+        if (key === 'NODE_ENV') return 'production';
+        if (key === 'ALLOWED_REDIRECT_ORIGINS') {
+          return 'http://localhost:5173';
+        }
+        return undefined;
+      }),
+    });
     await expect(
       explicitlyConfiguredController.exchangeOAuthCode(
         { code: 'one-time-code' },
@@ -320,16 +310,13 @@ describe('SsoController session response', () => {
         .mockResolvedValue({ token: 'session-token', user: { id: 'user-1' } }),
       createOAuthLoginCode: jest.fn(),
     };
-    const controller = new SsoController(
-      ssoService as any,
-      {
-        get: jest.fn((key: string) => {
-          if (key === 'NODE_ENV') return 'production';
-          if (key === 'SSO_BASE_URL') return 'https://sso.vunph.click';
-          return undefined;
-        }),
-      } as any,
-    );
+    const controller = createController(ssoService, {
+      get: jest.fn((key: string) => {
+        if (key === 'NODE_ENV') return 'production';
+        if (key === 'SSO_BASE_URL') return 'https://sso.vunph.click';
+        return undefined;
+      }),
+    });
     const req = {
       user: { providerId: 'provider-user' },
       query: { redirect: 'http://localhost:5173/callback' },
@@ -361,10 +348,7 @@ describe('SsoController session response', () => {
           : fallback,
       ),
     };
-    const controller = new SsoController(
-      ssoService as any,
-      configService as any,
-    );
+    const controller = createController(ssoService, configService);
     const req = {
       user: { providerId: 'provider-user' },
       oauthRedirectTarget:

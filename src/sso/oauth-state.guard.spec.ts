@@ -10,6 +10,8 @@ import {
   OAuthCallbackRequest,
 } from './oauth-state.guard';
 import { SsoController } from './sso.controller';
+import type { SsoService } from './sso.service';
+import type { User } from '../users/user.entity';
 import {
   createOAuthStateGrant,
   getOAuthStateCookieName,
@@ -122,7 +124,7 @@ describe('OAuth return-to-app callback', () => {
         headers: { cookie: `${cookieName}=${cookieValue}` },
         ip: '127.0.0.1',
         socket: { remoteAddress: '127.0.0.1' },
-      } as unknown as OAuthCallbackRequest & { user?: object };
+      } as unknown as OAuthCallbackRequest & { user?: User };
       const clearCookie = jest.fn();
       const callbackContext = createContext(callbackRequest, {
         clearCookie,
@@ -155,7 +157,10 @@ describe('OAuth return-to-app callback', () => {
         }),
         createOAuthLoginCode: jest.fn().mockResolvedValue('one-time-code'),
       };
-      const controller = new SsoController(ssoService as any, configService);
+      const controller = new SsoController(
+        ssoService as unknown as SsoService,
+        configService,
+      );
       const cookie = jest.fn();
       const redirect = jest.fn((url: string | URL) => url);
       const response = { cookie, redirect } as unknown as Response;
@@ -197,7 +202,9 @@ describe('OAuth return-to-app callback', () => {
 
     await expect(
       guard.canActivate(
-        createContext(request, { clearCookie: jest.fn() } as any),
+        createContext(request, {
+          clearCookie: jest.fn(),
+        } as unknown as Response),
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(authenticate).not.toHaveBeenCalled();

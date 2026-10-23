@@ -31,11 +31,7 @@ export function parseAdminDateRange(dateFrom?: string, dateTo?: string) {
     end.setUTCDate(end.getUTCDate() + 1);
   }
 
-  if (
-    start &&
-    parsedEnd &&
-    (dateOnlyEnd ? start >= end! : start > parsedEnd)
-  ) {
+  if (start && parsedEnd && (dateOnlyEnd ? start >= end! : start > parsedEnd)) {
     throw new BadRequestException('Invalid admin date range');
   }
 

@@ -16,9 +16,10 @@ export interface GeoLocationInfo {
 /**
  * Parse User-Agent string and optional client metadata into user-friendly device, browser, and OS info.
  */
-export function parseUserAgent(ua = '', clientMeta?: Record<string, any>): ParsedDeviceInfo {
-  const uaLower = ua.toLowerCase();
-
+export function parseUserAgent(
+  ua = '',
+  clientMeta?: Record<string, unknown>,
+): ParsedDeviceInfo {
   // 1. Detect OS & Device Model
   let os = 'Unknown OS';
   let device = 'Desktop';
@@ -43,7 +44,8 @@ export function parseUserAgent(ua = '', clientMeta?: Record<string, any>): Parse
     if (modelMatch && modelMatch[1]) {
       const rawModel = modelMatch[1].trim();
       if (/SM-/i.test(rawModel)) device = `Samsung (${rawModel})`;
-      else if (/Redmi|Mi\s|POCO/i.test(rawModel)) device = `Xiaomi (${rawModel})`;
+      else if (/Redmi|Mi\s|POCO/i.test(rawModel))
+        device = `Xiaomi (${rawModel})`;
       else if (/CPH|RMX/i.test(rawModel)) device = `Oppo/Realme (${rawModel})`;
       else if (/V2/i.test(rawModel)) device = `Vivo (${rawModel})`;
       else if (/Pixel/i.test(rawModel)) device = rawModel;
@@ -82,32 +84,36 @@ export function parseUserAgent(ua = '', clientMeta?: Record<string, any>): Parse
   } else if (/musical_ly|tiktok/i.test(ua)) {
     browser = 'TikTok In-App Browser';
   } else if (/coc_coc/i.test(ua)) {
-    const m = ua.match(/coc_coc_browser\/(\d+[\.\d]*)/i);
+    const m = ua.match(/coc_coc_browser\/(\d+[.\d]*)/i);
     browser = m ? `Cốc Cốc ${m[1]}` : 'Cốc Cốc';
   } else if (/samsungbrowser/i.test(ua)) {
-    const m = ua.match(/SamsungBrowser\/(\d+[\.\d]*)/i);
+    const m = ua.match(/SamsungBrowser\/(\d+[.\d]*)/i);
     browser = m ? `Samsung Internet ${m[1]}` : 'Samsung Internet';
-  } else if (/edg(?:e|a|ios)?\/(\d+[\.\d]*)/i.test(ua)) {
-    const m = ua.match(/Edg(?:e|A|iOS)?\/(\d+[\.\d]*)/i);
+  } else if (/edg(?:e|a|ios)?\/(\d+[.\d]*)/i.test(ua)) {
+    const m = ua.match(/Edg(?:e|A|iOS)?\/(\d+[.\d]*)/i);
     browser = m ? `Microsoft Edge ${m[1]}` : 'Microsoft Edge';
-  } else if (/chrome\/(\d+[\.\d]*)/i.test(ua) && !/edg/i.test(ua) && !/opr/i.test(ua)) {
-    const m = ua.match(/Chrome\/(\d+[\.\d]*)/i);
+  } else if (
+    /chrome\/(\d+[.\d]*)/i.test(ua) &&
+    !/edg/i.test(ua) &&
+    !/opr/i.test(ua)
+  ) {
+    const m = ua.match(/Chrome\/(\d+[.\d]*)/i);
     browser = m ? `Chrome ${m[1]}` : 'Google Chrome';
-  } else if (/firefox\/(\d+[\.\d]*)/i.test(ua)) {
-    const m = ua.match(/Firefox\/(\d+[\.\d]*)/i);
+  } else if (/firefox\/(\d+[.\d]*)/i.test(ua)) {
+    const m = ua.match(/Firefox\/(\d+[.\d]*)/i);
     browser = m ? `Firefox ${m[1]}` : 'Mozilla Firefox';
-  } else if (/opr\/(\d+[\.\d]*)/i.test(ua)) {
-    const m = ua.match(/OPR\/(\d+[\.\d]*)/i);
+  } else if (/opr\/(\d+[.\d]*)/i.test(ua)) {
+    const m = ua.match(/OPR\/(\d+[.\d]*)/i);
     browser = m ? `Opera ${m[1]}` : 'Opera';
-  } else if (/version\/(\d+[\.\d]*).*safari/i.test(ua)) {
-    const m = ua.match(/Version\/(\d+[\.\d]*)/i);
+  } else if (/version\/(\d+[.\d]*).*safari/i.test(ua)) {
+    const m = ua.match(/Version\/(\d+[.\d]*)/i);
     browser = m ? `Safari ${m[1]}` : 'Safari';
   } else if (/safari/i.test(ua)) {
     browser = 'Safari Mobile';
   }
 
   // Refine device label with screen if available
-  if (clientMeta?.screen) {
+  if (typeof clientMeta?.screen === 'string' && clientMeta.screen.length > 0) {
     device = `${device} · ${clientMeta.screen}`;
   }
 
@@ -118,7 +124,9 @@ export function parseUserAgent(ua = '', clientMeta?: Record<string, any>): Parse
  * Look up location and ISP by IP address using ip-api.com (free, no API key required).
  * Times out after 2.5 seconds to never slow down message submission.
  */
-export async function lookupIpLocation(rawIp?: string | null): Promise<GeoLocationInfo | null> {
+export async function lookupIpLocation(
+  rawIp?: string | null,
+): Promise<GeoLocationInfo | null> {
   if (!rawIp) return null;
 
   // Clean IP (e.g. IPv6 mapped IPv4 '::ffff:113.161.x.x')
@@ -150,16 +158,32 @@ export async function lookupIpLocation(rawIp?: string | null): Promise<GeoLocati
 
     if (!res.ok) return null;
 
-    const data = await res.json();
-    if (data.status === 'success') {
+    const data: unknown = await res.json();
+    if (
+      typeof data === 'object' &&
+      data !== null &&
+      'status' in data &&
+      data.status === 'success'
+    ) {
+      const city =
+        'city' in data && typeof data.city === 'string' ? data.city : '';
+      const regionName =
+        'regionName' in data && typeof data.regionName === 'string'
+          ? data.regionName
+          : '';
+      const country =
+        'country' in data && typeof data.country === 'string'
+          ? data.country
+          : '';
+      const isp = 'isp' in data && typeof data.isp === 'string' ? data.isp : '';
       const parts: string[] = [];
-      if (data.city) parts.push(data.city);
-      if (data.regionName && data.regionName !== data.city) parts.push(data.regionName);
-      if (data.country) parts.push(data.country);
+      if (city) parts.push(city);
+      if (regionName && regionName !== city) parts.push(regionName);
+      if (country) parts.push(country);
 
       return {
         location: parts.join(', ') || 'Việt Nam',
-        isp: data.isp || undefined,
+        isp: isp || undefined,
       };
     }
   } catch {

@@ -4,18 +4,35 @@ import type { MigrationInterface, QueryRunner } from 'typeorm';
 // @Index(['userId', 'date', 'app'], { unique: true }) on AiUsage.
 const AI_USAGE_UNIQUE_INDEX = 'IDX_72dc538b954157b0ed930f9f19';
 
+interface DuplicateCheckRow {
+  has_duplicates: boolean;
+}
+
+interface ExistingNamedIndexRow {
+  is_index: boolean;
+  uses_btree: boolean;
+  is_unique: boolean;
+  is_valid: boolean;
+  is_ready: boolean;
+  has_no_predicate: boolean;
+  has_no_expressions: boolean;
+  has_expected_key_count: boolean;
+  has_expected_columns: boolean;
+  has_expected_table: boolean;
+}
+
 export class AiUsageUniqueUserDateApp1792674636227 implements MigrationInterface {
   name = 'AiUsageUniqueUserDateApp1792674636227';
 
   async up(queryRunner: QueryRunner): Promise<void> {
-    const duplicateCheck = await queryRunner.query(`
+    const duplicateCheck = (await queryRunner.query(`
       SELECT EXISTS (
         SELECT 1
         FROM public.ai_usage
         GROUP BY "userId", date, app
         HAVING COUNT(*) > 1
       ) AS has_duplicates
-    `);
+    `)) as unknown as DuplicateCheckRow[];
 
     if (duplicateCheck[0]?.has_duplicates === true) {
       throw new Error(
@@ -23,7 +40,7 @@ export class AiUsageUniqueUserDateApp1792674636227 implements MigrationInterface
       );
     }
 
-    const existingNamedIndex = await queryRunner.query(
+    const existingNamedIndex = (await queryRunner.query(
       `
         SELECT
           relation.relkind = 'i' AS is_index,
@@ -60,7 +77,7 @@ export class AiUsageUniqueUserDateApp1792674636227 implements MigrationInterface
         LIMIT 1
       `,
       [AI_USAGE_UNIQUE_INDEX],
-    );
+    )) as unknown as ExistingNamedIndexRow[];
 
     if (existingNamedIndex.length > 0) {
       const index = existingNamedIndex[0];
@@ -96,9 +113,11 @@ export class AiUsageUniqueUserDateApp1792674636227 implements MigrationInterface
     `);
   }
 
-  async down(_queryRunner: QueryRunner): Promise<void> {
-    throw new Error(
-      'This migration is forward-only; removing the quota uniqueness constraint could reintroduce duplicate usage rows.',
+  down(): Promise<void> {
+    return Promise.reject(
+      new Error(
+        'This migration is forward-only; removing the quota uniqueness constraint could reintroduce duplicate usage rows.',
+      ),
     );
   }
 }

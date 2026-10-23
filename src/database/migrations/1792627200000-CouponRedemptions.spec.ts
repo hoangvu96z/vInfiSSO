@@ -26,29 +26,31 @@ describe('explicit migration DataSource', () => {
 
 describe('coupon-redemption schema migration', () => {
   it('repeats the applied SQL migration safely and preserves existing uses', async () => {
-    const queryRunner = { query: jest.fn().mockResolvedValue(undefined) };
+    const query = jest.fn<Promise<unknown>, [string, unknown[]?]>();
+    query.mockResolvedValue(undefined);
+    const queryRunner = { query };
     const migration = new CouponRedemptions1792627200000();
 
     await migration.up(queryRunner as unknown as QueryRunner);
 
     expect(queryRunner.query).toHaveBeenCalledTimes(4);
-    expect(queryRunner.query.mock.calls[0][0]).toContain(
+    expect(query.mock.calls[0]?.[0]).toContain(
       'CREATE TABLE IF NOT EXISTS coupon_redemptions',
     );
-    expect(queryRunner.query.mock.calls[1][0]).toContain(
+    expect(query.mock.calls[1]?.[0]).toContain(
       'ON CONFLICT (coupon_id, user_id) DO NOTHING',
     );
-    expect(queryRunner.query.mock.calls[2][0]).toContain(
+    expect(query.mock.calls[2]?.[0]).toContain(
       'GRANT SELECT, INSERT ON TABLE public.coupon_redemptions TO vinfi_sso',
     );
-    expect(queryRunner.query.mock.calls[3][0]).toContain(
+    expect(query.mock.calls[3]?.[0]).toContain(
       'GRANT USAGE, SELECT ON SEQUENCE public.coupon_redemptions_id_seq TO vinfi_sso',
     );
   });
 
   it('refuses destructive rollback of coupon-use history', async () => {
     const migration = new CouponRedemptions1792627200000();
-    await expect(migration.down({} as QueryRunner)).rejects.toThrow(
+    await expect(migration.down()).rejects.toThrow(
       'forward-only to preserve coupon redemption history',
     );
   });

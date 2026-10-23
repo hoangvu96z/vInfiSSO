@@ -1,3 +1,5 @@
+import type { PlansService } from '../plans/plans.service';
+import type { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
 
 describe('AdminController legacy and paginated listings', () => {
@@ -8,7 +10,10 @@ describe('AdminController legacy and paginated listings', () => {
     getAllCoupons: jest.fn(),
     getCoupons: jest.fn(),
   };
-  const controller = new AdminController(adminService as any, plansService as any);
+  const controller = new AdminController(
+    adminService as unknown as AdminService,
+    plansService as unknown as PlansService,
+  );
 
   beforeEach(() => jest.clearAllMocks());
 
@@ -18,7 +23,13 @@ describe('AdminController legacy and paginated listings', () => {
       .mockResolvedValueOnce({ userAiStats: [{ userId: 'page-user' }] });
 
     await controller.getAiUsage();
-    await controller.getAiUsagePage(2, 10, 'member', '2026-10-01', '2026-10-31');
+    await controller.getAiUsagePage(
+      2,
+      10,
+      'member',
+      '2026-10-01',
+      '2026-10-31',
+    );
 
     expect(adminService.getAiUsageStats).toHaveBeenNthCalledWith(1);
     expect(adminService.getAiUsageStats).toHaveBeenNthCalledWith(
@@ -34,10 +45,18 @@ describe('AdminController legacy and paginated listings', () => {
   it('keeps the legacy full coupon response and exposes a separate paginated route', async () => {
     const coupons = [{ id: 'legacy-coupon' }];
     plansService.getAllCoupons.mockResolvedValue(coupons);
-    plansService.getCoupons.mockResolvedValue({ coupons: [{ id: 'page-coupon' }] });
+    plansService.getCoupons.mockResolvedValue({
+      coupons: [{ id: 'page-coupon' }],
+    });
 
     await expect(controller.getCoupons()).resolves.toEqual({ coupons });
-    await controller.getCouponsPage(3, 25, 'spring', '2026-10-01', '2026-10-31');
+    await controller.getCouponsPage(
+      3,
+      25,
+      'spring',
+      '2026-10-01',
+      '2026-10-31',
+    );
 
     expect(plansService.getCoupons).toHaveBeenCalledWith(
       3,

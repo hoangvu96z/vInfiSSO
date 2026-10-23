@@ -31,8 +31,8 @@ describe('parseAdminDateRange', () => {
     expect(() => parseAdminDateRange('2026-10-03', '2026-10-02')).toThrow(
       BadRequestException,
     );
-    expect(() => parseAdminDateRange('2026-10-03', '2026-10-02T23:59:59Z')).toThrow(
-      BadRequestException,
-    );
+    expect(() =>
+      parseAdminDateRange('2026-10-03', '2026-10-02T23:59:59Z'),
+    ).toThrow(BadRequestException);
   });
 });

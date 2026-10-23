@@ -6,10 +6,7 @@ import { AnalyticsService } from './analytics.service';
 import { SsoModule } from '../sso/sso.module';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([PageVisit]),
-    SsoModule,
-  ],
+  imports: [TypeOrmModule.forFeature([PageVisit]), SsoModule],
   controllers: [AnalyticsController],
   providers: [AnalyticsService],
   exports: [AnalyticsService],

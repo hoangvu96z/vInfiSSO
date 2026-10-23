@@ -161,10 +161,7 @@ export class AdminController {
 
   // PATCH /admin/plans/:name — Cập nhật config gói
   @Patch('plans/:name')
-  async updatePlan(
-    @Param('name') name: string,
-    @Body() body: UpdatePlanDto,
-  ) {
+  async updatePlan(@Param('name') name: string, @Body() body: UpdatePlanDto) {
     const plan = await this.plansService.updatePlan(name, body);
     return { plan };
   }
@@ -187,13 +184,7 @@ export class AdminController {
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
   ) {
-    return this.plansService.getCoupons(
-      page,
-      limit,
-      search,
-      dateFrom,
-      dateTo,
-    );
+    return this.plansService.getCoupons(page, limit, search, dateFrom, dateTo);
   }
 
   // POST /admin/coupons — Tạo coupon mới
@@ -205,10 +196,7 @@ export class AdminController {
 
   // PATCH /admin/coupons/:id — Cập nhật coupon
   @Patch('coupons/:id')
-  async updateCoupon(
-    @Param('id') id: string,
-    @Body() body: UpdateCouponDto,
-  ) {
+  async updateCoupon(@Param('id') id: string, @Body() body: UpdateCouponDto) {
     const coupon = await this.plansService.updateCoupon(id, body);
     return { coupon };
   }
@@ -231,10 +219,7 @@ export class AdminController {
 
   // POST /admin/users/:id/grant-plan — Admin tặng gói cho user
   @Post('users/:id/grant-plan')
-  async grantPlan(
-    @Param('id') userId: string,
-    @Body() body: GrantPlanDto,
-  ) {
+  async grantPlan(@Param('id') userId: string, @Body() body: GrantPlanDto) {
     const sub = await this.plansService.adminGrantPlan(
       userId,
       body.planName,

@@ -342,7 +342,7 @@ export class SsoController {
   @Get('oauth/google/callback')
   @UseGuards(GoogleOAuthCallbackGuard)
   async googleCallback(
-    @Req() req: OAuthCallbackRequest & { user?: any },
+    @Req() req: OAuthCallbackRequest & { user?: User },
     @Res() res: Response,
   ) {
     if (!req.user) {
@@ -387,7 +387,7 @@ export class SsoController {
   @Get('oauth/facebook/callback')
   @UseGuards(FacebookOAuthCallbackGuard)
   async facebookCallback(
-    @Req() req: OAuthCallbackRequest & { user?: any },
+    @Req() req: OAuthCallbackRequest & { user?: User },
     @Res() res: Response,
   ) {
     if (!req.user) {

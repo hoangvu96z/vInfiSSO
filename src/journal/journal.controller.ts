@@ -34,18 +34,12 @@ export class JournalController {
   }
 
   @Get()
-  listEntries(
-    @CurrentUser() user: User,
-    @Query() query: JournalListQueryDto,
-  ) {
+  listEntries(@CurrentUser() user: User, @Query() query: JournalListQueryDto) {
     return this.journalService.listEntries(user.id, query);
   }
 
   @Post()
-  createEntry(
-    @CurrentUser() user: User,
-    @Body() body: CreateJournalEntryDto,
-  ) {
+  createEntry(@CurrentUser() user: User, @Body() body: CreateJournalEntryDto) {
     return this.journalService.createEntry(user.id, body);
   }
 
@@ -59,10 +53,7 @@ export class JournalController {
   }
 
   @Delete(':id')
-  async deleteEntry(
-    @CurrentUser() user: User,
-    @Param('id') id: string,
-  ) {
+  async deleteEntry(@CurrentUser() user: User, @Param('id') id: string) {
     await this.journalService.deleteEntry(user.id, id);
     return { success: true };
   }

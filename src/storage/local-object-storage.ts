@@ -25,6 +25,7 @@ export class LocalObjectStorage implements ObjectStorage {
   }
 
   async put(key: string, body: Buffer, _contentType: string): Promise<void> {
+    void _contentType;
     const destination = this.resolveKey(key);
     await fs.mkdir(path.dirname(destination), { recursive: true });
     await fs.writeFile(destination, body, { mode: 0o600 });

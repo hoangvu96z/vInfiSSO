@@ -222,7 +222,10 @@ export class ReadingsService {
     userId: string,
   ): Reading {
     try {
-      const question = decryptLegacyClientTree(reading.question ?? null, userId);
+      const question = decryptLegacyClientTree(
+        reading.question ?? null,
+        userId,
+      );
       const title = decryptLegacyClientTree(reading.title, userId);
       const data = decryptLegacyClientTree(reading.data, userId);
       if (

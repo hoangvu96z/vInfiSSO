@@ -19,9 +19,7 @@ export function createMigrationDataSourceOptions(
       environment.DATABASE_HOST ||
       'localhost',
     port: Number(
-      environment.MIGRATION_DATABASE_PORT ||
-        environment.DATABASE_PORT ||
-        5432,
+      environment.MIGRATION_DATABASE_PORT || environment.DATABASE_PORT || 5432,
     ),
     username:
       environment.MIGRATION_DATABASE_USER ||

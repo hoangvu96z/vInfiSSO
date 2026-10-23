@@ -300,7 +300,7 @@ export class ReadingEncryption {
     const decipher = createDecipheriv('aes-256-gcm', key, iv);
     // The caller selects resource-specific AAD. Reading V2 remains supported
     // for historical rows; Journal accepts only resource-bound V3 envelopes.
-    decipher.setAAD(getAAD(version as ReadingEnvelopeVersion));
+    decipher.setAAD(getAAD(version));
     decipher.setAuthTag(tag);
     const plaintext = Buffer.concat([
       decipher.update(ciphertext),

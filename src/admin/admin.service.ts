@@ -186,31 +186,37 @@ export class AdminService {
     const userIds = users.map((user) => user.id);
     const activeSessionsByUser = new Map<string, number>();
     if (userIds.length) {
-      const sessions = (await this.dataSource.query(
+      const sessions = await this.dataSource.query<
+        Array<{ userId: string; count: number }>
+      >(
         `SELECT user_id AS "userId", COUNT(*)::int AS count
          FROM sessions WHERE user_id = ANY($1::uuid[]) AND expires_at > NOW()
          GROUP BY user_id`,
         [userIds],
-      )) as Array<{ userId: string; count: number }>;
+      );
       for (const row of sessions)
         activeSessionsByUser.set(row.userId, Number(row.count));
 
-      const readingCounts = (await this.dataSource.query(
+      const readingCounts = await this.dataSource.query<
+        Array<{ userId: string; count: number }>
+      >(
         `SELECT user_id AS "userId", COUNT(*)::int AS count
          FROM readings WHERE user_id = ANY($1::uuid[]) GROUP BY user_id`,
         [userIds],
-      )) as Array<{ userId: string; count: number }>;
+      );
       for (const row of readingCounts) {
         userStatsMap.set(row.userId, {
           readingsCount: Number(row.count),
           aiQuestionsCount: 0,
         });
       }
-      const aiCounts = (await this.dataSource.query(
+      const aiCounts = await this.dataSource.query<
+        Array<{ userId: string; count: number }>
+      >(
         `SELECT "userId" AS "userId", COALESCE(SUM("monthlyCount"), 0)::int AS count
          FROM ai_usage WHERE "userId" = ANY($1::uuid[]) GROUP BY "userId"`,
         [userIds],
-      )) as Array<{ userId: string; count: number }>;
+      );
       for (const row of aiCounts) {
         const current = userStatsMap.get(row.userId) || {
           readingsCount: 0,
@@ -493,10 +499,7 @@ export class AdminService {
     ];
     const orderSql = `${filteredStatsSql}
       ORDER BY "totalAiQuestions" DESC, email ASC, "userId" ASC`;
-    const rowQuery = this.dataSource.query(
-      isPaginated ? `${orderSql}\nLIMIT $6 OFFSET $7` : orderSql,
-      isPaginated ? pageParameters : parameters,
-    ) as Promise<
+    const rowQuery = this.dataSource.query<
       Array<{
         userId: string;
         email: string;
@@ -508,17 +511,12 @@ export class AdminService {
         totalAiQuestions: number | string;
         lastActive: Date | null;
       }>
-    >;
+    >(
+      isPaginated ? `${orderSql}\nLIMIT $6 OFFSET $7` : orderSql,
+      isPaginated ? pageParameters : parameters,
+    );
     const aggregatesQuery = isPaginated
-      ? (this.dataSource.query(
-          `SELECT COUNT(*)::int AS total,
-            COALESCE(SUM("ichingReadings"), 0)::int AS "totalIchingReadings",
-            COALESCE(SUM("tarotReadings"), 0)::int AS "totalTarotReadings",
-            COALESCE(SUM("tuviReadings"), 0)::int AS "totalTuviReadings",
-            COALESCE(SUM("totalAiQuestions"), 0)::int AS "totalAiQuestions"
-           FROM (${filteredStatsSql}) filtered_stats`,
-          parameters,
-        ) as Promise<
+      ? this.dataSource.query<
           Array<{
             total: number | string;
             totalIchingReadings: number | string;
@@ -526,7 +524,15 @@ export class AdminService {
             totalTuviReadings: number | string;
             totalAiQuestions: number | string;
           }>
-        >)
+        >(
+          `SELECT COUNT(*)::int AS total,
+            COALESCE(SUM("ichingReadings"), 0)::int AS "totalIchingReadings",
+            COALESCE(SUM("tarotReadings"), 0)::int AS "totalTarotReadings",
+            COALESCE(SUM("tuviReadings"), 0)::int AS "totalTuviReadings",
+            COALESCE(SUM("totalAiQuestions"), 0)::int AS "totalAiQuestions"
+           FROM (${filteredStatsSql}) filtered_stats`,
+          parameters,
+        )
       : Promise.resolve([]);
     const [rows, aggregates] = await Promise.all([rowQuery, aggregatesQuery]);
     const aggregate = aggregates[0] || {};
@@ -542,7 +548,8 @@ export class AdminService {
       ? null
       : list.reduce(
           (totals, row) => ({
-            totalIchingReadings: totals.totalIchingReadings + row.ichingReadings,
+            totalIchingReadings:
+              totals.totalIchingReadings + row.ichingReadings,
             totalTarotReadings: totals.totalTarotReadings + row.tarotReadings,
             totalTuviReadings: totals.totalTuviReadings + row.tuviReadings,
             totalAiQuestions: totals.totalAiQuestions + row.totalAiQuestions,
@@ -616,9 +623,11 @@ export class AdminService {
         if (log.action === 'register') entry.registers += 1;
       }
 
+      const metadataCity: unknown = log.metadata?.city;
+      const metadataCountry: unknown = log.metadata?.country;
       const loc =
-        log.metadata?.city ||
-        log.metadata?.country ||
+        (typeof metadataCity === 'string' && metadataCity) ||
+        (typeof metadataCountry === 'string' && metadataCountry) ||
         (log.ipAddress === '127.0.0.1' || log.ipAddress === '::1'
           ? 'Localhost'
           : 'Hồ Chí Minh, VN');

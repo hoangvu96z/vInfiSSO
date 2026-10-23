@@ -21,5 +21,3 @@ import { PlansModule } from '../plans/plans.module';
   exports: [AdminService],
 })
 export class AdminModule {}
-
-

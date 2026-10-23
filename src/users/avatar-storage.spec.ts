@@ -2,28 +2,36 @@ import type { ConfigService } from '@nestjs/config';
 import type { DataSource, Repository } from 'typeorm';
 import type { MailService } from '../mail/mail.service';
 import type { ObjectStorage } from '../storage/object-storage';
+import { OAuthAccount } from './oauth-account.entity';
+import { Session } from './session.entity';
 import { User } from './user.entity';
 import { UsersService } from './users.service';
 
 function createService(options: {
   user: User | null;
-  storage?: Partial<ObjectStorage>;
-  save?: jest.Mock;
+  storage?: Partial<jest.Mocked<ObjectStorage>>;
+  save?: jest.Mock<Promise<User>, [User]>;
 }) {
   const userRepo = {
-    findOne: jest.fn().mockResolvedValue(options.user),
-    save: options.save || jest.fn().mockImplementation((user) => user),
+    findOne: jest
+      .fn<Promise<User | null>, [unknown?]>()
+      .mockResolvedValue(options.user),
+    save:
+      options.save ||
+      jest.fn<Promise<User>, [User]>((user) => Promise.resolve(user)),
   };
-  const storage: ObjectStorage = {
-    put: jest.fn().mockResolvedValue(undefined),
-    get: jest.fn().mockResolvedValue(null),
-    delete: jest.fn().mockResolvedValue(undefined),
+  const storage: jest.Mocked<ObjectStorage> = {
+    put: jest
+      .fn<Promise<void>, [string, Buffer, string]>()
+      .mockResolvedValue(undefined),
+    get: jest.fn<Promise<Buffer | null>, [string]>().mockResolvedValue(null),
+    delete: jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined),
     ...options.storage,
   };
   const service = new UsersService(
     userRepo as unknown as Repository<User>,
-    {} as any,
-    {} as any,
+    {} as unknown as Repository<OAuthAccount>,
+    {} as unknown as Repository<Session>,
     {} as unknown as MailService,
     {} as unknown as DataSource,
     {} as unknown as ConfigService,
@@ -50,31 +58,33 @@ describe('UsersService avatar storage', () => {
 
     await service.updateAvatar('user-1', image, 'image/webp');
 
-    expect(storage.put).toHaveBeenCalledWith(
-      expect.stringMatching(/^avatars\/[0-9a-f-]+\.webp$/),
-      image,
-      'image/webp',
-    );
-    const storageKey = (storage.put as jest.Mock).mock.calls[0][0] as string;
+    const putCall = storage.put.mock.calls[0];
+    expect(putCall?.[0]).toMatch(/^avatars\/[0-9a-f-]+\.webp$/);
+    expect(putCall?.[1]).toBe(image);
+    expect(putCall?.[2]).toBe('image/webp');
+    const storageKey = putCall?.[0];
+    if (!storageKey) throw new Error('Expected the avatar storage key');
     expect(storageKey).toMatch(/^avatars\/[0-9a-f-]+\.webp$/);
     expect(user.avatar).toEqual(
       Buffer.from(`\0vinfi-upload:v1:${storageKey}`, 'utf8'),
     );
     expect(user.avatarContentType).toBe('image/webp');
-    expect(userRepo.save.mock.calls[0][0]).toBe(user);
+    expect(userRepo.save.mock.calls[0]?.[0]).toBe(user);
   });
 
   it('removes a newly written avatar if the database update fails', async () => {
     const user = makeUser({ avatar: Buffer.from('legacy') });
-    const save = jest.fn().mockRejectedValue(new Error('database unavailable'));
+    const save = jest
+      .fn<Promise<User>, [User]>()
+      .mockRejectedValue(new Error('database unavailable'));
     const { service, storage } = createService({ user, save });
 
     await expect(
       service.updateAvatar('user-1', Buffer.from('new avatar'), 'image/png'),
     ).rejects.toThrow('database unavailable');
-    expect(storage.put).toHaveBeenCalledTimes(1);
-    expect(storage.delete).toHaveBeenCalledWith(
-      expect.stringMatching(/^avatars\/[0-9a-f-]+\.png$/),
+    expect(storage.put.mock.calls).toHaveLength(1);
+    expect(storage.delete.mock.calls[0]?.[0]).toMatch(
+      /^avatars\/[0-9a-f-]+\.png$/,
     );
   });
 
@@ -92,7 +102,7 @@ describe('UsersService avatar storage', () => {
       'image/png',
     );
 
-    expect(storage.delete).not.toHaveBeenCalled();
+    expect(storage.delete.mock.calls).toHaveLength(0);
   });
 
   it('reads file-backed avatars first and falls back to legacy bytea', async () => {
@@ -113,7 +123,7 @@ describe('UsersService avatar storage', () => {
       contentType: 'image/webp',
     });
 
-    (storage.get as jest.Mock).mockResolvedValueOnce(null);
+    storage.get.mockResolvedValueOnce(null);
     await expect(service.findAvatar('user-1')).resolves.toBeNull();
   });
 
@@ -129,18 +139,21 @@ describe('UsersService avatar storage', () => {
       buffer: legacyAvatar,
       contentType: 'image/png',
     });
-    expect(storage.get).not.toHaveBeenCalled();
+    expect(storage.get.mock.calls).toHaveLength(0);
   });
 
   it('does not treat arbitrary uploaded bytes as an internal storage reference', async () => {
     const fakeReference = Buffer.from('\0vinfi-upload:v1:contacts/secret.png');
-    const user = makeUser({ avatar: fakeReference, avatarContentType: 'image/png' });
+    const user = makeUser({
+      avatar: fakeReference,
+      avatarContentType: 'image/png',
+    });
     const { service, storage } = createService({ user });
 
     await expect(service.findAvatar('user-1')).resolves.toEqual({
       buffer: fakeReference,
       contentType: 'image/png',
     });
-    expect(storage.get).not.toHaveBeenCalled();
+    expect(storage.get.mock.calls).toHaveLength(0);
   });
 });

@@ -1,4 +1,13 @@
 import * as crypto from 'node:crypto';
+import type { ConfigService } from '@nestjs/config';
+import type {
+  DataSource,
+  DeepPartial,
+  EntityManager,
+  Repository,
+} from 'typeorm';
+import { AuditLog } from './audit-log.entity';
+import { OAuthAccount } from './oauth-account.entity';
 import { Session } from './session.entity';
 import { User } from './user.entity';
 import { UsersService } from './users.service';
@@ -18,7 +27,7 @@ interface StoredSession {
 }
 
 class MemorySessionStore {
-  readonly user = { id: 'user-1', role: 'user' } as User;
+  readonly user = Object.assign(new User(), { id: 'user-1', role: 'user' });
   readonly sessions: StoredSession[] = [];
   readonly logoutLockQueries: string[] = [];
   readonly logoutLockParameters: string[][] = [];
@@ -31,14 +40,15 @@ class MemorySessionStore {
     getRepository: (entity: unknown) => {
       if (entity === User) {
         return {
-          findOne: async ({ where }: { where: { id: string } }) =>
-            where.id === this.user.id ? this.user : null,
+          findOne: ({ where }: { where: { id: string } }) =>
+            Promise.resolve(where.id === this.user.id ? this.user : null),
         };
       }
       if (entity === Session) {
         return {
-          create: (session: any) => session,
-          save: async (session: any) => {
+          create: (session: DeepPartial<Session>) =>
+            Object.assign(new Session(), session),
+          save: (session: Session) => {
             const stored = {
               id: `session-${this.nextId++}`,
               userId: session.user.id,
@@ -47,7 +57,7 @@ class MemorySessionStore {
               expiresAt: session.expiresAt,
             };
             this.sessions.push(stored);
-            return stored;
+            return Promise.resolve(session);
           },
         };
       }
@@ -55,8 +65,10 @@ class MemorySessionStore {
     },
   };
 
-  async transaction<T>(callback: (manager: any) => Promise<T>): Promise<T> {
-    const result = this.transactionQueue.then(() => callback(this.manager));
+  transaction<T>(callback: (manager: EntityManager) => Promise<T>): Promise<T> {
+    const result = this.transactionQueue.then(() =>
+      callback(this.manager as unknown as EntityManager),
+    );
     this.transactionQueue = result.then(
       () => undefined,
       () => undefined,
@@ -78,7 +90,7 @@ class MemorySessionStore {
     return crypto.createHash('sha256').update(rawToken).digest('hex');
   }
 
-  private async query(sql: string, parameters: unknown[]) {
+  private query(sql: string, parameters: unknown[]): unknown[] {
     if (sql.startsWith('SELECT id, user_id, app_origin, expires_at')) {
       const row = this.sessions.find(
         (session) => session.tokenHash === parameters[0],
@@ -163,33 +175,42 @@ class MemorySessionStore {
 
 function createUsersService(store: MemorySessionStore) {
   const usersRepo = {
-    findOne: jest.fn(async ({ where }: { where: { id: string } }) =>
-      where.id === store.user.id ? store.user : null,
+    findOne: jest.fn<Promise<User | null>, [{ where: { id: string } }]>(
+      ({ where }) =>
+        Promise.resolve(where.id === store.user.id ? store.user : null),
     ),
   };
   const sessionsRepo = {
-    findOne: jest.fn(async ({ where }: { where: { tokenHash: string } }) => {
+    findOne: jest.fn<
+      Promise<Session | null>,
+      [{ where: { tokenHash: string } }]
+    >(({ where }) => {
       const session = store.sessions.find(
         (entry) => entry.tokenHash === where.tokenHash,
       );
-      return session ? { ...session, user: store.user } : null;
+      return Promise.resolve(
+        session
+          ? Object.assign(new Session(), { ...session, user: store.user })
+          : null,
+      );
     }),
-    delete: jest.fn(async (id: string) => {
+    delete: jest.fn<Promise<unknown>, [string]>((id: string) => {
       const index = store.sessions.findIndex((entry) => entry.id === id);
       if (index >= 0) store.sessions.splice(index, 1);
+      return Promise.resolve(undefined);
     }),
   };
   const service = new UsersService(
-    usersRepo as any,
-    {} as any,
-    sessionsRepo as any,
-    {} as any,
-    store as any,
+    usersRepo as unknown as Repository<User>,
+    {} as unknown as Repository<OAuthAccount>,
+    sessionsRepo as unknown as Repository<Session>,
+    {} as unknown as import('../mail/mail.service').MailService,
+    store as unknown as DataSource,
     {
-      get: jest.fn((key: string) =>
+      get: jest.fn<unknown, [string]>((key: string) =>
         key === 'SESSION_SECRET' ? ROTATION_SECRET : undefined,
       ),
-    } as any,
+    } as unknown as ConfigService,
   );
   return { service, sessionsRepo };
 }
@@ -312,7 +333,10 @@ describe('UsersService session rotation', () => {
     store.add(siblingToken, new Date(Date.now() + SESSION_TTL_MS));
     const rotation = await usersService.resolveSessionForRequest(oldToken);
     const auditLogRepo = { save: jest.fn().mockResolvedValue(undefined) };
-    const ssoService = new SsoService(usersService as any, auditLogRepo as any);
+    const ssoService = new SsoService(
+      usersService,
+      auditLogRepo as unknown as Repository<AuditLog>,
+    );
 
     await ssoService.logout(rotation!.rotatedToken);
 
@@ -335,7 +359,10 @@ describe('UsersService session rotation', () => {
     const rotation = await usersService.resolveSessionForRequest(parentToken);
     const childToken = rotation!.rotatedToken!;
     const auditLogRepo = { save: jest.fn().mockResolvedValue(undefined) };
-    const ssoService = new SsoService(usersService as any, auditLogRepo as any);
+    const ssoService = new SsoService(
+      usersService,
+      auditLogRepo as unknown as Repository<AuditLog>,
+    );
 
     await Promise.all([
       ssoService.logout(parentToken),

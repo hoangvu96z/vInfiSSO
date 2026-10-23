@@ -1,5 +1,12 @@
 import { createCipheriv, createHash, randomBytes } from 'node:crypto';
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { LEGACY_CLIENT_SALT, ReadingEncryption } from './reading-encryption';
@@ -23,8 +30,29 @@ const LEGACY_PREFIX = 'enc_v1::';
 function encryptLegacyValue(value: unknown, key: Buffer): string {
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
-  const plaintext =
-    typeof value === 'object' ? JSON.stringify(value) : String(value);
+  let plaintext: string;
+  if (typeof value === 'string') {
+    plaintext = value;
+  } else if (value === null) {
+    plaintext = 'null';
+  } else if (typeof value === 'undefined') {
+    plaintext = 'undefined';
+  } else if (
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint' ||
+    typeof value === 'symbol'
+  ) {
+    plaintext = value.toString();
+  } else if (typeof value === 'object') {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) {
+      throw new Error('Cannot encrypt a value without a JSON representation');
+    }
+    plaintext = serialized;
+  } else {
+    throw new Error('Unsupported fixture value');
+  }
   const ciphertext = Buffer.concat([
     cipher.update(plaintext, 'utf8'),
     cipher.final(),
@@ -62,10 +90,7 @@ describe('offline legacy reading recovery', () => {
   it('decrypts nested values with the supplied legacy key and rejects wrong keys', () => {
     const key = randomBytes(32);
     const wrongKey = randomBytes(32);
-    const encryptedQuestion = encryptLegacyValue(
-      'synthetic question',
-      key,
-    );
+    const encryptedQuestion = encryptLegacyValue('synthetic question', key);
     const encryptedAiData = encryptLegacyValue(
       { answer: 'synthetic answer' },
       key,
@@ -111,10 +136,7 @@ describe('offline legacy reading recovery', () => {
           question: encryptLegacyValue(privateQuestion, key),
           title: encryptLegacyValue(privateTitle, key),
           data: {
-            aiConversation: encryptLegacyValue(
-              { answer: privateAnswer },
-              key,
-            ),
+            aiConversation: encryptLegacyValue({ answer: privateAnswer }, key),
           },
           createdAt: '2026-01-01T00:00:00.000Z',
         },
@@ -156,7 +178,10 @@ describe('offline legacy reading recovery', () => {
           userId,
           app: 'iching',
           type: 'mai-hoa',
-          question: encryptLegacyValue('synthetic fallback question', legacyKey),
+          question: encryptLegacyValue(
+            'synthetic fallback question',
+            legacyKey,
+          ),
           title: 'Legacy title',
           data: { answer: 'synthetic fallback answer' },
           createdAt: '2026-01-01T00:00:00.000Z',
@@ -190,19 +215,14 @@ describe('offline legacy reading recovery', () => {
       userId: '123e4567-e89b-42d3-a456-426614174000',
     });
     expect(
-      parseRecoveryOptions([...common, '--legacy-mode=default-user']).legacyMode,
+      parseRecoveryOptions([...common, '--legacy-mode=default-user'])
+        .legacyMode,
     ).toBe('default-user');
     expect(() =>
-      parseRecoveryOptions([
-        ...common,
-        '--key-file=/tmp/key.hex',
-      ]),
+      parseRecoveryOptions([...common, '--key-file=/tmp/key.hex']),
     ).toThrow('raw key mode also requires');
     expect(() =>
-      parseRecoveryOptions([
-        ...common,
-        '--legacy-mode=raw-localstorage-key',
-      ]),
+      parseRecoveryOptions([...common, '--legacy-mode=raw-localstorage-key']),
     ).toThrow('raw key mode also requires');
     expect(
       parseRecoveryOptions([
@@ -247,9 +267,9 @@ describe('offline legacy reading recovery', () => {
     const directory = await mkdtemp(join(tmpdir(), 'legacy-recovery-socket-'));
     try {
       await chmod(directory, 0o700);
-      await expect(assertPrivateRecoverySocketDirectory(directory)).resolves.toBe(
-        undefined,
-      );
+      await expect(
+        assertPrivateRecoverySocketDirectory(directory),
+      ).resolves.toBe(undefined);
       await chmod(directory, 0o755);
       await expect(
         assertPrivateRecoverySocketDirectory(directory),
@@ -277,9 +297,9 @@ describe('offline legacy reading recovery', () => {
       await writeRecoveryArtifactFile(artifactPath, artifact);
       const fileStat = await stat(artifactPath);
       expect(fileStat.mode & 0o077).toBe(0);
-      await expect(writeRecoveryArtifactFile(artifactPath, artifact)).rejects.toThrow(
-        'new protected recovery artifact',
-      );
+      await expect(
+        writeRecoveryArtifactFile(artifactPath, artifact),
+      ).rejects.toThrow('new protected recovery artifact');
       const fileContents = await readFile(artifactPath, 'utf8');
       expect(fileContents).toContain('vinfi-legacy-reading-recovery-v1');
       expect(fileContents).not.toContain('synthetic private');
@@ -289,9 +309,9 @@ describe('offline legacy reading recovery', () => {
   });
 
   it('detects only explicit legacy ciphertext prefixes', () => {
-    expect(containsLegacyClientCiphertext({ nested: [`${LEGACY_PREFIX}x:y`] })).toBe(
-      true,
-    );
+    expect(
+      containsLegacyClientCiphertext({ nested: [`${LEGACY_PREFIX}x:y`] }),
+    ).toBe(true);
     expect(containsLegacyClientCiphertext({ nested: ['plain text'] })).toBe(
       false,
     );

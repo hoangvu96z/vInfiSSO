@@ -1,21 +1,26 @@
 import { BadRequestException } from '@nestjs/common';
+import type { DataSource, Repository } from 'typeorm';
 import { AdminService } from './admin.service';
 import { User } from '../users/user.entity';
 import { Session } from '../users/session.entity';
 import { AuditLog } from '../users/audit-log.entity';
+import { Reading } from '../readings/reading.entity';
+import { AiUsage } from '../plans/ai-usage.entity';
 
 describe('AdminService role changes', () => {
   const user = { id: 'admin-1', email: 'admin@example.test', role: 'admin' };
   const userRepo = {
-    findOne: jest.fn(),
-    count: jest.fn(),
-    save: jest.fn(),
+    findOne: jest.fn<Promise<Partial<User> | null>, [unknown]>(),
+    count: jest.fn<Promise<number>, [unknown?]>(),
+    save: jest.fn<Promise<Partial<User>>, [Partial<User>]>(),
   };
-  const sessionRepo = { delete: jest.fn() };
-  const auditRepo = { save: jest.fn() };
+  const sessionRepo = { delete: jest.fn<Promise<unknown>, [unknown]>() };
+  const auditRepo = {
+    save: jest.fn<Promise<unknown>, [Partial<AuditLog>]>(),
+  };
   const injectedAuditRepo = { createQueryBuilder: jest.fn() };
-  const manager: any = {
-    query: jest.fn(),
+  const manager = {
+    query: jest.fn<Promise<unknown>, [string, unknown[]?]>(),
     getRepository: jest.fn((entity: unknown) => {
       if (entity === User) return userRepo;
       if (entity === Session) return sessionRepo;
@@ -24,18 +29,18 @@ describe('AdminService role changes', () => {
     }),
   };
   const dataSource = {
-    transaction: jest.fn((callback: (manager: any) => unknown) =>
+    transaction: jest.fn((callback: (manager: unknown) => unknown) =>
       callback(manager),
     ),
-    query: jest.fn(),
+    query: jest.fn<Promise<unknown>, [string, unknown[]?]>(),
   };
   const service = new AdminService(
-    {} as any,
-    {} as any,
-    injectedAuditRepo as any,
-    {} as any,
-    {} as any,
-    dataSource as any,
+    {} as unknown as Repository<User>,
+    {} as unknown as Repository<Session>,
+    injectedAuditRepo as unknown as Repository<AuditLog>,
+    {} as unknown as Repository<Reading>,
+    {} as unknown as Repository<AiUsage>,
+    dataSource as unknown as DataSource,
   );
 
   beforeEach(() => {
@@ -66,7 +71,7 @@ describe('AdminService role changes', () => {
       email: 'member@example.test',
       role: 'user',
     });
-    userRepo.save.mockImplementation(async (saved) => saved);
+    userRepo.save.mockImplementation((saved) => Promise.resolve(saved));
 
     const result = await service.updateUserRole(
       'member-1',
@@ -85,12 +90,12 @@ describe('AdminService role changes', () => {
       expect.objectContaining({
         userId: 'admin-1',
         action: 'update_role',
-        metadata: expect.objectContaining({
+        metadata: {
           actorId: 'admin-1',
           targetUserId: 'member-1',
           previousRole: 'user',
           newRole: 'admin',
-        }),
+        },
       }),
     );
     expect(sessionRepo.delete).toHaveBeenCalledWith({
@@ -121,7 +126,9 @@ describe('AdminService role changes', () => {
     expect(dataSource.query.mock.calls[0][0]).toContain(
       'ORDER BY "totalAiQuestions" DESC, email ASC, "userId" ASC',
     );
-    expect(dataSource.query.mock.calls[0][0]).not.toContain('LIMIT $6 OFFSET $7');
+    expect(dataSource.query.mock.calls[0][0]).not.toContain(
+      'LIMIT $6 OFFSET $7',
+    );
     expect(dataSource.query).toHaveBeenCalledTimes(1);
     expect(dataSource.query.mock.calls[0][0]).not.toContain('r.data');
     expect(result.userAiStats[0].totalAiQuestions).toBe(6);
@@ -218,14 +225,16 @@ describe('AdminService dashboard and user listing', () => {
     createQueryBuilder: jest.fn(),
   };
   const aiUsageRepo = { find: jest.fn(), createQueryBuilder: jest.fn() };
-  const dataSource = { query: jest.fn() };
+  const dataSource = {
+    query: jest.fn<Promise<unknown>, [string, unknown[]?]>(),
+  };
   const service = new AdminService(
-    userRepo as any,
-    sessionRepo as any,
-    auditLogRepo as any,
-    readingRepo as any,
-    aiUsageRepo as any,
-    dataSource as any,
+    userRepo as unknown as Repository<User>,
+    sessionRepo as unknown as Repository<Session>,
+    auditLogRepo as unknown as Repository<AuditLog>,
+    readingRepo as unknown as Repository<Reading>,
+    aiUsageRepo as unknown as Repository<AiUsage>,
+    dataSource as unknown as DataSource,
   );
 
   beforeEach(() => {
@@ -249,8 +258,8 @@ describe('AdminService dashboard and user listing', () => {
     aiUsageRepo.createQueryBuilder.mockReturnValue(aiUsageQuery);
 
     const readingQuery = {
-      select: jest.fn().mockReturnThis(),
-      addSelect: jest.fn().mockReturnThis(),
+      select: jest.fn<unknown, [string | string[], string?]>().mockReturnThis(),
+      addSelect: jest.fn<unknown, [string, string?]>().mockReturnThis(),
       getRawOne: jest.fn().mockResolvedValue({
         totalReadings: '17',
         totalIchingReadings: '4',
@@ -318,7 +327,7 @@ describe('AdminService dashboard and user listing', () => {
       createdAt,
     };
     const query = {
-      select: jest.fn().mockReturnThis(),
+      select: jest.fn<unknown, [string | string[], string?]>().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
       addOrderBy: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
@@ -391,14 +400,12 @@ describe('AdminService dashboard and user listing', () => {
       '2026-10-10',
     );
 
-    expect(query.andWhere).toHaveBeenCalledWith(
-      'user.createdAt >= :dateFrom',
-      { dateFrom: new Date('2026-10-01T00:00:00.000Z') },
-    );
-    expect(query.andWhere).toHaveBeenCalledWith(
-      'user.createdAt < :dateTo',
-      { dateTo: new Date('2026-10-11T00:00:00.000Z') },
-    );
+    expect(query.andWhere).toHaveBeenCalledWith('user.createdAt >= :dateFrom', {
+      dateFrom: new Date('2026-10-01T00:00:00.000Z'),
+    });
+    expect(query.andWhere).toHaveBeenCalledWith('user.createdAt < :dateTo', {
+      dateTo: new Date('2026-10-11T00:00:00.000Z'),
+    });
     expect(query.skip).toHaveBeenCalledWith(10);
     expect(result).toMatchObject({ total: 0, page: 2, limit: 10 });
   });
@@ -440,7 +447,9 @@ describe('AdminService dashboard and user listing', () => {
     expect(pageSql).toContain('LIMIT $6 OFFSET $7');
     expect(pageSql).toContain('usage.date >= $3::text');
     expect(pageSql).toContain('reading.created_at < $2::timestamptz');
-    expect(pageSql).toContain('ORDER BY "totalAiQuestions" DESC, email ASC, "userId" ASC');
+    expect(pageSql).toContain(
+      'ORDER BY "totalAiQuestions" DESC, email ASC, "userId" ASC',
+    );
     expect(pageParameters).toEqual([
       '2026-10-01T00:00:00.000Z',
       '2026-10-11T00:00:00.000Z',
@@ -472,12 +481,19 @@ describe('AdminService dashboard and user listing', () => {
       '2026-10-11T00:00:00+07:00',
     );
 
-    const [, parameters] = dataSource.query.mock.calls[0];
-    expect(parameters[0]).toBe('2026-10-09T17:00:00.000Z');
-    expect(parameters[1]).toBe('2026-10-10T17:00:00.000Z');
-    expect(parameters[2]).toBe('2026-10-09');
-    expect(parameters[3]).toBe('2026-10-11');
-    expect('2026-10-10' < parameters[3]).toBe(true);
+    const queryCall = dataSource.query.mock.calls[0];
+    if (!queryCall) throw new Error('Expected the usage query to run');
+    const parameters = queryCall[1];
+    if (!parameters) throw new Error('Expected query parameters');
+    const [startTimestamp, endTimestamp, startDate, endDate] = parameters;
+    expect(startTimestamp).toBe('2026-10-09T17:00:00.000Z');
+    expect(endTimestamp).toBe('2026-10-10T17:00:00.000Z');
+    expect(startDate).toBe('2026-10-09');
+    expect(endDate).toBe('2026-10-11');
+    if (typeof endDate !== 'string') {
+      throw new Error('Expected end date to be a string');
+    }
+    expect('2026-10-10' < endDate).toBe(true);
   });
 
   it('aggregates analytics app distribution without loading reading rows', async () => {
@@ -492,8 +508,8 @@ describe('AdminService dashboard and user listing', () => {
     aiUsageRepo.createQueryBuilder.mockReturnValue(aiUsageQuery);
 
     const readingQuery = {
-      select: jest.fn().mockReturnThis(),
-      addSelect: jest.fn().mockReturnThis(),
+      select: jest.fn<unknown, [string | string[], string?]>().mockReturnThis(),
+      addSelect: jest.fn<unknown, [string, string?]>().mockReturnThis(),
       getRawOne: jest.fn().mockResolvedValue({
         ichingCount: '3',
         tarotCount: '2',
