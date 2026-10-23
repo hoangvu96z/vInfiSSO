@@ -125,7 +125,8 @@ describe('StreakService', () => {
   it('preserves a consumed streak freeze on a second same-day activity', async () => {
     const state = row({ streak_freeze_used: true, current_streak: 4 });
     const manager = {
-      query: jest.fn((sql: string) => {
+      query: jest.fn((sql: string, parameters: unknown[] = []) => {
+        void parameters;
         if (sql.includes('INSERT INTO streak_activity_events'))
           return Promise.resolve([{ event_id: 'event-id' }]);
         if (sql.includes('UPDATE user_streaks SET'))
@@ -242,7 +243,8 @@ describe('StreakService', () => {
     const twoDaysAgo = dateAtUtcOffset(-2);
     const makeService = (currentStreak: number, streakFreezeUsed: boolean) => {
       const manager = {
-        query: jest.fn((sql: string) => {
+        query: jest.fn((sql: string, parameters: unknown[] = []) => {
+          void parameters;
           if (sql.includes('INSERT INTO streak_activity_events'))
             return Promise.resolve([{ event_id: 'event-id' }]);
           if (sql.includes('UPDATE user_streaks SET'))
@@ -342,11 +344,11 @@ describe('StreakService', () => {
         if (sql.includes('UPDATE user_streaks SET')) {
           state = {
             ...state,
-            current_streak: parameters[2],
-            longest_streak: parameters[3],
-            total_readings: parameters[4],
-            last_active_date: parameters[5],
-            streak_freeze_used: parameters[6],
+            current_streak: Number(parameters[2]),
+            longest_streak: Number(parameters[3]),
+            total_readings: Number(parameters[4]),
+            last_active_date: String(parameters[5]),
+            streak_freeze_used: Boolean(parameters[6]),
           };
           return Promise.resolve([state]);
         }
