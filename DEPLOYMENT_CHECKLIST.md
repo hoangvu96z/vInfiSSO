@@ -40,8 +40,13 @@ npm run build
 ```
 
 The deploy workflow runs on push, uploads the compiled release, and restarts
-PM2 without a migration approval pause. Use two releases for every schema
-change:
+PM2. Before restart it creates and verifies a fresh encrypted offsite backup,
+then applies and verifies only `SpiritualJournal1792800000000` if it is the
+sole pending migration. Any other pending migration stops the deployment
+before PM2 restarts. This is the only automatic schema migration exception.
+
+For every other schema change, use two releases and keep migration review and
+execution as manual operator steps:
 
 1. Push a migration-only or backward-compatible release containing the
    migration and CLI, but no application code that requires the new schema.
@@ -90,8 +95,8 @@ The TypeORM CLI uses `DATABASE_*` settings from the server environment files.
 Run it from `/var/www/sso.vunph.click`; the compiled DataSource loads `.env` and
 `.env.production` from that working directory without printing their contents.
 Each push deploys and restarts automatically. Do not put schema-dependent app
-code in the migration-capable release; deploy that code in the second release,
-after the manual migration succeeds.
+code in a migration-capable release for these other migrations; deploy that
+code in the second release, after the manual migration succeeds.
 If the runtime database role cannot create schema objects, provide the
 `MIGRATION_DATABASE_*` overrides only in the operator's secure shell environment;
 do not store those elevated credentials in the repository or application `.env`.
@@ -106,13 +111,15 @@ operator review gate; confirm whether `IDX_72dc538b954157b0ed930f9f19` already
 has the expected definition. The migration validates that canonical index name
 against PostgreSQL's catalog and protects against changes after the review.
 
-`synchronize` and `migrationsRun` remain disabled in the application, and GitHub
-Actions does not run database DDL. Migration review and execution are explicit
-operator steps between the migration-capable release and the schema-dependent
-application release. Use expand/contract across releases for destructive
-changes: expand with backward-compatible schema first, move application use in
-a later release, and remove old schema only in a subsequent release after no
-deployed code depends on it.
+`synchronize` and `migrationsRun` remain disabled in the application. GitHub
+Actions runs database DDL only for the guarded Spiritual Journal migration
+above, after the fresh offsite backup and before PM2 restart. The runner fails
+closed if any other migration is pending. All other migrations require manual
+operator review and execution between the migration-capable release and the
+schema-dependent application release. Use expand/contract across releases for
+destructive changes: expand with backward-compatible schema first, move
+application use in a later release, and remove old schema only in a subsequent
+release after no deployed code depends on it.
 
 ### Reading envelope migration (v1/v2 to v3)
 

@@ -6,6 +6,10 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: vinfi-sso-production-deploy
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
     name: Build & Deploy → sso.vunph.click
@@ -35,7 +39,11 @@ jobs:
           NODE_ENV: production
 
       - name: Verify compiled runtime and migration entry points
-        run: test -f dist/src/main.js && test -f dist/scripts/encrypt-readings.js
+        run: >-
+          test -f dist/src/main.js &&
+          test -f dist/scripts/encrypt-readings.js &&
+          test -f dist/scripts/deploy-journal-migration.js &&
+          test -f dist/src/database/migrations/1792800000000-SpiritualJournal.js
 
       # Check the runtime used by the existing app before copying any artifacts.
       - name: Preflight VPS Node.js runtime
@@ -63,6 +71,28 @@ jobs:
             fi
             echo "Preflight passed: VPS app runtime is Node.js $NODE_VERSION."
 
+      # The existing app stays live while this fresh encrypted offsite copy is
+      # created and verified. A local-only or stale backup stops the deploy.
+      - name: Create and verify encrypted offsite backup
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST || '43.128.116.69' }}
+          username: ${{ secrets.SSH_USER || 'ubuntu' }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -eu
+            if ! BACKUP_OUTPUT="$(sudo -n /usr/local/sbin/backup-vinfi.sh 2>&1)"; then
+              echo "Backup gate failed: backup command exited unsuccessfully; stopping deployment."
+              exit 1
+            fi
+            if ! printf '%s\n' "$BACKUP_OUTPUT" | grep -Eq '^Backup complete: run_id=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z status=offsite_ok offsite=verified$'; then
+              echo "Backup gate failed: verified offsite success marker is missing; stopping deployment."
+              exit 1
+            fi
+            unset BACKUP_OUTPUT
+            echo "Fresh encrypted backup and offsite verification passed."
+
       # ── 4. Upload dist & admin-ui/dist lên server qua SSH/SCP ───────────────
       - name: Copy build artifacts to VPS server
         uses: appleboy/scp-action@v0.1.7
@@ -74,8 +104,8 @@ jobs:
           source: 'dist/**,admin-ui/dist/**,package.json,package-lock.json'
           target: '/var/www/sso.vunph.click'
 
-      # ── 5. Restart PM2 Service ──────────────────────────────────────────────
-      - name: Restart PM2 on VPS
+      # ── 5. Apply only the Journal migration, verify it, then restart PM2 ────
+      - name: Apply Journal migration and restart PM2 on VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST || '43.128.116.69' }}
@@ -93,6 +123,21 @@ jobs:
               echo "Deploy failed: compiled entry point is missing: $APP_SCRIPT"
               exit 1
             fi
+            if [ ! -f dist/scripts/deploy-journal-migration.js ]; then
+              echo "Deploy failed: guarded Journal migration runner is missing."
+              exit 1
+            fi
+            NODE_BIN="$(command -v node || true)"
+            APP_PID="$(pm2 pid vinfi-sso 2>/dev/null | head -n 1 || true)"
+            if [ -n "$APP_PID" ] && [ -x "/proc/$APP_PID/exe" ]; then
+              NODE_BIN="$(readlink -f "/proc/$APP_PID/exe")"
+            fi
+            if [ -z "$NODE_BIN" ]; then
+              echo "Deploy failed: Node.js is not available to run the guarded migration."
+              exit 1
+            fi
+            echo "Running guarded Journal migration before PM2 restart..."
+            "$NODE_BIN" dist/scripts/deploy-journal-migration.js
             echo "🔄 Restart PM2 vinfi-sso from $APP_SCRIPT..."
             if pm2 describe vinfi-sso > /dev/null 2>&1; then
               CURRENT_SCRIPT="$(pm2 jlist | node -e 'let s=""; process.stdin.on("data", (x) => s += x).on("end", () => { const p = JSON.parse(s).find((item) => item.name === "vinfi-sso"); process.stdout.write(p?.pm2_env?.pm_exec_path || ""); });')"

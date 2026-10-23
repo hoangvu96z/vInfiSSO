@@ -87,3 +87,48 @@ trusted recovery machine and do not print or commit its contents.
 
 Keep the encrypted backup offsite before applying schema migrations. A local
 backup on the same VPS does not protect against VPS loss or compromise.
+
+## Journal schema deployment gate
+
+The production deployment workflow creates a new backup before copying the
+release. It requires `/usr/local/sbin/backup-vinfi.sh` to exit successfully and
+emit its exact `Backup complete: ... status=offsite_ok offsite=verified` marker;
+local-only backups do not emit this marker. The script emits it only after the
+encrypted artifacts pass local SHA-256 verification, the rclone upload and
+remote `rclone check --one-way` succeed, and the final status is written. The
+workflow captures the script output, checks the marker, and prints only a
+generic pass/fail message. Since the script runs during that deployment, this
+gates on a fresh backup. Missing rclone configuration, bad checksums, or any
+backup error stops deployment before database migration or PM2 restart.
+
+The configured Actions SSH user must be allowed to run exactly
+`/usr/local/sbin/backup-vinfi.sh` through non-interactive `sudo -n`. The workflow
+does not prompt for a sudo password; if this permission is unavailable, the
+backup step fails and deployment stops before migration or restart.
+
+After the new release is copied and production dependencies are installed,
+`dist/scripts/deploy-journal-migration.js` checks the configured PostgreSQL
+target, acquires a PostgreSQL advisory lock, and inspects TypeORM migration
+history. It refuses to run if any migration other than
+`SpiritualJournal1792800000000` is pending. It passes only that migration to
+TypeORM inside a transaction, then verifies migration history and the Journal
+table columns, constraints, and index before committing. If the migration or
+verification fails, the transaction is rolled back and the workflow stops
+before PM2 is restarted. The currently running app remains available while
+the backup and migration steps run.
+
+The deployment sequence is:
+
+1. Build and verify the compiled app and guarded migration runner in CI.
+2. Check the VPS Node.js runtime.
+3. Create the encrypted backup and require the script's success marker after
+   local checksum and offsite verification.
+4. Copy the build and install production dependencies.
+5. Run the guarded Journal migration and schema verification.
+6. Restart PM2 and run the SSO health check.
+
+Each retry creates another fresh offsite backup. If the migration already
+committed but a later restart or health check failed, the next deploy verifies
+the existing migration and schema before attempting the restart again. The
+runner is safe to exercise with unit tests and a disposable PostgreSQL database;
+do not invoke it manually against production outside the gated workflow.
