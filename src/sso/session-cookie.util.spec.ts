@@ -1,13 +1,14 @@
 import {
+  getLegacySessionCookieClearOptions,
   getSessionCookieClearOptions,
   getSessionCookieOptions,
 } from './session-cookie.util';
 
 describe('SSO session cookie options', () => {
-  it('uses a secure host-only production cookie by default', () => {
+  it('uses a secure, cross-site, host-only production cookie', () => {
     expect(getSessionCookieOptions({ nodeEnv: 'production' })).toEqual({
       httpOnly: true,
-      sameSite: 'lax',
+      sameSite: 'none',
       secure: true,
       path: '/',
       maxAge: 30 * 24 * 60 * 60 * 1000,
@@ -24,13 +25,28 @@ describe('SSO session cookie options', () => {
     });
   });
 
-  it('allows operators to override the production cookie domain', () => {
+  it('never broadens a newly issued cookie to a parent domain', () => {
     expect(
       getSessionCookieOptions({
         nodeEnv: 'production',
         cookieDomain: '.vunph.click',
       }).domain,
-    ).toBe('.vunph.click');
+    ).toBeUndefined();
+  });
+
+  it('only emits a parent-domain tombstone for legacy-cookie cleanup', () => {
+    expect(
+      getLegacySessionCookieClearOptions({
+        nodeEnv: 'production',
+        cookieDomain: '.vunph.click',
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        domain: '.vunph.click',
+        sameSite: 'none',
+        secure: true,
+      }),
+    ]);
   });
 
   it('clears only the production host-only cookie by default', () => {
@@ -38,22 +54,28 @@ describe('SSO session cookie options', () => {
       expect.objectContaining({
         path: '/',
         secure: true,
-        sameSite: 'lax',
+        sameSite: 'none',
         httpOnly: true,
       }),
     ]);
   });
 
-  it('clears both configured domain and legacy host-only cookies', () => {
-    expect(
-      getSessionCookieClearOptions({
-        nodeEnv: 'production',
-        cookieDomain: '.vunph.click',
+  it('clears a configured legacy domain cookie and the host-only cookie', () => {
+    const options = getSessionCookieClearOptions({
+      nodeEnv: 'production',
+      cookieDomain: '.vunph.click',
+    });
+
+    expect(options).toHaveLength(2);
+    expect(options[0]).toEqual(
+      expect.objectContaining({
+        domain: '.vunph.click',
+        path: '/',
+        sameSite: 'none',
+        secure: true,
       }),
-    ).toEqual([
-      expect.objectContaining({ domain: '.vunph.click', path: '/' }),
-      expect.not.objectContaining({ domain: expect.anything() }),
-    ]);
+    );
+    expect(options[1]).not.toHaveProperty('domain');
   });
 
   it('clears only the host-only cookie when no domain is configured', () => {

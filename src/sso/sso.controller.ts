@@ -41,6 +41,7 @@ import {
   resolveAllowedRedirectUrl,
 } from './oauth-redirect.util';
 import {
+  getLegacySessionCookieClearOptions,
   getSessionCookieClearOptions,
   getSessionCookieOptions,
   SSO_SESSION_COOKIE_NAME,
@@ -65,14 +66,20 @@ export class SsoController {
   }
 
   private setSessionCookie(res: Response, token: string) {
+    const cookieConfiguration = {
+      nodeEnv:
+        this.configService.get<string>('NODE_ENV') ?? process.env.NODE_ENV,
+      cookieDomain: this.configService.get<string>('SSO_COOKIE_DOMAIN'),
+    };
+    for (const options of getLegacySessionCookieClearOptions(
+      cookieConfiguration,
+    )) {
+      res.clearCookie(SSO_SESSION_COOKIE_NAME, options);
+    }
     res.cookie(
       SSO_SESSION_COOKIE_NAME,
       token,
-      getSessionCookieOptions({
-        nodeEnv:
-          this.configService.get<string>('NODE_ENV') ?? process.env.NODE_ENV,
-        cookieDomain: this.configService.get<string>('SSO_COOKIE_DOMAIN'),
-      }),
+      getSessionCookieOptions(cookieConfiguration),
     );
   }
 

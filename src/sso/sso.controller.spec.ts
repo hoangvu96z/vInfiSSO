@@ -43,7 +43,11 @@ describe('SsoController session response', () => {
       ssoService as any,
       {
         get: jest.fn((key: string) =>
-          key === 'NODE_ENV' ? 'production' : undefined,
+          key === 'NODE_ENV'
+            ? 'production'
+            : key === 'SSO_COOKIE_DOMAIN'
+              ? '.vunph.click'
+              : undefined,
         ),
       } as any,
     );
@@ -54,7 +58,8 @@ describe('SsoController session response', () => {
         options,
       }),
     );
-    const response = { cookie } as unknown as Response;
+    const clearCookie = jest.fn();
+    const response = { cookie, clearCookie } as unknown as Response;
     const request = {
       headers: { origin: 'https://vunph.click', 'user-agent': 'test' },
       ip: '127.0.0.1',
@@ -74,9 +79,17 @@ describe('SsoController session response', () => {
       'raw-session-token',
       expect.objectContaining({
         httpOnly: true,
-        sameSite: 'lax',
+        sameSite: 'none',
         secure: true,
       }),
+    );
+    expect(cookie.mock.calls[0][2].domain).toBeUndefined();
+    expect(clearCookie).toHaveBeenCalledWith(
+      'sso_token',
+      expect.objectContaining({ domain: '.vunph.click', secure: true }),
+    );
+    expect(clearCookie.mock.invocationCallOrder[0]).toBeLessThan(
+      cookie.mock.invocationCallOrder[0],
     );
   });
 
@@ -194,7 +207,7 @@ describe('SsoController session response', () => {
       'sso_token',
       expect.objectContaining({
         path: '/',
-        sameSite: 'lax',
+        sameSite: 'none',
         secure: true,
         httpOnly: true,
       }),

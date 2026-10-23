@@ -18,6 +18,7 @@ import { NoteInvite } from './note-invite.entity';
 import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/users.service';
 import { ConfigService } from '@nestjs/config';
+import { OBJECT_STORAGE } from '../storage/object-storage';
 
 describe('NotesService', () => {
   let service: NotesService;
@@ -26,6 +27,7 @@ describe('NotesService', () => {
   let mockMailService: any;
   let mockUsersService: any;
   let mockConfigService: any;
+  let mockObjectStorage: any;
 
   beforeEach(async () => {
     mockNotesRepo = {
@@ -64,6 +66,12 @@ describe('NotesService', () => {
       get: jest.fn((key, def) => def),
     };
 
+    mockObjectStorage = {
+      put: jest.fn().mockResolvedValue(undefined),
+      get: jest.fn().mockResolvedValue(null),
+      delete: jest.fn().mockResolvedValue(undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         NotesService,
@@ -72,6 +80,7 @@ describe('NotesService', () => {
         { provide: MailService, useValue: mockMailService },
         { provide: UsersService, useValue: mockUsersService },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: OBJECT_STORAGE, useValue: mockObjectStorage },
       ],
     }).compile();
 

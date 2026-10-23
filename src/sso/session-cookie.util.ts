@@ -4,15 +4,14 @@ export const SSO_SESSION_COOKIE_NAME = 'sso_token';
 
 export interface SessionCookieConfiguration {
   nodeEnv?: string;
+  /** Used only to expire a legacy Domain cookie during logout. */
   cookieDomain?: string;
 }
 
-function cookieDomainFor({ cookieDomain }: SessionCookieConfiguration):
-  | string
-  | undefined {
+function legacyCookieDomainFor({
+  cookieDomain,
+}: SessionCookieConfiguration): string | undefined {
   const configuredDomain = cookieDomain?.trim();
-  // The apps call the API on sso.vunph.click, so a host-only cookie is enough
-  // and keeps it off unrelated hosts. Operators can override this if needed.
   return configuredDomain || undefined;
 }
 
@@ -20,16 +19,16 @@ function baseCookieOptions(
   configuration: SessionCookieConfiguration,
 ): CookieOptions {
   const isProduction = configuration.nodeEnv === 'production';
-  const domain = cookieDomainFor(configuration);
 
   return {
     httpOnly: true,
-    // The app and SSO hosts are same-site under vunph.click, so Lax works for
-    // credentialed fetches while keeping the cookie out of cross-site requests.
-    sameSite: 'lax',
+    // Apps on vunph.id.vn call the API on sso.vunph.click. Lax cookies are
+    // omitted from those cross-site fetches, so production requires None.
+    // Keep local HTTP development on Lax because browsers require Secure with
+    // SameSite=None.
+    sameSite: isProduction ? 'none' : 'lax',
     secure: isProduction,
     path: '/',
-    ...(domain ? { domain } : {}),
   };
 }
 
@@ -42,13 +41,20 @@ export function getSessionCookieOptions(
   };
 }
 
-/** Clear both the new shared-domain cookie and the old host-only cookie. */
+/** Return the legacy parent-domain cookie tombstone, if one is configured. */
+export function getLegacySessionCookieClearOptions(
+  configuration: SessionCookieConfiguration = {},
+): CookieOptions[] {
+  const legacyDomain = legacyCookieDomainFor(configuration);
+  return legacyDomain
+    ? [{ ...baseCookieOptions(configuration), domain: legacyDomain }]
+    : [];
+}
+
+/** Clear a legacy parent-domain cookie and the current host-only cookie. */
 export function getSessionCookieClearOptions(
   configuration: SessionCookieConfiguration = {},
 ): CookieOptions[] {
   const base = baseCookieOptions(configuration);
-  if (!base.domain) return [base];
-
-  const { domain, ...hostOnlyOptions } = base;
-  return [base, hostOnlyOptions];
+  return [...getLegacySessionCookieClearOptions(configuration), base];
 }

@@ -8,6 +8,9 @@ import { NotesService } from './notes.service';
 import { MailModule } from '../mail/mail.module';
 import { SsoModule } from '../sso/sso.module';
 import { UsersModule } from '../users/users.module';
+import { OBJECT_STORAGE } from '../storage/object-storage';
+import { createObjectStorage } from '../storage/object-storage.factory';
+import { ConfigService } from '@nestjs/config';
 
 @Module({
   imports: [
@@ -18,7 +21,14 @@ import { UsersModule } from '../users/users.module';
     UsersModule,
   ],
   controllers: [NotesController],
-  providers: [NotesService],
+  providers: [
+    NotesService,
+    {
+      provide: OBJECT_STORAGE,
+      inject: [ConfigService],
+      useFactory: createObjectStorage,
+    },
+  ],
   exports: [NotesService],
 })
 export class NotesModule {}

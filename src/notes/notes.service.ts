@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   BadRequestException,
   Logger,
+  Inject,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, IsNull } from 'typeorm';
@@ -23,6 +24,8 @@ import type {
 import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/users.service';
 import { ConfigService } from '@nestjs/config';
+import { OBJECT_STORAGE } from '../storage/object-storage';
+import type { ObjectStorage } from '../storage/object-storage';
 
 const GUEST_MAX_CHARS = 2048;
 const USER_MAX_CHARS = 10_000;
@@ -46,6 +49,7 @@ export class NotesService {
     private readonly mailService: MailService,
     private readonly usersService: UsersService,
     private readonly configService: ConfigService,
+    @Inject(OBJECT_STORAGE) private readonly objectStorage: ObjectStorage,
   ) {
     this.uploadDir = path.join(process.cwd(), 'uploads', 'notes');
     // Ensure upload dir exists
@@ -653,7 +657,7 @@ export class NotesService {
 
     // Compress to 720p using sharp
     const filename = `${crypto.randomBytes(12).toString('hex')}.webp`;
-    const outputPath = path.join(this.uploadDir, filename);
+    const objectKey = `notes/${filename}`;
 
     const resized = await sharp(file.buffer)
       .resize({
@@ -666,8 +670,6 @@ export class NotesService {
       .toBuffer();
 
     const metadata = await sharp(resized).metadata();
-    fs.writeFileSync(outputPath, resized);
-
     const image: NoteImage = {
       filename,
       url: this.getNoteImageUrl(note.id, filename),
@@ -676,8 +678,22 @@ export class NotesService {
       size: resized.length,
     };
 
+    await this.objectStorage.put(objectKey, resized, 'image/webp');
     note.images = [...currentImages, image];
-    await this.notesRepo.save(note);
+    try {
+      await this.notesRepo.save(note);
+    } catch (error) {
+      note.images = currentImages.length > 0 ? [...currentImages] : null;
+      try {
+        await this.objectStorage.delete(objectKey);
+      } catch (cleanupError) {
+        this.logger.warn(
+          `Failed to clean up an unreferenced note image after database save failed: ${filename}`,
+          cleanupError instanceof Error ? cleanupError.stack : undefined,
+        );
+      }
+      throw error;
+    }
 
     return {
       image: {
@@ -695,14 +711,14 @@ export class NotesService {
       throw new NotFoundException('Không tìm thấy hình ảnh');
     }
 
+    const storedImage = await this.objectStorage.get(`notes/${filename}`);
+    if (storedImage) return storedImage;
+
+    // Images uploaded before object storage was enabled remain on local disk.
     try {
       return await fs.promises.readFile(path.join(this.uploadDir, filename));
     } catch (error) {
-      if (
-        error instanceof Error &&
-        'code' in error &&
-        error.code === 'ENOENT'
-      ) {
+      if (isMissingFile(error)) {
         throw new NotFoundException('Không tìm thấy hình ảnh');
       }
       throw error;
@@ -740,17 +756,34 @@ export class NotesService {
     note: Note,
     imageIndex: number,
   ): Promise<{ success: boolean }> {
-    const images = note.images ?? [];
+    const previousImages = note.images;
+    const images = [...(previousImages ?? [])];
     if (imageIndex < 0 || imageIndex >= images.length) {
       throw new BadRequestException('Index hình ảnh không hợp lệ');
     }
 
     const [removed] = images.splice(imageIndex, 1);
-    const filepath = path.join(this.uploadDir, removed.filename);
-    if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
-
     note.images = images.length > 0 ? images : null;
-    await this.notesRepo.save(note);
+    try {
+      await this.notesRepo.save(note);
+    } catch (error) {
+      note.images = previousImages;
+      throw error;
+    }
+
+    // Remove bytes only after metadata is committed, so a DB failure can never
+    // leave a still-referenced image deleted from storage.
+    try {
+      await this.objectStorage.delete(`notes/${removed.filename}`);
+      await fs.promises.rm(path.join(this.uploadDir, removed.filename), {
+        force: true,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Note image metadata was deleted but storage cleanup failed: ${removed.filename}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
     return { success: true };
   }
 
@@ -898,17 +931,33 @@ export class NotesService {
       select: { id: true, images: true },
     });
 
+    let deletedNoteCount = 0;
     for (const note of expiredNotes) {
-      if (note.images?.length) {
-        for (const img of note.images) {
-          const filepath = path.join(this.uploadDir, img.filename);
-          if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
+      const deleted = await this.notesRepo.delete({
+        id: note.id,
+        expiresAt: LessThan(now),
+      });
+      if (!deleted.affected) continue;
+      deletedNoteCount += deleted.affected;
+
+      // Only remove images after the note row is deleted. If the database
+      // operation fails, the referenced objects remain available for retry.
+      for (const image of note.images ?? []) {
+        if (!NOTE_IMAGE_FILENAME_PATTERN.test(image.filename)) continue;
+        try {
+          await this.objectStorage.delete(`notes/${image.filename}`);
+          await fs.promises.rm(path.join(this.uploadDir, image.filename), {
+            force: true,
+          });
+        } catch (error) {
+          this.logger.warn(
+            `Failed to clean up expired note image: ${image.filename}`,
+            error instanceof Error ? error.stack : undefined,
+          );
         }
       }
     }
-
-    const deleted = await this.notesRepo.delete({ expiresAt: LessThan(now) });
-    this.logger.log(`[Cron] Cleaned up ${deleted.affected ?? 0} expired notes`);
+    this.logger.log(`[Cron] Cleaned up ${deletedNoteCount} expired notes`);
 
     // Cleanup expired invites
     const deletedInvites = await this.inviteRepo.delete({
@@ -919,4 +968,13 @@ export class NotesService {
       `[Cron] Cleaned up ${deletedInvites.affected ?? 0} expired invites`,
     );
   }
+}
+
+function isMissingFile(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'ENOENT'
+  );
 }

@@ -54,4 +54,19 @@ describe('OAuth redirect allowlist', () => {
         ?.origin,
     ).toBe('http://localhost:5173');
   });
+
+  it('keeps the id.vn app origins in the production callback allowlist', () => {
+    const production = getOAuthRedirectOrigins({ isProduction: true });
+
+    expect(production).toEqual(
+      expect.arrayContaining([
+        'https://vunph.id.vn',
+        'https://www.vunph.id.vn',
+      ]),
+    );
+    expect(
+      resolveAllowedRedirectUrl('https://vunph.id.vn/kinhdich/', production)
+        ?.origin,
+    ).toBe('https://vunph.id.vn');
+  });
 });

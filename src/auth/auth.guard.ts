@@ -10,6 +10,7 @@ import type { Request } from 'express';
 import type { Response } from 'express';
 import { SsoService } from '../sso/sso.service';
 import {
+  getLegacySessionCookieClearOptions,
   getSessionCookieOptions,
   SSO_SESSION_COOKIE_NAME,
 } from '../sso/session-cookie.util';
@@ -32,13 +33,19 @@ async function resolveRequestUser(
 
   if (resolved.rotatedToken) {
     const response = http.getResponse<Response>();
+    const cookieConfiguration = {
+      nodeEnv: configService.get<string>('NODE_ENV') ?? process.env.NODE_ENV,
+      cookieDomain: configService.get<string>('SSO_COOKIE_DOMAIN'),
+    };
+    for (const options of getLegacySessionCookieClearOptions(
+      cookieConfiguration,
+    )) {
+      response.clearCookie(SSO_SESSION_COOKIE_NAME, options);
+    }
     response.cookie(
       SSO_SESSION_COOKIE_NAME,
       resolved.rotatedToken,
-      getSessionCookieOptions({
-        nodeEnv: configService.get<string>('NODE_ENV') ?? process.env.NODE_ENV,
-        cookieDomain: configService.get<string>('SSO_COOKIE_DOMAIN'),
-      }),
+      getSessionCookieOptions(cookieConfiguration),
     );
   }
 
