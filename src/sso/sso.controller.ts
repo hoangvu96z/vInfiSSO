@@ -112,11 +112,9 @@ export class SsoController {
   private extractRequestMetadata(req: Request) {
     // Express req.ip reflects only the configured trust-proxy chain. Never
     // trust client-supplied forwarding headers directly.
-    const ip = req.ip || req.socket.remoteAddress || '127.0.0.1';
+    const ip = req.ip || req.socket?.remoteAddress || '127.0.0.1';
 
     const userAgent = (req.headers['user-agent'] as string) || '';
-    const cfCountry = (req.headers['cf-ipcountry'] as string) || '';
-    const cfCity = (req.headers['cf-ipcity'] as string) || '';
 
     let browser = 'Unknown Browser';
     if (userAgent.includes('Chrome') && !userAgent.includes('Edg'))
@@ -144,13 +142,6 @@ export class SsoController {
     if (userAgent.includes('iPad') || userAgent.includes('Tablet'))
       deviceType = 'Tablet';
 
-    const city = cfCity
-      ? decodeURIComponent(cfCity)
-      : cfCountry === 'VN' || ip === '127.0.0.1' || ip === '::1'
-        ? 'Hồ Chí Minh'
-        : 'Hà Nội';
-    const country = cfCountry || 'VN';
-
     return {
       ipAddress: ip,
       userAgent,
@@ -158,8 +149,8 @@ export class SsoController {
         browser,
         os,
         deviceType,
-        city,
-        country,
+        city: null,
+        country: null,
       },
     };
   }

@@ -389,4 +389,108 @@ describe('SsoController session response', () => {
     expect(redirectUrl.searchParams.has('sso_token')).toBe(false);
     expect(redirect).toHaveBeenCalledTimes(1);
   });
+
+  it('ensures spoofed cf-ipcountry, cf-ipcity, and x-forwarded-for cannot change audit IP/country/city for an untrusted direct request', async () => {
+    const user = { id: 'user-1', email: 'member@example.test' };
+    type AuditMetadata = {
+      ipAddress?: string;
+      userAgent?: string;
+      metadata?: {
+        browser?: string;
+        os?: string;
+        deviceType?: string;
+        city?: string | null;
+        country?: string | null;
+      };
+    };
+
+    const loginMock = jest
+      .fn<
+        Promise<{ token: string; user: typeof user }>,
+        [
+          { email: string; password: string; appOrigin?: string },
+          AuditMetadata | undefined,
+        ]
+      >()
+      .mockResolvedValue({ token: 'raw-session-token', user });
+    const registerMock = jest
+      .fn<
+        Promise<{ message: string; email: string }>,
+        [
+          { email: string; password: string; displayName?: string },
+          AuditMetadata | undefined,
+        ]
+      >()
+      .mockResolvedValue({ message: 'ok', email: 'member@example.test' });
+
+    const ssoService = {
+      login: loginMock,
+      register: registerMock,
+    };
+    const controller = createController(ssoService);
+    const cookie = jest.fn();
+    const clearCookie = jest.fn();
+    const response = { cookie, clearCookie } as unknown as Response;
+
+    const directSocketAddress = '203.0.113.10';
+
+    // Baseline request without spoofing headers
+    const directRequest = {
+      headers: {
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      },
+      ip: directSocketAddress,
+      socket: { remoteAddress: directSocketAddress },
+    } as unknown as Request;
+
+    // Direct request with spoofed geo and proxy forwarding headers
+    const spoofedDirectRequest = {
+      headers: {
+        'cf-ipcountry': 'US',
+        'cf-ipcity': 'San%20Francisco',
+        'x-forwarded-for': '198.51.100.24, 10.0.0.1',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      },
+      ip: directSocketAddress,
+      socket: { remoteAddress: directSocketAddress },
+    } as unknown as Request;
+
+    await controller.login(
+      { email: user.email, password: 'valid-password' },
+      directRequest,
+      response,
+    );
+    const baselineLoginMeta = loginMock.mock.calls[0][1];
+
+    await controller.login(
+      { email: user.email, password: 'valid-password' },
+      spoofedDirectRequest,
+      response,
+    );
+    const spoofedLoginMeta = loginMock.mock.calls[1][1];
+
+    expect(spoofedLoginMeta?.ipAddress).toBe(directSocketAddress);
+    expect(spoofedLoginMeta?.ipAddress).not.toBe('198.51.100.24');
+    expect(spoofedLoginMeta?.metadata?.country).toBeNull();
+    expect(spoofedLoginMeta?.metadata?.city).toBeNull();
+
+    // The spoofed request yields the exact same audit IP, country, and city as the baseline
+    expect(spoofedLoginMeta?.ipAddress).toBe(baselineLoginMeta?.ipAddress);
+    expect(spoofedLoginMeta?.metadata?.country).toBe(
+      baselineLoginMeta?.metadata?.country,
+    );
+    expect(spoofedLoginMeta?.metadata?.city).toBe(
+      baselineLoginMeta?.metadata?.city,
+    );
+
+    // Verify the same protection on registration
+    await controller.register(
+      { email: 'new@example.test', password: 'password123' },
+      spoofedDirectRequest,
+    );
+    const spoofedRegisterMeta = registerMock.mock.calls[0][1];
+    expect(spoofedRegisterMeta?.ipAddress).toBe(directSocketAddress);
+    expect(spoofedRegisterMeta?.metadata?.country).toBeNull();
+    expect(spoofedRegisterMeta?.metadata?.city).toBeNull();
+  });
 });
