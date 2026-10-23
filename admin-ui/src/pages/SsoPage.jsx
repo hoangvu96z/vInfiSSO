@@ -19,6 +19,8 @@ const FacebookIcon = () => (
   </svg>
 );
 
+import { APP_DESTINATIONS, SUPPORT_CONTACT_URL } from '../config/destinations';
+
 export default function SsoPage({ user, onLoginSuccess, onLogout }) {
   const initialTab = window.location.pathname.includes('register') ? 'register' : 'login';
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -365,7 +367,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                 block
                 style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
                 loading={loading}
-                onClick={() => navigateToApp('https://vunph.click/kinhdich/')}
+                onClick={() => navigateToApp(APP_DESTINATIONS.iching)}
               >
                 ☯️ Đến IChingNow
               </Button>
@@ -374,7 +376,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                 block
                 style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
                 loading={loading}
-                onClick={() => navigateToApp('https://vunph.click/tarot/')}
+                onClick={() => navigateToApp(APP_DESTINATIONS.tarot)}
               >
                 🃏 Đến TarotNow
               </Button>
@@ -383,7 +385,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                 block
                 style={{ height: 38, borderColor: 'rgba(255,255,255,0.2)' }}
                 loading={loading}
-                onClick={() => navigateToApp('https://vunph.click/tuvi/')}
+                onClick={() => navigateToApp(APP_DESTINATIONS.tuvi)}
               >
                 🔮 Đến TuViNow
               </Button>
@@ -392,7 +394,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                 block
                 style={{ height: 38, borderColor: 'rgba(56,189,248,0.4)', color: '#38bdf8' }}
                 onClick={() => {
-                  window.location.href = 'https://vunph.click/talk/';
+                  window.location.href = APP_DESTINATIONS.talk;
                 }}
               >
                 💬 Đến TalkWithMe (Liên hệ)
@@ -402,7 +404,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
                 block
                 style={{ height: 38, borderColor: 'rgba(16,185,129,0.4)', color: '#10b981' }}
                 loading={loading}
-                onClick={() => navigateToApp('https://vunph.click/note/')}
+                onClick={() => navigateToApp(APP_DESTINATIONS.note)}
               >
                 📝 Đến NoteNow (Ghi chú)
               </Button>
@@ -540,7 +542,7 @@ export default function SsoPage({ user, onLoginSuccess, onLogout }) {
       <div style={{ textAlign: 'center', marginTop: 18, fontSize: '0.82rem', color: 'rgba(255,255,255,0.7)' }}>
         <span>© 2026 vunph.click · </span>
         <a
-          href="https://vunph.click/talk/"
+          href={SUPPORT_CONTACT_URL}
           target="_blank"
           rel="noopener noreferrer"
           style={{ color: '#38bdf8', textDecoration: 'none', fontWeight: 600 }}
