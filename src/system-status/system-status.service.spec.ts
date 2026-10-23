@@ -175,7 +175,10 @@ describe('probeDatabase', () => {
   it('does not create a PostgreSQL client for another database type', async () => {
     const createClient = jest.fn();
     await expect(
-      probeDatabase({ type: 'sqlite', database: ':memory:' }, createClient),
+      probeDatabase(
+        { type: 'better-sqlite3', database: ':memory:' },
+        createClient,
+      ),
     ).resolves.toBe('unavailable');
     expect(createClient).not.toHaveBeenCalled();
   });
@@ -184,7 +187,7 @@ describe('probeDatabase', () => {
 describe('SystemStatusService', () => {
   it('returns the bounded API and sanitized backup contract', async () => {
     const service = new SystemStatusService({
-      options: { type: 'sqlite', database: ':memory:' },
+      options: { type: 'better-sqlite3', database: ':memory:' },
     } as unknown as DataSource);
 
     const status = await service.getSystemStatus();
