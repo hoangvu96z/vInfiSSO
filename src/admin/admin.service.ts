@@ -269,6 +269,9 @@ export class AdminService {
         `Role không hợp lệ. Các role cho phép: ${validRoles.join(', ')}`,
       );
     }
+    if (!actorId?.trim()) {
+      throw new BadRequestException('Thiếu thông tin quản trị viên thực hiện');
+    }
 
     return this.dataSource.transaction(async (manager) => {
       await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [

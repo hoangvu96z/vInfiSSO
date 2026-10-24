@@ -1,10 +1,13 @@
+import type { Request } from 'express';
 import type { PlansService } from '../plans/plans.service';
+import type { User } from '../users/user.entity';
 import type { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
 
 describe('AdminController legacy and paginated listings', () => {
   const adminService = {
     getAiUsageStats: jest.fn(),
+    updateUserRole: jest.fn(),
   };
   const plansService = {
     getAllCoupons: jest.fn(),
@@ -16,6 +19,35 @@ describe('AdminController legacy and paginated listings', () => {
   );
 
   beforeEach(() => jest.clearAllMocks());
+
+  it('forwards the acting admin id and request metadata when updating a user role', async () => {
+    adminService.updateUserRole.mockResolvedValue({
+      success: true,
+      user: { id: 'target-1', email: 'target@example.test', role: 'vip' },
+    });
+
+    const result = await controller.updateRole(
+      'target-1',
+      { role: 'vip' },
+      { id: 'admin-1' } as User,
+      {
+        ip: '203.0.113.10',
+        headers: { 'user-agent': 'admin-browser/1.0' },
+      } as unknown as Request,
+    );
+
+    expect(adminService.updateUserRole).toHaveBeenCalledWith(
+      'target-1',
+      'vip',
+      'admin-1',
+      '203.0.113.10',
+      'admin-browser/1.0',
+    );
+    expect(result).toEqual({
+      success: true,
+      user: { id: 'target-1', email: 'target@example.test', role: 'vip' },
+    });
+  });
 
   it('keeps the legacy AI route unpaginated while providing an explicit page route', async () => {
     adminService.getAiUsageStats

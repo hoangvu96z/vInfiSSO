@@ -54,6 +54,7 @@ describe('AdminService role changes', () => {
       service.updateUserRole('admin-1', 'user', 'admin-1'),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(userRepo.save).not.toHaveBeenCalled();
+    expect(sessionRepo.delete).not.toHaveBeenCalled();
     expect(auditRepo.save).not.toHaveBeenCalled();
   });
 
@@ -63,6 +64,8 @@ describe('AdminService role changes', () => {
       service.updateUserRole('admin-1', 'user', 'other-admin'),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(userRepo.save).not.toHaveBeenCalled();
+    expect(sessionRepo.delete).not.toHaveBeenCalled();
+    expect(auditRepo.save).not.toHaveBeenCalled();
   });
 
   it('records the acting admin separately from the role-change target', async () => {
@@ -90,6 +93,8 @@ describe('AdminService role changes', () => {
       expect.objectContaining({
         userId: 'admin-1',
         action: 'update_role',
+        ipAddress: '127.0.0.1',
+        userAgent: 'test-agent',
         metadata: {
           actorId: 'admin-1',
           targetUserId: 'member-1',
@@ -101,6 +106,43 @@ describe('AdminService role changes', () => {
     expect(sessionRepo.delete).toHaveBeenCalledWith({
       user: { id: 'member-1' },
     });
+  });
+
+  it('does not revoke target sessions when the role does not actually change', async () => {
+    userRepo.findOne.mockResolvedValue({
+      id: 'member-1',
+      email: 'member@example.test',
+      role: 'vip',
+    });
+    userRepo.save.mockImplementation((saved) => Promise.resolve(saved));
+
+    await service.updateUserRole('member-1', 'vip', 'admin-1');
+
+    expect(sessionRepo.delete).not.toHaveBeenCalled();
+    expect(auditRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'admin-1',
+        action: 'update_role',
+        metadata: {
+          actorId: 'admin-1',
+          targetUserId: 'member-1',
+          previousRole: 'vip',
+          newRole: 'vip',
+        },
+      }),
+    );
+  });
+
+  it('rejects a blank or whitespace actorId before opening a transaction', async () => {
+    await expect(
+      service.updateUserRole('member-1', 'admin', ''),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    await expect(
+      service.updateUserRole('member-1', 'admin', '   '),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(dataSource.transaction).not.toHaveBeenCalled();
   });
 
   it('aggregates AI usage without hydrating encrypted reading data', async () => {
