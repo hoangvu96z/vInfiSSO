@@ -252,7 +252,8 @@ export class PlansController {
   }
 
   @Post('tuvi-ai')
-  @UseGuards(SsoAuthGuard)
+  @UseGuards(SsoAuthGuard, ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async interpretTuvi(@CurrentUser() user: User, @Body() body: TuviAiDto) {
     const { models } = this.getTuviAiConfig();
     const model = body?.model || models[0];
