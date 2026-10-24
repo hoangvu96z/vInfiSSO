@@ -174,4 +174,171 @@ describe('PlansController POST /plans/ai', () => {
     expect(global.fetch).not.toHaveBeenCalled();
     expect(refundQuota).not.toHaveBeenCalled();
   });
+
+  it('does not expose the unused POST /plans/consume endpoint', () => {
+    expect(
+      Object.getOwnPropertyDescriptor(PlansController.prototype, 'consume'),
+    ).toBeUndefined();
+  });
+
+  it('refunds consumed quota when an HTTP-200 stream emits an in-band SSE error frame', async () => {
+    const partialChunk = new TextEncoder().encode(
+      'data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n',
+    );
+    const errorChunk = new TextEncoder().encode(
+      'data: {"error":{"code":"upstream_failed","message":"Provider error"}}\n\n',
+    );
+    fetchMock.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(stream) {
+            stream.enqueue(partialChunk);
+            stream.enqueue(errorChunk);
+            stream.close();
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      ),
+    );
+
+    await controller.proxyAi(user, body, response as unknown as Response);
+
+    expect(response.write).toHaveBeenNthCalledWith(1, partialChunk);
+    expect(response.write).toHaveBeenNthCalledWith(2, errorChunk);
+    expect(response.end).toHaveBeenCalledTimes(1);
+    expect(refundQuota).toHaveBeenCalledTimes(1);
+    expect(refundQuota).toHaveBeenCalledWith(
+      'user-1',
+      'ichingnow',
+      '2026-10-22',
+      false,
+    );
+  });
+
+  it('refunds consumed quota when an HTTP-200 stream closes immediately without enqueuing any chunk', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(stream) {
+            stream.close();
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      ),
+    );
+
+    await controller.proxyAi(user, body, response as unknown as Response);
+
+    expect(response.write).not.toHaveBeenCalled();
+    expect(response.end).toHaveBeenCalledTimes(1);
+    expect(refundQuota).toHaveBeenCalledTimes(1);
+    expect(refundQuota).toHaveBeenCalledWith(
+      'user-1',
+      'ichingnow',
+      '2026-10-22',
+      false,
+    );
+  });
+
+  it('refunds consumed quota when an HTTP-200 stream finishes empty or truncated without assistant content', async () => {
+    const truncatedRoleOnlyChunk = new TextEncoder().encode(
+      ': keep-alive\n\ndata: {"choices":[{"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"delta":{"content":"unterminated',
+    );
+    fetchMock.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(stream) {
+            stream.enqueue(truncatedRoleOnlyChunk);
+            stream.close();
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      ),
+    );
+
+    await controller.proxyAi(user, body, response as unknown as Response);
+
+    expect(response.write).toHaveBeenCalledWith(truncatedRoleOnlyChunk);
+    expect(response.end).toHaveBeenCalledTimes(1);
+    expect(refundQuota).toHaveBeenCalledTimes(1);
+    expect(refundQuota).toHaveBeenCalledWith(
+      'user-1',
+      'ichingnow',
+      '2026-10-22',
+      false,
+    );
+  });
+
+  it('reassembles split SSE frames across arbitrary chunk boundaries without buffering chunks or refunding valid content', async () => {
+    const chunks = [
+      'da',
+      'ta: {"choi',
+      'ces":[{"delta":{"con',
+      'tent":"Quẻ ',
+      'Càn"}}]}\r',
+      '\n\nda',
+      'ta: [DONE]\n\n',
+    ].map((part) => new TextEncoder().encode(part));
+
+    fetchMock.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(stream) {
+            for (const part of chunks) {
+              stream.enqueue(part);
+            }
+            stream.close();
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      ),
+    );
+
+    await controller.proxyAi(user, body, response as unknown as Response);
+
+    expect(response.write).toHaveBeenCalledTimes(chunks.length);
+    chunks.forEach((part, index) => {
+      expect(response.write).toHaveBeenNthCalledWith(index + 1, part);
+    });
+    expect(response.end).toHaveBeenCalledTimes(1);
+    expect(refundQuota).not.toHaveBeenCalled();
+  });
+
+  it('detects a split in-band SSE error frame across chunks and refunds exactly once even if the stream also aborts', async () => {
+    const splitErrorChunks = [
+      'ev',
+      'ent: error\r\nda',
+      'ta: {"err',
+      'or":{"message":"rate limit"}}\n',
+      '\n',
+    ].map((part) => new TextEncoder().encode(part));
+
+    let step = 0;
+    fetchMock.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(stream) {
+            if (step < splitErrorChunks.length) {
+              stream.enqueue(splitErrorChunks[step]);
+              step += 1;
+              return;
+            }
+            stream.error(new Error('stream aborted after error frame'));
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      ),
+    );
+
+    await controller.proxyAi(user, body, response as unknown as Response);
+
+    expect(refundQuota).toHaveBeenCalledTimes(1);
+    expect(refundQuota).toHaveBeenCalledWith(
+      'user-1',
+      'ichingnow',
+      '2026-10-22',
+      false,
+    );
+    expect(response.end).toHaveBeenCalledTimes(1);
+  });
 });

@@ -49,6 +49,162 @@ function getAllowedAiModels(): string[] {
     .filter(Boolean);
 }
 
+function isExplicitSseErrorValue(value: unknown): boolean {
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (typeof value === 'boolean') return value === true;
+  if (typeof value === 'number') return value !== 0 && !Number.isNaN(value);
+  return typeof value === 'object' && value !== null;
+}
+
+function hasAssistantDeltaContent(value: unknown): boolean {
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (Array.isArray(value)) {
+    return value.some((part) => {
+      if (typeof part === 'string') return part.trim().length > 0;
+      if (typeof part === 'object' && part !== null) {
+        const text = (part as { text?: unknown }).text;
+        return typeof text === 'string' && text.trim().length > 0;
+      }
+      return false;
+    });
+  }
+  return false;
+}
+
+function createAiSseInspector() {
+  const decoder = new TextDecoder('utf-8');
+  let lineBuffer = '';
+  let currentEvent = '';
+  let currentDataLines: string[] = [];
+  let hasAssistantContent = false;
+  let hasExplicitError = false;
+
+  const inspectParsedEvent = (parsed: unknown) => {
+    if (typeof parsed !== 'object' || parsed === null) return;
+    const record = parsed as Record<string, unknown>;
+    if (
+      isExplicitSseErrorValue(record.error) ||
+      record.type === 'error' ||
+      record.event === 'error' ||
+      record.object === 'error'
+    ) {
+      hasExplicitError = true;
+    }
+    if (!Array.isArray(record.choices)) return;
+    for (const choice of record.choices) {
+      if (typeof choice !== 'object' || choice === null) continue;
+      const choiceRecord = choice as Record<string, unknown>;
+      if (
+        isExplicitSseErrorValue(choiceRecord.error) ||
+        choiceRecord.finish_reason === 'error' ||
+        choiceRecord.finishReason === 'error'
+      ) {
+        hasExplicitError = true;
+      }
+      const delta =
+        typeof choiceRecord.delta === 'object' && choiceRecord.delta !== null
+          ? (choiceRecord.delta as Record<string, unknown>)
+          : undefined;
+      const message =
+        typeof choiceRecord.message === 'object' &&
+        choiceRecord.message !== null
+          ? (choiceRecord.message as Record<string, unknown>)
+          : undefined;
+      if (
+        hasAssistantDeltaContent(delta?.content) ||
+        hasAssistantDeltaContent(message?.content) ||
+        hasAssistantDeltaContent(choiceRecord.text)
+      ) {
+        hasAssistantContent = true;
+      }
+    }
+  };
+
+  const inspectDataPayload = (rawPayload: string): boolean => {
+    const payload = rawPayload.trim();
+    if (!payload || payload === '[DONE]') return true;
+    try {
+      const parsed: unknown = JSON.parse(payload);
+      inspectParsedEvent(parsed);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const flushEvent = () => {
+    if (currentEvent === 'error') {
+      hasExplicitError = true;
+    }
+    if (currentDataLines.length > 0) {
+      const joined = currentDataLines.join('\n');
+      if (!inspectDataPayload(joined) && currentDataLines.length > 1) {
+        for (const dataLine of currentDataLines) {
+          inspectDataPayload(dataLine);
+        }
+      }
+    }
+    currentEvent = '';
+    currentDataLines = [];
+  };
+
+  const processLine = (rawLine: string) => {
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+    if (line === '') {
+      flushEvent();
+      return;
+    }
+    if (line.startsWith(':')) return;
+    if (line.startsWith('event:')) {
+      currentEvent = line.slice(6).trim().toLowerCase();
+      if (currentEvent === 'error') {
+        hasExplicitError = true;
+      }
+      return;
+    }
+    if (line.startsWith('data:')) {
+      currentDataLines.push(line.slice(5).replace(/^ /, ''));
+      return;
+    }
+    if (line.startsWith('id:') || line.startsWith('retry:')) return;
+    inspectDataPayload(line);
+  };
+
+  const drainCompletedLines = () => {
+    let newlineIndex = lineBuffer.indexOf('\n');
+    while (newlineIndex !== -1) {
+      const rawLine = lineBuffer.slice(0, newlineIndex);
+      lineBuffer = lineBuffer.slice(newlineIndex + 1);
+      processLine(rawLine);
+      newlineIndex = lineBuffer.indexOf('\n');
+    }
+  };
+
+  return {
+    push(chunk: Uint8Array | string) {
+      lineBuffer +=
+        typeof chunk === 'string'
+          ? chunk
+          : decoder.decode(chunk, { stream: true });
+      drainCompletedLines();
+    },
+    finish() {
+      lineBuffer += decoder.decode();
+      drainCompletedLines();
+      if (lineBuffer.length > 0) {
+        processLine(lineBuffer);
+        lineBuffer = '';
+      }
+      flushEvent();
+      return {
+        hasAssistantContent,
+        hasExplicitError,
+        shouldRefund: hasExplicitError || !hasAssistantContent,
+      };
+    },
+  };
+}
+
 @Controller('plans')
 export class PlansController {
   constructor(private readonly plansService: PlansService) {}
@@ -84,20 +240,6 @@ export class PlansController {
   @UseGuards(SsoAuthGuard)
   async getMySubscription(@CurrentUser() user: User) {
     return this.plansService.getMySubscription(user.id);
-  }
-
-  // POST /plans/consume — Trừ 1 lượt AI (gọi trước khi hỏi AI)
-  @Post('consume')
-  @UseGuards(SsoAuthGuard)
-  async consume(
-    @CurrentUser() user: User,
-    @Req() req: Request,
-    @Body() body?: AppQuotaDto,
-  ) {
-    const app = this.extractAppName(req, body);
-    await this.plansService.consumeQuota(user.id, app);
-    const quota = await this.plansService.checkQuota(user.id, app);
-    return { success: true, quota };
   }
 
   // POST /plans/ai — quota-gated server-side OpenAI-compatible streaming proxy.
@@ -171,6 +313,17 @@ export class PlansController {
     );
     const reservation = await this.plansService.consumeQuota(user.id, quotaApp);
     let responseStarted = false;
+    let refunded = false;
+    const refundOnce = async () => {
+      if (refunded) return;
+      refunded = true;
+      await this.plansService.refundQuota(
+        user.id,
+        reservation.app,
+        reservation.date,
+        reservation.usedBonus,
+      );
+    };
     try {
       let upstream: globalThis.Response;
       try {
@@ -216,19 +369,19 @@ export class PlansController {
       res.setHeader('Cache-Control', 'no-cache, no-transform');
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('X-Quota-Remaining', String(quota.remaining));
+      const sseInspector = createAiSseInspector();
       responseStarted = true;
       for await (const chunk of upstream.body) {
         if (res.destroyed) break;
+        sseInspector.push(chunk);
         res.write(chunk);
+      }
+      if (sseInspector.finish().shouldRefund) {
+        await refundOnce();
       }
       res.end();
     } catch (error) {
-      await this.plansService.refundQuota(
-        user.id,
-        reservation.app,
-        reservation.date,
-        reservation.usedBonus,
-      );
+      await refundOnce();
       if (!responseStarted) throw error;
       if (!res.destroyed) {
         res.write(
@@ -239,7 +392,7 @@ export class PlansController {
     }
   }
 
-  // TuViNow uses the same SSO session and quota bucket as /plans/consume.
+  // TuViNow uses the same SSO session and quota bucket as /plans/ai.
   @Get('tuvi-ai/config')
   @UseGuards(SsoAuthGuard)
   getTuviAiConfig() {
