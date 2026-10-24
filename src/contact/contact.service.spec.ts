@@ -1,4 +1,10 @@
-import { ContactService } from './contact.service';
+import {
+  ADMIN_MESSAGE_LIST_COLUMNS,
+  ContactService,
+  MESSAGE_IMAGE_COUNT_SQL,
+  MESSAGE_PRIMARY_IMAGE_MIME_SQL,
+  SESSION_MESSAGE_LIST_COLUMNS,
+} from './contact.service';
 import type { Repository } from 'typeorm';
 import type { ConfigService } from '@nestjs/config';
 import type { MailService } from '../mail/mail.service';
@@ -322,6 +328,8 @@ describe('ContactService contact image persistence', () => {
 describe('ContactService admin message filters', () => {
   it('applies server pagination, status, search, and date filters', async () => {
     const query = {
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
       addOrderBy: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
@@ -345,6 +353,15 @@ describe('ContactService admin message filters', () => {
       dateTo: '2026-11-01T00:00:00.000Z',
     });
 
+    expect(query.select).toHaveBeenCalledWith([...ADMIN_MESSAGE_LIST_COLUMNS]);
+    expect(query.addSelect).toHaveBeenCalledWith(
+      MESSAGE_IMAGE_COUNT_SQL,
+      'message_image_count',
+    );
+    expect(query.addSelect).toHaveBeenCalledWith(
+      MESSAGE_PRIMARY_IMAGE_MIME_SQL,
+      'message_primary_image_mime',
+    );
     expect(query.andWhere).toHaveBeenCalledWith('message.isRead = :isRead', {
       isRead: false,
     });
@@ -367,6 +384,8 @@ describe('ContactService admin message filters', () => {
 
   it('includes the full date-only end day for contact message filters', async () => {
     const query = {
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
       addOrderBy: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
@@ -409,5 +428,204 @@ describe('ContactService admin message filters', () => {
       service.getAllMessages(1, 25, { dateFrom: 'not-a-date' }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(repository.createQueryBuilder).not.toHaveBeenCalled();
+  });
+
+  it('omits image_data and images[].data from admin list and session history queries while computing summary metadata', async () => {
+    const createdAt = new Date('2026-10-24T00:00:00.000Z');
+    const adminQuery = {
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getRawAndEntities: jest.fn().mockResolvedValue({
+        entities: [
+          {
+            id: 'msg-current',
+            sessionId: 'session-1',
+            app: 'talkwithme',
+            name: 'Alice',
+            email: 'alice@example.test',
+            title: 'Current upload',
+            message: 'Two file-backed images',
+            imageMime: 'image/webp',
+            isRead: false,
+            createdAt,
+          },
+          {
+            id: 'msg-legacy-array',
+            sessionId: 'session-2',
+            app: 'talkwithme',
+            name: 'Bob',
+            email: null,
+            title: 'Legacy array',
+            message: 'Three legacy base64 images',
+            imageMime: null,
+            isRead: true,
+            createdAt,
+          },
+          {
+            id: 'msg-legacy-single',
+            sessionId: 'session-3',
+            app: 'talkwithme',
+            name: 'Carol',
+            email: null,
+            title: 'Legacy single',
+            message: 'One legacy image_data column',
+            imageMime: 'image/jpeg',
+            isRead: false,
+            createdAt,
+          },
+          {
+            id: 'msg-none',
+            sessionId: 'session-4',
+            app: 'talkwithme',
+            name: 'Dan',
+            email: null,
+            title: null,
+            message: 'No images',
+            imageMime: null,
+            isRead: true,
+            createdAt,
+          },
+        ],
+        raw: [
+          {
+            message_image_count: '2',
+            message_primary_image_mime: 'image/webp',
+          },
+          {
+            message_image_count: 3,
+            message_primary_image_mime: 'image/png',
+          },
+          {
+            message_image_count: '1',
+            message_primary_image_mime: 'image/jpeg',
+          },
+          {
+            message_image_count: 0,
+            message_primary_image_mime: null,
+          },
+        ],
+      }),
+      getCount: jest.fn().mockResolvedValue(4),
+    };
+
+    const sessionQuery = {
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      getRawAndEntities: jest.fn().mockResolvedValue({
+        entities: [
+          {
+            id: 'msg-session-legacy',
+            sessionId: 'session-1',
+            name: 'Alice',
+            email: 'alice@example.test',
+            title: 'Legacy',
+            message: 'Single legacy image',
+            createdAt,
+          },
+          {
+            id: 'msg-session-current',
+            sessionId: 'session-1',
+            name: 'Alice',
+            email: 'alice@example.test',
+            title: 'Current',
+            message: 'Two current images',
+            createdAt,
+          },
+        ],
+        raw: [{ message_image_count: 1 }, { message_image_count: '2' }],
+      }),
+    };
+
+    const repository = {
+      createQueryBuilder: jest
+        .fn()
+        .mockReturnValueOnce(adminQuery)
+        .mockReturnValueOnce(sessionQuery),
+    };
+    const storage = {
+      put: jest.fn(),
+      get: jest.fn(),
+      delete: jest.fn(),
+    } satisfies ObjectStorage;
+    const service = new ContactService(
+      repository as unknown as Repository<ContactMessage>,
+      {} as unknown as MailService,
+      {} as unknown as ConfigService,
+      storage,
+    );
+
+    const adminResult = await service.getAdminMessages(1, 50);
+    expect(adminQuery.select).toHaveBeenCalledWith([
+      ...ADMIN_MESSAGE_LIST_COLUMNS,
+    ]);
+    expect(ADMIN_MESSAGE_LIST_COLUMNS).not.toContain('message.images');
+    expect(ADMIN_MESSAGE_LIST_COLUMNS).not.toContain('message.imageData');
+    expect(adminResult.total).toBe(4);
+    expect(adminResult.messages).toEqual([
+      expect.objectContaining({
+        id: 'msg-current',
+        hasImage: true,
+        imageCount: 2,
+        imageMime: 'image/webp',
+      }),
+      expect.objectContaining({
+        id: 'msg-legacy-array',
+        hasImage: true,
+        imageCount: 3,
+        imageMime: 'image/png',
+      }),
+      expect.objectContaining({
+        id: 'msg-legacy-single',
+        hasImage: true,
+        imageCount: 1,
+        imageMime: 'image/jpeg',
+      }),
+      expect.objectContaining({
+        id: 'msg-none',
+        hasImage: false,
+        imageCount: 0,
+        imageMime: null,
+      }),
+    ]);
+    for (const msg of adminResult.messages) {
+      expect(msg).not.toHaveProperty('imageData');
+      expect(msg).not.toHaveProperty('images');
+    }
+
+    const sessionResult = await service.getMessagesBySession('session-1');
+    expect(sessionQuery.select).toHaveBeenCalledWith([
+      ...SESSION_MESSAGE_LIST_COLUMNS,
+    ]);
+    expect(SESSION_MESSAGE_LIST_COLUMNS).not.toContain('message.images');
+    expect(SESSION_MESSAGE_LIST_COLUMNS).not.toContain('message.imageData');
+    expect(sessionQuery.where).toHaveBeenCalledWith(
+      'message.sessionId = :sessionId',
+      { sessionId: 'session-1' },
+    );
+    expect(sessionResult).toEqual([
+      expect.objectContaining({
+        id: 'msg-session-legacy',
+        hasImage: true,
+        imageCount: 1,
+      }),
+      expect.objectContaining({
+        id: 'msg-session-current',
+        hasImage: true,
+        imageCount: 2,
+      }),
+    ]);
+    for (const msg of sessionResult) {
+      expect(msg).not.toHaveProperty('imageData');
+      expect(msg).not.toHaveProperty('images');
+    }
+    expect(storage.get).not.toHaveBeenCalled();
   });
 });

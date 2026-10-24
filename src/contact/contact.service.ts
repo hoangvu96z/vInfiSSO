@@ -5,7 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, type SelectQueryBuilder } from 'typeorm';
 import { ContactMessage, AttachedImage } from './contact-message.entity';
 import { MailService } from '../mail/mail.service';
 import { ConfigService } from '@nestjs/config';
@@ -16,6 +16,101 @@ import * as path from 'node:path';
 import type { ObjectStorage } from '../storage/object-storage';
 import { LocalObjectStorage } from '../storage/local-object-storage';
 import { LOCAL_UPLOAD_STORAGE } from '../storage/local-upload-storage.module';
+
+export const ADMIN_MESSAGE_LIST_COLUMNS = [
+  'message.id',
+  'message.sessionId',
+  'message.app',
+  'message.name',
+  'message.email',
+  'message.title',
+  'message.message',
+  'message.imageMime',
+  'message.isRead',
+  'message.senderIp',
+  'message.device',
+  'message.browser',
+  'message.os',
+  'message.location',
+  'message.isp',
+  'message.metadata',
+  'message.createdAt',
+  'message.updatedAt',
+] as const;
+
+export const SESSION_MESSAGE_LIST_COLUMNS = [
+  'message.id',
+  'message.sessionId',
+  'message.name',
+  'message.email',
+  'message.title',
+  'message.message',
+  'message.createdAt',
+] as const;
+
+export const MESSAGE_IMAGE_COUNT_SQL = `CASE
+  WHEN jsonb_typeof(message.images) = 'array' AND jsonb_array_length(message.images) > 0
+    THEN jsonb_array_length(message.images)
+  WHEN message.image_data IS NOT NULL AND message.image_data <> ''
+    THEN 1
+  ELSE 0
+END`;
+
+export const MESSAGE_PRIMARY_IMAGE_MIME_SQL = `COALESCE(
+  message.image_mime,
+  CASE
+    WHEN jsonb_typeof(message.images) = 'array' AND jsonb_array_length(message.images) > 0
+      THEN message.images->0->>'mime'
+    ELSE NULL
+  END
+)`;
+
+export type ContactMessageSummary = Omit<
+  ContactMessage,
+  'images' | 'imageData'
+> & {
+  hasImage: boolean;
+  imageCount: number;
+  images?: undefined;
+  imageData?: undefined;
+};
+
+export function summarizeContactMessageImages(
+  message: {
+    hasImage?: boolean;
+    imageCount?: number;
+    images?: AttachedImage[] | null;
+    imageData?: string | null;
+  },
+  rawRow?: Record<string, unknown>,
+): { hasImage: boolean; imageCount: number } {
+  const rawImageCount = rawRow?.message_image_count;
+  const parsedRawCount =
+    rawImageCount !== undefined && rawImageCount !== null
+      ? Number(rawImageCount)
+      : Number.NaN;
+
+  const computedCount = Number.isFinite(parsedRawCount)
+    ? Math.max(0, Math.trunc(parsedRawCount))
+    : typeof message.imageCount === 'number' &&
+        Number.isFinite(message.imageCount)
+      ? Math.max(0, Math.trunc(message.imageCount))
+      : Array.isArray(message.images) && message.images.length > 0
+        ? message.images.length
+        : typeof message.imageData === 'string' && message.imageData.length > 0
+          ? 1
+          : message.hasImage
+            ? 1
+            : 0;
+
+  const hasImage =
+    !Number.isFinite(parsedRawCount) && typeof message.hasImage === 'boolean'
+      ? message.hasImage || computedCount > 0
+      : computedCount > 0;
+  const imageCount = hasImage ? Math.max(1, computedCount) : 0;
+
+  return { hasImage, imageCount };
+}
 
 @Injectable()
 export class ContactService {
@@ -169,7 +264,7 @@ export class ContactService {
   }
 
   /**
-   * Get all messages (admin only).
+   * Get all messages (admin only) without hydrating base64 image payloads.
    */
   async getAllMessages(
     page = 1,
@@ -180,7 +275,7 @@ export class ContactService {
       dateFrom?: string;
       dateTo?: string;
     } = {},
-  ): Promise<{ messages: ContactMessage[]; total: number }> {
+  ): Promise<{ messages: ContactMessageSummary[]; total: number }> {
     const safePage = Math.max(1, page);
     const safeLimit = Math.min(100, Math.max(1, limit));
     const { start, end } = parseAdminDateRange(
@@ -190,6 +285,9 @@ export class ContactService {
 
     const query = this.messageRepo
       .createQueryBuilder('message')
+      .select([...ADMIN_MESSAGE_LIST_COLUMNS])
+      .addSelect(MESSAGE_IMAGE_COUNT_SQL, 'message_image_count')
+      .addSelect(MESSAGE_PRIMARY_IMAGE_MIME_SQL, 'message_primary_image_mime')
       .orderBy('message.createdAt', 'DESC')
       .addOrderBy('message.id', 'ASC');
 
@@ -211,21 +309,128 @@ export class ContactService {
       query.andWhere('message.createdAt >= :dateFrom', { dateFrom: start });
     if (end) query.andWhere('message.createdAt < :dateTo', { dateTo: end });
 
-    const [messages, total] = await query
-      .skip((safePage - 1) * safeLimit)
-      .take(safeLimit)
-      .getManyAndCount();
-    return { messages, total };
+    query.skip((safePage - 1) * safeLimit).take(safeLimit);
+
+    const { entities, raw, total } =
+      await this.executePaginatedSummaryQuery(query);
+    return {
+      messages: entities.map((message, index) =>
+        this.toMessageSummary(message, raw[index]),
+      ),
+      total,
+    };
   }
 
   /**
-   * Get messages by session ID (for returning visitors).
+   * Alias for admin list retrieval.
    */
-  async getMessagesBySession(sessionId: string): Promise<ContactMessage[]> {
-    return this.messageRepo.find({
+  async getAdminMessages(
+    page = 1,
+    limit = 50,
+    filters: {
+      search?: string;
+      status?: string;
+      dateFrom?: string;
+      dateTo?: string;
+    } = {},
+  ): Promise<{ messages: ContactMessageSummary[]; total: number }> {
+    return this.getAllMessages(page, limit, filters);
+  }
+
+  /**
+   * Get messages by session ID (for returning visitors) without hydrating image payloads.
+   */
+  async getMessagesBySession(
+    sessionId: string,
+  ): Promise<ContactMessageSummary[]> {
+    if (typeof this.messageRepo.createQueryBuilder === 'function') {
+      const query = this.messageRepo
+        .createQueryBuilder('message')
+        .select([...SESSION_MESSAGE_LIST_COLUMNS])
+        .addSelect(MESSAGE_IMAGE_COUNT_SQL, 'message_image_count')
+        .where('message.sessionId = :sessionId', { sessionId })
+        .orderBy('message.createdAt', 'ASC')
+        .addOrderBy('message.id', 'ASC');
+
+      const { entities, raw } = await this.executeSummaryQuery(query);
+      return entities.map((message, index) =>
+        this.toMessageSummary(message, raw[index]),
+      );
+    }
+
+    const messages = await this.messageRepo.find({
       where: { sessionId },
       order: { createdAt: 'ASC' },
     });
+    return messages.map((message) => this.toMessageSummary(message));
+  }
+
+  private async executePaginatedSummaryQuery(
+    query: SelectQueryBuilder<ContactMessage>,
+  ): Promise<{
+    entities: ContactMessage[];
+    raw: Array<Record<string, unknown>>;
+    total: number;
+  }> {
+    if (
+      typeof query.getRawAndEntities === 'function' &&
+      typeof query.getCount === 'function'
+    ) {
+      const { entities, raw } = await query.getRawAndEntities();
+      const total = await query.getCount();
+      return {
+        entities,
+        raw: Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [],
+        total,
+      };
+    }
+
+    const [entities, total] = await query.getManyAndCount();
+    return { entities, raw: [], total };
+  }
+
+  private async executeSummaryQuery(
+    query: SelectQueryBuilder<ContactMessage>,
+  ): Promise<{
+    entities: ContactMessage[];
+    raw: Array<Record<string, unknown>>;
+  }> {
+    if (typeof query.getRawAndEntities === 'function') {
+      const { entities, raw } = await query.getRawAndEntities();
+      return {
+        entities,
+        raw: Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [],
+      };
+    }
+
+    const entities = await query.getMany();
+    return { entities, raw: [] };
+  }
+
+  private toMessageSummary(
+    message: ContactMessage & { hasImage?: boolean; imageCount?: number },
+    rawRow?: Record<string, unknown>,
+  ): ContactMessageSummary {
+    const { hasImage, imageCount } = summarizeContactMessageImages(
+      message,
+      rawRow,
+    );
+    const fallbackMime =
+      typeof rawRow?.message_primary_image_mime === 'string'
+        ? rawRow.message_primary_image_mime
+        : (message.images?.[0]?.mime ?? null);
+    const { imageData: _imageData, images: _images, ...rest } = message;
+    void _imageData;
+    void _images;
+
+    return {
+      ...rest,
+      ...(rest.imageMime !== undefined || fallbackMime !== null
+        ? { imageMime: rest.imageMime ?? fallbackMime }
+        : {}),
+      hasImage,
+      imageCount,
+    };
   }
 
   /**

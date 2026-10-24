@@ -13,7 +13,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { ContactService } from './contact.service';
+import {
+  ContactService,
+  summarizeContactMessageImages,
+} from './contact.service';
 import { AdminOnly } from '../auth/roles.decorator';
 import { CreateContactMessageDto } from './dto/contact-write.dto';
 import { BatchIdsDto } from '../admin/dto/admin-write.dto';
@@ -179,9 +182,7 @@ export class ContactController {
       clientMeta: body.clientMeta,
     });
 
-    const hasImage =
-      !!message.imageData || (message.images && message.images.length > 0);
-    const imageCount = message.images?.length || (message.imageData ? 1 : 0);
+    const { hasImage, imageCount } = summarizeContactMessageImages(message);
 
     // Return without imageData to keep response small
     return {
@@ -230,17 +231,20 @@ export class ContactController {
     const messages =
       await this.contactService.getMessagesBySession(normalizedSessionId);
     return {
-      messages: messages.map((m) => ({
-        id: m.id,
-        sessionId: m.sessionId,
-        name: m.name,
-        email: m.email,
-        title: m.title,
-        message: m.message,
-        hasImage: !!m.imageData || (m.images && m.images.length > 0),
-        imageCount: m.images?.length || (m.imageData ? 1 : 0),
-        createdAt: m.createdAt,
-      })),
+      messages: messages.map((m) => {
+        const { hasImage, imageCount } = summarizeContactMessageImages(m);
+        return {
+          id: m.id,
+          sessionId: m.sessionId,
+          name: m.name,
+          email: m.email,
+          title: m.title,
+          message: m.message,
+          hasImage,
+          imageCount,
+          createdAt: m.createdAt,
+        };
+      }),
     };
   }
 
@@ -270,27 +274,30 @@ export class ContactController {
       dateTo,
     });
     return {
-      messages: result.messages.map((m) => ({
-        id: m.id,
-        sessionId: m.sessionId,
-        app: m.app,
-        name: m.name,
-        email: m.email,
-        title: m.title,
-        message: m.message,
-        hasImage: !!m.imageData || (m.images && m.images.length > 0),
-        imageCount: m.images?.length || (m.imageData ? 1 : 0),
-        imageMime: m.imageMime,
-        isRead: m.isRead,
-        senderIp: m.senderIp,
-        device: m.device,
-        browser: m.browser,
-        os: m.os,
-        location: m.location,
-        isp: m.isp,
-        metadata: m.metadata,
-        createdAt: m.createdAt,
-      })),
+      messages: result.messages.map((m) => {
+        const { hasImage, imageCount } = summarizeContactMessageImages(m);
+        return {
+          id: m.id,
+          sessionId: m.sessionId,
+          app: m.app,
+          name: m.name,
+          email: m.email,
+          title: m.title,
+          message: m.message,
+          hasImage,
+          imageCount,
+          imageMime: m.imageMime,
+          isRead: m.isRead,
+          senderIp: m.senderIp,
+          device: m.device,
+          browser: m.browser,
+          os: m.os,
+          location: m.location,
+          isp: m.isp,
+          metadata: m.metadata,
+          createdAt: m.createdAt,
+        };
+      }),
       total: result.total,
       page: p,
       limit: l,

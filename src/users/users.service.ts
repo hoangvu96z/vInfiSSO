@@ -233,19 +233,30 @@ export class UsersService {
     const extension = extensionByMime[contentType];
     if (!extension) throw new ConflictException('Unsupported avatar format');
 
-    const storageKey = `avatars/${crypto.randomUUID()}.${extension}`;
+    const previousStorageKey = Buffer.isBuffer(user.avatar)
+      ? parseAvatarStorageReference(user.avatar)
+      : null;
+
+    const storageKey = this.createAvatarStorageKey(extension);
     await this.uploadStorage.put(storageKey, buffer, contentType);
 
     user.avatar = createAvatarStorageReference(storageKey);
     user.avatarContentType = contentType;
     user.avatarUrl = null;
 
+    let savedUser: User;
     try {
-      return await this.usersRepo.save(user);
+      savedUser = await this.usersRepo.save(user);
     } catch (error) {
       await this.deleteUploadBestEffort(storageKey);
       throw error;
     }
+
+    if (previousStorageKey && previousStorageKey !== storageKey) {
+      await this.deleteUploadBestEffort(previousStorageKey);
+    }
+
+    return savedUser;
   }
 
   async findAvatar(
@@ -262,6 +273,10 @@ export class UsersService {
     }
 
     return { buffer: user.avatar, contentType: user.avatarContentType };
+  }
+
+  private createAvatarStorageKey(extension: string): string {
+    return `avatars/${crypto.randomUUID()}.${extension}`;
   }
 
   private async deleteUploadBestEffort(key: string): Promise<void> {

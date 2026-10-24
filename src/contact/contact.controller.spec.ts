@@ -275,4 +275,116 @@ describe('ContactController guest session access', () => {
       },
     });
   });
+
+  it('returns compatible summary metadata from admin and session list endpoints when payload bytes are omitted', async () => {
+    const createdAt = new Date('2026-10-24T12:00:00.000Z');
+    const contactService = {
+      isValidGuestSessionToken: jest.fn().mockReturnValue(true),
+      getMessagesBySession: jest.fn().mockResolvedValue([
+        {
+          id: 'session-msg-1',
+          sessionId: 'session-1',
+          name: 'Visitor',
+          email: 'visitor@example.test',
+          title: 'Summary row',
+          message: 'Message with two images',
+          hasImage: true,
+          imageCount: 2,
+          createdAt,
+        },
+      ]),
+      getAllMessages: jest.fn().mockResolvedValue({
+        messages: [
+          {
+            id: 'admin-msg-1',
+            sessionId: 'session-1',
+            app: 'talkwithme',
+            name: 'Visitor',
+            email: 'visitor@example.test',
+            title: 'Summary row',
+            message: 'Message with two images',
+            hasImage: true,
+            imageCount: 2,
+            imageMime: 'image/webp',
+            isRead: false,
+            senderIp: '192.0.2.10',
+            device: 'Mac',
+            browser: 'Chrome',
+            os: 'macOS',
+            location: 'HCMC',
+            isp: 'VNPT',
+            metadata: { timezone: 'Asia/Ho_Chi_Minh' },
+            createdAt,
+          },
+          {
+            id: 'admin-msg-2',
+            sessionId: 'session-2',
+            app: 'talkwithme',
+            name: 'Legacy Visitor',
+            email: null,
+            title: null,
+            message: 'Legacy single image',
+            hasImage: true,
+            imageCount: 1,
+            imageMime: 'image/jpeg',
+            isRead: true,
+            senderIp: null,
+            device: null,
+            browser: null,
+            os: null,
+            location: null,
+            isp: null,
+            metadata: null,
+            createdAt,
+          },
+        ],
+        total: 2,
+      }),
+    };
+    const controller = new ContactController(
+      contactService as unknown as ContactService,
+    );
+
+    const sessionResponse = await controller.getSessionMessages('session-1', {
+      headers: { 'x-guest-token': 'signed-guest-token' },
+    } as unknown as Request);
+    expect(sessionResponse).toEqual({
+      messages: [
+        {
+          id: 'session-msg-1',
+          sessionId: 'session-1',
+          name: 'Visitor',
+          email: 'visitor@example.test',
+          title: 'Summary row',
+          message: 'Message with two images',
+          hasImage: true,
+          imageCount: 2,
+          createdAt,
+        },
+      ],
+    });
+    expect(sessionResponse.messages[0]).not.toHaveProperty('imageData');
+    expect(sessionResponse.messages[0]).not.toHaveProperty('images');
+
+    const adminResponse = await controller.adminListMessages('1', '50');
+    expect(adminResponse.total).toBe(2);
+    expect(adminResponse.messages).toEqual([
+      expect.objectContaining({
+        id: 'admin-msg-1',
+        hasImage: true,
+        imageCount: 2,
+        imageMime: 'image/webp',
+      }),
+      expect.objectContaining({
+        id: 'admin-msg-2',
+        hasImage: true,
+        imageCount: 1,
+        imageMime: 'image/jpeg',
+      }),
+    ]);
+    for (const item of adminResponse.messages) {
+      expect(item).not.toHaveProperty('imageData');
+      expect(item).not.toHaveProperty('images');
+    }
+  });
 });
