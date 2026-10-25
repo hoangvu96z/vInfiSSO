@@ -395,4 +395,62 @@ describe('StreakService', () => {
       streak: { currentStreak: 4, totalReadings: 12 },
     });
   });
+
+  it('normalizes Date objects returned by pg for date columns during activity recording', async () => {
+    const manager = {
+      query: jest.fn((sql: string, parameters: unknown[] = []) => {
+        void parameters;
+        if (sql.includes('INSERT INTO streak_activity_events')) {
+          return Promise.resolve([{ event_id: 'event-id' }]);
+        }
+        if (sql.includes('UPDATE user_streaks SET')) {
+          return Promise.resolve([
+            row({
+              current_streak: 3,
+              longest_streak: 5,
+              total_readings: 11,
+              last_active_date: new Date(2026, 9, 25),
+              daily_card_date: new Date(2026, 9, 25),
+              streak_freeze_used: false,
+            }),
+          ]);
+        }
+        return Promise.resolve([
+          row({
+            current_streak: 2,
+            longest_streak: 5,
+            total_readings: 10,
+            last_active_date: new Date(2026, 9, 24),
+            daily_card_date: new Date(2026, 9, 24),
+            streak_freeze_used: false,
+          }),
+        ]);
+      }),
+    };
+    const service = new StreakService({
+      transaction: (callback: (manager: { query: jest.Mock }) => unknown) =>
+        callback(manager),
+    } as unknown as DataSource);
+
+    const result = await service.recordActivity(ownerId, 'iching', {
+      ownerId,
+      eventId: '00000000-0000-4000-8000-000000000011',
+      activityDate: '2026-10-25',
+      snapshot: snapshot({
+        currentStreak: 2,
+        longestStreak: 5,
+        totalReadings: 10,
+        lastActiveDate: '2026-10-24',
+        dailyCardDate: '2026-10-24',
+      }),
+    });
+
+    expect(result.streak).toMatchObject({
+      currentStreak: 3,
+      longestStreak: 5,
+      totalReadings: 11,
+      lastActiveDate: '2026-10-25',
+      dailyCardDate: '2026-10-25',
+    });
+  });
 });

@@ -28,9 +28,9 @@ interface StreakRow extends Record<string, unknown> {
   current_streak: number | string;
   longest_streak: number | string;
   total_readings: number | string;
-  last_active_date: string | null;
+  last_active_date: string | Date | null;
   streak_freeze_used: boolean;
-  daily_card_date: string | null;
+  daily_card_date: string | Date | null;
   daily_card_id: string | number | null;
 }
 
@@ -76,8 +76,11 @@ const UPSERT_SNAPSHOT_SQL = `
       ELSE user_streaks.daily_card_id
     END,
     updated_at = CURRENT_TIMESTAMP
-  RETURNING current_streak, longest_streak, total_readings, last_active_date,
-    streak_freeze_used, daily_card_date, daily_card_id
+  RETURNING current_streak, longest_streak, total_readings,
+    last_active_date::text AS last_active_date,
+    streak_freeze_used,
+    daily_card_date::text AS daily_card_date,
+    daily_card_id
 `;
 
 @Injectable()
@@ -87,8 +90,11 @@ export class StreakService {
   async get(userId: string, rawAppId: string) {
     const appId = this.requireAppId(rawAppId);
     const rows = await this.dataSource.query<StreakRow[]>(
-      `SELECT current_streak, longest_streak, total_readings, last_active_date,
-              streak_freeze_used, daily_card_date, daily_card_id
+      `SELECT current_streak, longest_streak, total_readings,
+              last_active_date::text AS last_active_date,
+              streak_freeze_used,
+              daily_card_date::text AS daily_card_date,
+              daily_card_id
          FROM user_streaks WHERE user_id = $1 AND app_id = $2`,
       [userId, appId],
     );
@@ -157,8 +163,11 @@ export class StreakService {
              streak_freeze_used = $7,
              updated_at = CURRENT_TIMESTAMP
            WHERE user_id = $1 AND app_id = $2
-           RETURNING current_streak, longest_streak, total_readings, last_active_date,
-             streak_freeze_used, daily_card_date, daily_card_id`,
+           RETURNING current_streak, longest_streak, total_readings,
+             last_active_date::text AS last_active_date,
+             streak_freeze_used,
+             daily_card_date::text AS daily_card_date,
+             daily_card_id`,
           [
             userId,
             appId,
@@ -245,11 +254,26 @@ export class StreakService {
       currentStreak: Number(row.current_streak),
       longestStreak: Number(row.longest_streak),
       totalReadings: Number(row.total_readings),
-      lastActiveDate: row.last_active_date,
+      lastActiveDate: this.normalizeDateColumn(row.last_active_date),
       streakFreezeUsed: row.streak_freeze_used,
-      dailyCardDate: row.daily_card_date,
+      dailyCardDate: this.normalizeDateColumn(row.daily_card_date),
       dailyCardId: row.daily_card_id,
     };
+  }
+
+  private normalizeDateColumn(value: unknown): string | null {
+    if (typeof value === 'string') {
+      const datePrefix = value.trim().slice(0, 10);
+      return this.isValidDate(datePrefix) ? datePrefix : null;
+    }
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      const year = String(value.getFullYear()).padStart(4, '0');
+      const month = String(value.getMonth() + 1).padStart(2, '0');
+      const day = String(value.getDate()).padStart(2, '0');
+      const formatted = `${year}-${month}-${day}`;
+      return this.isValidDate(formatted) ? formatted : null;
+    }
+    return null;
   }
 
   private applyActivity(

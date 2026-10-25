@@ -344,7 +344,7 @@ export class PlansController {
               ? { temperature: body.temperature }
               : {}),
           }),
-          signal: AbortSignal.timeout(90000),
+          signal: AbortSignal.timeout(195000),
         });
       } catch {
         throw new BadGatewayException({
@@ -368,6 +368,7 @@ export class PlansController {
       );
       res.setHeader('Cache-Control', 'no-cache, no-transform');
       res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
       res.setHeader('X-Quota-Remaining', String(quota.remaining));
       const sseInspector = createAiSseInspector();
       responseStarted = true;
@@ -466,7 +467,7 @@ export class PlansController {
                 ...messages,
               ],
             }),
-            signal: AbortSignal.timeout(90000),
+            signal: AbortSignal.timeout(195000),
           });
           if (!response.ok) {
             if (
