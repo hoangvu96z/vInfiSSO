@@ -9,6 +9,11 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "agy": "node scripts/agy-runner.mjs",
+    "agy:parallel": "node scripts/agy-runner.mjs",
+    "ci:status": "node scripts/github-actions-mcp.mjs --status",
+    "ci:wait": "node scripts/github-actions-mcp.mjs --wait",
+    "test:agy-runner": "node --test test/agy-runner.test.mjs",
     "build": "cd admin-ui && npm run build && cd .. && nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",

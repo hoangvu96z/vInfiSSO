@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "github-actions": {
+      "command": "node",
+      "args": ["/Users/hoangvu96z/Documents/vInfiSSO/scripts/github-actions-mcp.mjs", "--mcp"]
+    }
+  }
+}
