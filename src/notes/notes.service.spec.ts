@@ -387,9 +387,7 @@ describe('NotesService', () => {
         history: null,
         updatedAt: new Date(),
       };
-      mockNotesRepo.findOne.mockImplementation(() =>
-        Promise.resolve(userNote),
-      );
+      mockNotesRepo.findOne.mockImplementation(() => Promise.resolve(userNote));
       mockNotesRepo.save.mockImplementation((entity) => {
         userNote = { ...userNote, ...entity, updatedAt: new Date() };
         return Promise.resolve(userNote as TestNote);

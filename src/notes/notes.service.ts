@@ -214,7 +214,10 @@ export class NotesService implements OnModuleInit {
     return `${salt}:${derived}`;
   }
 
-  private checkNotePassword(password: string, storedHash: string | null | undefined): boolean {
+  private checkNotePassword(
+    password: string,
+    storedHash: string | null | undefined,
+  ): boolean {
     if (!storedHash) return true;
     const [salt, expectedHex] = storedHash.split(':');
     if (!salt || !expectedHex) return false;
@@ -282,7 +285,8 @@ export class NotesService implements OnModuleInit {
       history: isUserNote
         ? (note.history ?? []).slice(0, MAX_SERVER_HISTORY).map((rev) => ({
             ...rev,
-            content: this.sanitizeNoteContent(rev.content, imageUrlForFilename) ?? '',
+            content:
+              this.sanitizeNoteContent(rev.content, imageUrlForFilename) ?? '',
           }))
         : undefined,
       createdAt: note.createdAt,
