@@ -227,31 +227,31 @@ describe('NotesService', () => {
     );
   });
 
-  describe('Character Limit Validation', () => {
-    it('should allow guest note with <= 2048 chars', async () => {
-      const content = 'a'.repeat(2048);
+  describe('Character Limit Validation (10x limit)', () => {
+    it('should allow guest note with <= 20480 chars', async () => {
+      const content = 'a'.repeat(20_480);
       await expect(
         service.createNote({ content }, undefined, 'guest-token-1'),
       ).resolves.toBeDefined();
     });
 
-    it('should throw BadRequestException if guest note exceeds 2048 chars', async () => {
-      const content = 'a'.repeat(2049);
+    it('should throw BadRequestException if guest note exceeds 20480 chars', async () => {
+      const content = 'a'.repeat(20_481);
       await expect(
         service.createNote({ content }, undefined, 'guest-token-1'),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should allow logged-in user note with <= 10000 chars', async () => {
-      const content = 'a'.repeat(10000);
+    it('should allow logged-in user note with <= 100000 chars', async () => {
+      const content = 'a'.repeat(100_000);
       mockNotesRepo.find.mockResolvedValue([]);
       await expect(
         service.createNote({ content }, 'user-1', undefined),
       ).resolves.toBeDefined();
     });
 
-    it('should throw BadRequestException if user note exceeds 10000 chars', async () => {
-      const content = 'a'.repeat(10001);
+    it('should throw BadRequestException if user note exceeds 100000 chars', async () => {
+      const content = 'a'.repeat(100_001);
       await expect(
         service.createNote({ content }, 'user-1', undefined),
       ).rejects.toThrow(BadRequestException);
@@ -289,56 +289,149 @@ describe('NotesService', () => {
     });
   });
 
-  describe('Guest Expiration & TTL', () => {
-    it('should assign ~60 days expiry to guest note', async () => {
+  describe('No Auto-Expiration Policy', () => {
+    it('should keep guest note with null expiresAt (no 30/60-day auto-delete)', async () => {
       const result = await service.createNote(
         { title: 'Guest Note' },
         undefined,
         'guest-token-1',
       );
-      expect(result.expiresAt).toBeDefined();
-      expect(result.expiresAt).toBeInstanceOf(Date);
-      if (!result.expiresAt) throw new Error('Expected a guest note expiry');
-      const diffDays = Math.round(
-        (result.expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
-      );
-      expect(diffDays).toBe(60);
+      expect(result.expiresAt).toBeNull();
     });
-  });
 
-  describe('User Note Limits (30 Permanent, >30 180-day Expiry)', () => {
-    it('should keep note permanent (null expiresAt) if user has <= 30 notes', async () => {
-      // Simulate 10 existing notes
-      mockNotesRepo.find.mockResolvedValue(
-        Array.from({ length: 10 }, (_, i) => ({
-          id: `n-${i}`,
-          createdAt: new Date(),
-          expiresAt: null,
-        })),
-      );
+    it('should keep all user notes with null expiresAt regardless of count', async () => {
+      const mockNotes = Array.from({ length: 35 }, (_, i) => ({
+        id: `n-${i + 1}`,
+        createdAt: new Date(Date.now() + i * 1000),
+        expiresAt: i === 30 ? new Date() : null,
+      }));
+      mockNotesRepo.find.mockResolvedValue(mockNotes);
+
       const result = await service.createNote(
-        { title: 'Note 11' },
+        { title: 'Note 36' },
         'user-1',
         undefined,
       );
       expect(result.expiresAt).toBeNull();
+      // Any legacy note with expiresAt is cleared to null
+      expect(mockNotesRepo.update).toHaveBeenCalledWith('n-31', {
+        expiresAt: null,
+      });
+    });
+  });
+
+  describe('Direct Note Password & Server History (Max 5)', () => {
+    it('should set, verify, and remove direct note password', async () => {
+      let storedNote: Partial<Note> = {
+        id: 'note-pw-1',
+        userId: 'user-1',
+        title: 'Secret Note',
+        content: '<p>Top secret</p>',
+        notePasswordHash: null,
+      };
+      mockNotesRepo.findOne.mockImplementation(() =>
+        Promise.resolve(storedNote),
+      );
+      mockNotesRepo.save.mockImplementation((entity) => {
+        storedNote = { ...storedNote, ...entity };
+        return Promise.resolve(storedNote as TestNote);
+      });
+
+      const locked = await service.setNotePassword(
+        'note-pw-1',
+        { password: 'my-secret-password' },
+        'user-1',
+      );
+      expect(locked.hasPassword).toBe(true);
+
+      await expect(
+        service.verifyNotePassword(
+          'note-pw-1',
+          { password: 'wrong-password' },
+          'user-1',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      const verified = await service.verifyNotePassword(
+        'note-pw-1',
+        { password: 'my-secret-password' },
+        'user-1',
+      );
+      expect(verified.verified).toBe(true);
+
+      // Removing password requires currentPassword
+      await expect(
+        service.setNotePassword(
+          'note-pw-1',
+          { password: null, currentPassword: 'wrong' },
+          'user-1',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      const unlocked = await service.setNotePassword(
+        'note-pw-1',
+        { password: null, currentPassword: 'my-secret-password' },
+        'user-1',
+      );
+      expect(unlocked.hasPassword).toBe(false);
     });
 
-    it('should set 180-day expiry on 31st note', async () => {
-      // Simulate 31 notes after create
-      const mockNotes = Array.from({ length: 31 }, (_, i) => ({
-        id: `n-${i + 1}`,
-        createdAt: new Date(Date.now() + i * 1000),
-        expiresAt: i < 30 ? null : null, // rank 31 needs TTL
-      }));
-      mockNotesRepo.find.mockResolvedValue(mockNotes);
-
-      await service.createNote({ title: 'Note 31' }, 'user-1', undefined);
-      // Verify rebalance called update with an expiry on note 31
-      const updatedNote = mockNotesRepo.update.mock.calls.find(
-        ([id]) => id === 'n-31',
+    it('should cap server history at 5 revisions for logged-in users and keep guest history empty on server', async () => {
+      let userNote: Partial<Note> = {
+        id: 'note-hist-1',
+        userId: 'user-1',
+        title: 'V0',
+        content: '<p>Content 0</p>',
+        bgColor: 'default',
+        bgPattern: 'none',
+        history: null,
+        updatedAt: new Date(),
+      };
+      mockNotesRepo.findOne.mockImplementation(() =>
+        Promise.resolve(userNote),
       );
-      expect(updatedNote?.[1].expiresAt).toBeInstanceOf(Date);
+      mockNotesRepo.save.mockImplementation((entity) => {
+        userNote = { ...userNote, ...entity, updatedAt: new Date() };
+        return Promise.resolve(userNote as TestNote);
+      });
+
+      for (let i = 1; i <= 7; i++) {
+        await service.updateNote(
+          'note-hist-1',
+          { title: `V${i}`, content: `<p>Content ${i}</p>` },
+          'user-1',
+        );
+      }
+
+      expect(userNote.history).toHaveLength(5);
+      expect(userNote.history?.[0]?.title).toBe('V6');
+      expect(userNote.history?.[4]?.title).toBe('V2');
+
+      // Guest note does not store history on server
+      let guestNote: Partial<Note> = {
+        id: 'guest-hist-1',
+        userId: null,
+        guestToken: 'guest-1',
+        title: 'G0',
+        content: '<p>Guest 0</p>',
+        history: null,
+      };
+      mockNotesRepo.findOne.mockImplementation(() =>
+        Promise.resolve(guestNote),
+      );
+      mockNotesRepo.save.mockImplementation((entity) => {
+        guestNote = { ...guestNote, ...entity };
+        return Promise.resolve(guestNote as TestNote);
+      });
+
+      const updatedGuest = await service.updateNote(
+        'guest-hist-1',
+        { title: 'G1', content: '<p>Guest 1</p>' },
+        undefined,
+        'guest-1',
+      );
+      expect(guestNote.history).toBeNull();
+      expect(updatedGuest.history).toBeUndefined();
     });
   });
 
@@ -419,11 +512,10 @@ describe('NotesService', () => {
     });
   });
 
-  describe('Expired Notes Cleanup', () => {
-    it('should delete expired notes and invites', async () => {
-      mockNotesRepo.find.mockResolvedValue([{ id: 'exp-1', images: null }]);
+  describe('Expired Invites Cleanup', () => {
+    it('should clean up expired invites without deleting notes', async () => {
       await service.cleanupExpiredNotes();
-      expect(mockNotesRepo.delete).toHaveBeenCalled();
+      expect(mockNotesRepo.delete).not.toHaveBeenCalled();
       expect(mockInviteRepo.delete).toHaveBeenCalled();
     });
   });

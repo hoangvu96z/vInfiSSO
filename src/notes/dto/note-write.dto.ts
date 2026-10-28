@@ -15,7 +15,7 @@ export class CreateNoteDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(10000)
+  @MaxLength(500000)
   content?: string;
 
   @IsOptional()
@@ -52,4 +52,22 @@ export class CreateNoteInviteDto {
   @IsOptional()
   @IsIn(['view', 'edit'])
   permission?: 'view' | 'edit';
+}
+
+export class SetNotePasswordDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  password?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  currentPassword?: string | null;
+}
+
+export class VerifyNotePasswordDto {
+  @IsString()
+  @MaxLength(128)
+  password: string;
 }

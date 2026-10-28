@@ -5,6 +5,7 @@ import {
   BadRequestException,
   Logger,
   Inject,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, IsNull } from 'typeorm';
@@ -14,12 +15,14 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import sanitizeHtml from 'sanitize-html';
 import sharp from 'sharp';
-import { Note, NoteImage } from './note.entity';
+import { Note, NoteImage, NoteRevision } from './note.entity';
 import { NoteInvite } from './note-invite.entity';
 import type {
   CreateNoteDto,
   UpdateNoteDto,
   ShareSettingsDto,
+  SetNotePasswordDto,
+  VerifyNotePasswordDto,
 } from './dto/note-write.dto';
 import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/users.service';
@@ -27,17 +30,15 @@ import { ConfigService } from '@nestjs/config';
 import { OBJECT_STORAGE } from '../storage/object-storage';
 import type { ObjectStorage } from '../storage/object-storage';
 
-const GUEST_MAX_CHARS = 2048;
-const USER_MAX_CHARS = 10_000;
-const GUEST_TTL_DAYS = 60;
-const USER_EXTRA_TTL_DAYS = 180;
-const USER_PERMANENT_LIMIT = 30;
+const GUEST_MAX_CHARS = 20_480;
+const USER_MAX_CHARS = 100_000;
+const MAX_SERVER_HISTORY = 5;
 const MAX_IMAGES_PER_NOTE = 2;
 const NOTE_IMAGE_FILENAME_PATTERN = /^[a-f0-9]{24}\.webp$/;
 const INVITE_TTL_DAYS = 7;
 
 @Injectable()
-export class NotesService {
+export class NotesService implements OnModuleInit {
   private readonly logger = new Logger(NotesService.name);
   private readonly uploadDir: string;
 
@@ -55,6 +56,27 @@ export class NotesService {
     // Ensure upload dir exists
     if (!fs.existsSync(this.uploadDir)) {
       fs.mkdirSync(this.uploadDir, { recursive: true });
+    }
+  }
+
+  async onModuleInit(): Promise<void> {
+    if (typeof (this.notesRepo as { query?: unknown }).query !== 'function') {
+      return;
+    }
+    try {
+      await this.notesRepo.query(
+        `ALTER TABLE notes ADD COLUMN IF NOT EXISTS note_password_hash VARCHAR(160) NULL`,
+      );
+      await this.notesRepo.query(
+        `ALTER TABLE notes ADD COLUMN IF NOT EXISTS history JSONB NULL`,
+      );
+      await this.notesRepo.query(
+        `UPDATE notes SET expires_at = NULL WHERE expires_at IS NOT NULL`,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Could not run notes schema check on module init: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -171,21 +193,7 @@ export class NotesService {
     }
   }
 
-  /** Determine if a user-owned note should have a TTL (note rank > PERMANENT_LIMIT) */
-  private async computeUserExpiresAt(
-    userId: string,
-    noteId?: string,
-  ): Promise<Date | null> {
-    const totalNotes = await this.notesRepo.count({ where: { userId } });
-    // After saving, if it's a new note totalNotes includes the new one
-    const rank = noteId ? totalNotes : totalNotes + 1;
-    if (rank <= USER_PERMANENT_LIMIT) return null;
-    const d = new Date();
-    d.setDate(d.getDate() + USER_EXTRA_TTL_DAYS);
-    return d;
-  }
-
-  /** Rebalance TTLs for all user notes after create/delete */
+  /** All notes are now stored without automatic expiration (expiresAt = null) */
   private async rebalanceUserNotes(userId: string): Promise<void> {
     const notes = await this.notesRepo.find({
       where: { userId },
@@ -193,23 +201,30 @@ export class NotesService {
       select: { id: true, createdAt: true, expiresAt: true },
     });
 
-    const updates: Array<{ id: string; expiresAt: Date | null }> = [];
-    notes.forEach((note, index) => {
-      const rank = index + 1; // 1-based
-      const shouldHaveTtl = rank > USER_PERMANENT_LIMIT;
-      const currentHasTtl = note.expiresAt !== null;
-
-      if (shouldHaveTtl && !currentHasTtl) {
-        const d = new Date();
-        d.setDate(d.getDate() + USER_EXTRA_TTL_DAYS);
-        updates.push({ id: note.id, expiresAt: d });
-      } else if (!shouldHaveTtl && currentHasTtl) {
-        updates.push({ id: note.id, expiresAt: null });
+    for (const note of notes) {
+      if (note.expiresAt !== null && note.expiresAt !== undefined) {
+        await this.notesRepo.update(note.id, { expiresAt: null });
       }
-    });
+    }
+  }
 
-    for (const u of updates) {
-      await this.notesRepo.update(u.id, { expiresAt: u.expiresAt });
+  private hashNotePassword(password: string): string {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const derived = crypto.scryptSync(password, salt, 32).toString('hex');
+    return `${salt}:${derived}`;
+  }
+
+  private checkNotePassword(password: string, storedHash: string | null | undefined): boolean {
+    if (!storedHash) return true;
+    const [salt, expectedHex] = storedHash.split(':');
+    if (!salt || !expectedHex) return false;
+    try {
+      const derived = crypto.scryptSync(password, salt, 32);
+      const expected = Buffer.from(expectedHex, 'hex');
+      if (derived.length !== expected.length) return false;
+      return crypto.timingSafeEqual(derived, expected);
+    } catch {
+      return false;
     }
   }
 
@@ -242,6 +257,7 @@ export class NotesService {
     shareToken?: string,
   ) {
     const isOwner = !!requestingUserId && note.userId === requestingUserId;
+    const isUserNote = !!note.userId;
     const imageUrlForFilename = (filename: string) =>
       this.getNoteImageUrl(note.id, filename, shareToken);
     return {
@@ -261,7 +277,14 @@ export class NotesService {
       shareMode: note.shareMode,
       shareToken: note.shareToken,
       sharedWith: isOwner ? note.sharedWith : undefined,
-      expiresAt: note.expiresAt,
+      expiresAt: null,
+      hasPassword: !!note.notePasswordHash,
+      history: isUserNote
+        ? (note.history ?? []).slice(0, MAX_SERVER_HISTORY).map((rev) => ({
+            ...rev,
+            content: this.sanitizeNoteContent(rev.content, imageUrlForFilename) ?? '',
+          }))
+        : undefined,
       createdAt: note.createdAt,
       updatedAt: note.updatedAt,
       isOwner,
@@ -339,13 +362,6 @@ export class NotesService {
     const isUser = !!userId;
     this.validateContentLength(dto.content, isUser);
 
-    // Compute TTL
-    let expiresAt: Date | null = null;
-    if (!isUser) {
-      expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + GUEST_TTL_DAYS);
-    }
-
     const note = this.notesRepo.create({
       userId: userId ?? null,
       guestToken: guestToken ?? null,
@@ -358,12 +374,14 @@ export class NotesService {
       shareToken: null,
       isPinned: false,
       isArchived: false,
-      expiresAt,
+      expiresAt: null,
+      notePasswordHash: null,
+      history: null,
     });
 
     const saved = await this.notesRepo.save(note);
 
-    // Rebalance TTLs for user notes
+    // Clear any legacy TTLs for user notes
     if (userId) {
       await this.rebalanceUserNotes(userId);
     }
@@ -405,21 +423,112 @@ export class NotesService {
       this.validateContentLength(dto.content, isUser);
     }
 
+    const sanitizedNewContent =
+      dto.content !== undefined
+        ? this.sanitizeNoteContent(dto.content)
+        : note.content;
+    const newTitle = dto.title !== undefined ? dto.title : note.title;
+
+    // For logged-in user notes (server-backed history max 5 versions), record previous revision
+    // when title or content actually changes. Guest notes never store history on server.
+    if (isUser) {
+      const titleChanged =
+        dto.title !== undefined && (dto.title ?? null) !== (note.title ?? null);
+      const contentChanged =
+        dto.content !== undefined &&
+        (sanitizedNewContent ?? '') !== (note.content ?? '');
+      const hasPreviousState =
+        Boolean((note.title ?? '').trim()) ||
+        Boolean((note.content ?? '').replace(/<[^>]*>/g, '').trim());
+
+      if ((titleChanged || contentChanged) && hasPreviousState) {
+        const snapshot: NoteRevision = {
+          title: note.title ?? null,
+          content: note.content ?? '',
+          bgColor: note.bgColor ?? 'default',
+          bgPattern: note.bgPattern ?? 'none',
+          savedAt: (note.updatedAt ?? new Date()).toISOString(),
+        };
+        const existingHistory = Array.isArray(note.history) ? note.history : [];
+        const latest = existingHistory[0];
+        const isDuplicate =
+          latest &&
+          latest.title === snapshot.title &&
+          latest.content === snapshot.content;
+        if (!isDuplicate) {
+          note.history = [snapshot, ...existingHistory].slice(
+            0,
+            MAX_SERVER_HISTORY,
+          );
+        }
+      }
+    } else {
+      note.history = null;
+    }
+
     Object.assign(note, {
-      title: dto.title !== undefined ? dto.title : note.title,
-      content:
-        dto.content !== undefined
-          ? this.sanitizeNoteContent(dto.content)
-          : note.content,
+      title: newTitle,
+      content: sanitizedNewContent,
       bgColor: dto.bgColor !== undefined ? dto.bgColor : note.bgColor,
       bgPattern: dto.bgPattern !== undefined ? dto.bgPattern : note.bgPattern,
       isPinned: dto.isPinned !== undefined ? dto.isPinned : note.isPinned,
       isArchived:
         dto.isArchived !== undefined ? dto.isArchived : note.isArchived,
+      expiresAt: null,
     });
 
     const saved = await this.notesRepo.save(note);
     return this.toPublicNote(saved, userId);
+  }
+
+  async setNotePassword(
+    id: string,
+    dto: SetNotePasswordDto,
+    userId?: string,
+    guestToken?: string,
+  ) {
+    const note = await this.notesRepo.findOne({ where: { id } });
+    if (!note) throw new NotFoundException('Không tìm thấy note');
+    this.verifyNoteOwnership(note, userId, guestToken);
+
+    if (note.notePasswordHash) {
+      if (
+        !dto.currentPassword ||
+        !this.checkNotePassword(dto.currentPassword, note.notePasswordHash)
+      ) {
+        throw new ForbiddenException('Mật khẩu hiện tại không đúng');
+      }
+    }
+
+    const nextPassword = dto.password?.trim() || null;
+    note.notePasswordHash = nextPassword
+      ? this.hashNotePassword(nextPassword)
+      : null;
+
+    const saved = await this.notesRepo.save(note);
+    return this.toPublicNote(saved, userId);
+  }
+
+  async verifyNotePassword(
+    id: string,
+    dto: VerifyNotePasswordDto,
+    userId?: string,
+    guestToken?: string,
+  ) {
+    const note = await this.notesRepo.findOne({ where: { id } });
+    if (!note) throw new NotFoundException('Không tìm thấy note');
+    if (!this.canViewNote(note, userId, guestToken)) {
+      throw new ForbiddenException('Bạn không có quyền xem note này');
+    }
+
+    if (!this.checkNotePassword(dto.password ?? '', note.notePasswordHash)) {
+      throw new ForbiddenException('Mật khẩu không đúng');
+    }
+
+    return {
+      verified: true,
+      note: this.toPublicNote(note, userId),
+    };
   }
 
   async updateByShareToken(shareToken: string, dto: UpdateNoteDto) {
@@ -926,40 +1035,8 @@ export class NotesService {
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
   async cleanupExpiredNotes() {
     const now = new Date();
-    const expiredNotes = await this.notesRepo.find({
-      where: { expiresAt: LessThan(now) },
-      select: { id: true, images: true },
-    });
-
-    let deletedNoteCount = 0;
-    for (const note of expiredNotes) {
-      const deleted = await this.notesRepo.delete({
-        id: note.id,
-        expiresAt: LessThan(now),
-      });
-      if (!deleted.affected) continue;
-      deletedNoteCount += deleted.affected;
-
-      // Only remove images after the note row is deleted. If the database
-      // operation fails, the referenced objects remain available for retry.
-      for (const image of note.images ?? []) {
-        if (!NOTE_IMAGE_FILENAME_PATTERN.test(image.filename)) continue;
-        try {
-          await this.objectStorage.delete(`notes/${image.filename}`);
-          await fs.promises.rm(path.join(this.uploadDir, image.filename), {
-            force: true,
-          });
-        } catch (error) {
-          this.logger.warn(
-            `Failed to clean up expired note image: ${image.filename}`,
-            error instanceof Error ? error.stack : undefined,
-          );
-        }
-      }
-    }
-    this.logger.log(`[Cron] Cleaned up ${deletedNoteCount} expired notes`);
-
-    // Cleanup expired invites
+    // Automatic note expiration / 30-day & 60-day deletion is disabled; all notes are kept permanently.
+    // Only clean up expired share invitations.
     const deletedInvites = await this.inviteRepo.delete({
       expiresAt: LessThan(now),
       acceptedAt: IsNull(),

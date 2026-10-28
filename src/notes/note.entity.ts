@@ -20,6 +20,14 @@ export interface NoteImage {
   size: number;
 }
 
+export interface NoteRevision {
+  title: string | null;
+  content: string | null;
+  bgColor: string;
+  bgPattern: string;
+  savedAt: string;
+}
+
 @Entity('notes')
 @Index(['userId'])
 @Index(['guestToken'])
@@ -82,6 +90,18 @@ export class Note {
   // ─── TTL ──────────────────────────────────────────────────────────────────
   @Column({ name: 'expires_at', type: 'timestamp', nullable: true })
   expiresAt: Date | null;
+
+  // ─── Direct Note Password & Version History ───────────────────────────────
+  @Column({
+    name: 'note_password_hash',
+    type: 'varchar',
+    length: 160,
+    nullable: true,
+  })
+  notePasswordHash: string | null;
+
+  @Column({ name: 'history', type: 'jsonb', nullable: true })
+  history: NoteRevision[] | null; // max 5 previous revisions for logged-in users
 
   // ─── Timestamps ───────────────────────────────────────────────────────────
   @CreateDateColumn({ name: 'created_at' })

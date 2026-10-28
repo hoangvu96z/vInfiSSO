@@ -23,6 +23,8 @@ import {
   UpdateNoteDto,
   ShareSettingsDto,
   CreateNoteInviteDto,
+  SetNotePasswordDto,
+  VerifyNotePasswordDto,
 } from './dto/note-write.dto';
 import {
   ForbiddenSsoAuthGuard,
@@ -148,6 +150,30 @@ export class NotesController {
     const { userId, guestToken } = this.resolveIdentity(req);
     await this.notesService.deleteNote(id, userId, guestToken);
     return { success: true };
+  }
+
+  // POST /notes/:id/password — set, change, or remove direct note password
+  @Post(':id/password')
+  @UseGuards(OptionalSsoAuthGuard)
+  async setNotePassword(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: SetNotePasswordDto,
+  ) {
+    const { userId, guestToken } = this.resolveIdentity(req);
+    return this.notesService.setNotePassword(id, body, userId, guestToken);
+  }
+
+  // POST /notes/:id/verify-password — verify direct note password before unlock/edit/delete
+  @Post(':id/verify-password')
+  @UseGuards(OptionalSsoAuthGuard)
+  async verifyNotePassword(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: VerifyNotePasswordDto,
+  ) {
+    const { userId, guestToken } = this.resolveIdentity(req);
+    return this.notesService.verifyNotePassword(id, body, userId, guestToken);
   }
 
   // ─── Share ────────────────────────────────────────────────────────────────
