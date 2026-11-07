@@ -20,6 +20,14 @@ export interface NoteImage {
   size: number;
 }
 
+export interface NoteAudio {
+  filename: string;
+  url: string;
+  originalName?: string;
+  mimeType: string;
+  size: number;
+}
+
 export interface NoteRevision {
   title: string | null;
   content: string | null;
@@ -63,7 +71,10 @@ export class Note {
   bgPattern: string; // 'none' | 'dots' | 'grid' | 'lines'
 
   @Column({ type: 'jsonb', nullable: true })
-  images: NoteImage[] | null; // max 2 images
+  images: NoteImage[] | null; // max 10 images
+
+  @Column({ type: 'jsonb', nullable: true })
+  audios: NoteAudio[] | null; // max 10 audio files
 
   // ─── Share ────────────────────────────────────────────────────────────────
   @Column({

@@ -40,6 +40,37 @@ const GUEST_TOKEN_HEADER = 'x-guest-token';
 const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB raw (will be compressed to 720p)
 
+const ALLOWED_AUDIO_MIME = [
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/wave',
+  'audio/ogg',
+  'application/ogg',
+  'audio/mp4',
+  'audio/x-m4a',
+  'audio/m4a',
+  'audio/aac',
+  'audio/webm',
+  'audio/flac',
+  'audio/x-flac',
+];
+const ALLOWED_AUDIO_EXT_PATTERN = /\.(mp3|wav|ogg|m4a|aac|webm|flac)$/i;
+const MAX_AUDIO_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+
+function isAllowedAudioFile(file: {
+  mimetype?: string;
+  originalname?: string;
+}): boolean {
+  const baseMime = (file.mimetype || '').split(';')[0].trim().toLowerCase();
+  if (ALLOWED_AUDIO_MIME.includes(baseMime)) return true;
+  if (baseMime === 'application/octet-stream' || !baseMime) {
+    return ALLOWED_AUDIO_EXT_PATTERN.test(file.originalname || '');
+  }
+  return false;
+}
+
 @Controller('notes')
 export class NotesController {
   constructor(private readonly notesService: NotesService) {}
@@ -70,6 +101,18 @@ export class NotesController {
     response.setHeader('Cache-Control', 'private, no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.send(image);
+  }
+
+  private sendNoteAudio(
+    response: Response,
+    audio: { buffer: Buffer; mimeType: string },
+  ): void {
+    response.setHeader('Content-Type', audio.mimeType);
+    response.setHeader('Content-Length', audio.buffer.length);
+    response.setHeader('Accept-Ranges', 'bytes');
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    response.send(audio.buffer);
   }
 
   // ─── List / Get ───────────────────────────────────────────────────────────
@@ -267,7 +310,7 @@ export class NotesController {
   // POST /notes/share/:shareToken/images — upload image via editable share link
   @Post('share/:shareToken/images')
   @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @UseInterceptors(
     FileInterceptor('image', {
       storage: memoryStorage(),
@@ -304,7 +347,7 @@ export class NotesController {
   // POST /notes/:id/images  — upload image
   @Post(':id/images')
   @UseGuards(ThrottlerGuard, OptionalSsoAuthGuard)
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @UseInterceptors(
     FileInterceptor('image', {
       storage: memoryStorage(),
@@ -341,5 +384,128 @@ export class NotesController {
   ) {
     const { userId, guestToken } = this.resolveIdentity(req);
     return this.notesService.deleteImage(id, index, userId, guestToken);
+  }
+
+  // ─── Audios ───────────────────────────────────────────────────────────────
+
+  // GET /notes/share/:shareToken/audios/:filename — audio from active share
+  @Get('share/:shareToken/audios/:filename')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  async getAudioByShareToken(
+    @Param('shareToken') shareToken: string,
+    @Param('filename') filename: string,
+    @Res() response: Response,
+  ) {
+    const audio = await this.notesService.getAudioByShareToken(
+      shareToken,
+      filename,
+    );
+    this.sendNoteAudio(response, audio);
+  }
+
+  // GET /notes/:id/audios/:filename — audio for owner, guest, or invitee
+  @Get(':id/audios/:filename')
+  @UseGuards(ThrottlerGuard, OptionalSsoAuthGuard)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  async getAudio(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Param('filename') filename: string,
+    @Res() response: Response,
+  ) {
+    const { userId, guestToken } = this.resolveIdentity(req);
+    const audio = await this.notesService.getAudio(
+      id,
+      filename,
+      userId,
+      guestToken,
+    );
+    this.sendNoteAudio(response, audio);
+  }
+
+  // POST /notes/share/:shareToken/audios — upload audio via editable share link
+  @Post('share/:shareToken/audios')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @UseInterceptors(
+    FileInterceptor('audio', {
+      storage: memoryStorage(),
+      limits: { fileSize: MAX_AUDIO_FILE_SIZE },
+      fileFilter: (_req, file, cb) => {
+        if (isAllowedAudioFile(file)) {
+          cb(null, true);
+        } else {
+          cb(
+            new BadRequestException(
+              'Chỉ hỗ trợ tệp âm thanh MP3, WAV, OGG, M4A, AAC, WebM, FLAC',
+            ),
+            false,
+          );
+        }
+      },
+    }),
+  )
+  async uploadAudioByShareToken(
+    @Param('shareToken') shareToken: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file)
+      throw new BadRequestException('Không có tệp âm thanh được gửi lên');
+    return this.notesService.uploadAudioByShareToken(shareToken, file);
+  }
+
+  // DELETE /notes/share/:shareToken/audios/:index — delete audio via editable share link
+  @Delete('share/:shareToken/audios/:index')
+  async deleteAudioByShareToken(
+    @Param('shareToken') shareToken: string,
+    @Param('index', ParseIntPipe) index: number,
+  ) {
+    return this.notesService.deleteAudioByShareToken(shareToken, index);
+  }
+
+  // POST /notes/:id/audios — upload audio
+  @Post(':id/audios')
+  @UseGuards(ThrottlerGuard, OptionalSsoAuthGuard)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @UseInterceptors(
+    FileInterceptor('audio', {
+      storage: memoryStorage(),
+      limits: { fileSize: MAX_AUDIO_FILE_SIZE },
+      fileFilter: (_req, file, cb) => {
+        if (isAllowedAudioFile(file)) {
+          cb(null, true);
+        } else {
+          cb(
+            new BadRequestException(
+              'Chỉ hỗ trợ tệp âm thanh MP3, WAV, OGG, M4A, AAC, WebM, FLAC',
+            ),
+            false,
+          );
+        }
+      },
+    }),
+  )
+  async uploadAudio(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file)
+      throw new BadRequestException('Không có tệp âm thanh được gửi lên');
+    const { userId, guestToken } = this.resolveIdentity(req);
+    return this.notesService.uploadAudio(id, file, userId, guestToken);
+  }
+
+  // DELETE /notes/:id/audios/:index — delete audio
+  @Delete(':id/audios/:index')
+  @UseGuards(OptionalSsoAuthGuard)
+  async deleteAudio(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Param('index', ParseIntPipe) index: number,
+  ) {
+    const { userId, guestToken } = this.resolveIdentity(req);
+    return this.notesService.deleteAudio(id, index, userId, guestToken);
   }
 }

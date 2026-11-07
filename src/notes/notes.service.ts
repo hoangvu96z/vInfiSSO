@@ -15,7 +15,7 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import sanitizeHtml from 'sanitize-html';
 import sharp from 'sharp';
-import { Note, NoteImage, NoteRevision } from './note.entity';
+import { Note, NoteAudio, NoteImage, NoteRevision } from './note.entity';
 import { NoteInvite } from './note-invite.entity';
 import type {
   CreateNoteDto,
@@ -33,9 +33,39 @@ import type { ObjectStorage } from '../storage/object-storage';
 const GUEST_MAX_CHARS = 20_480;
 const USER_MAX_CHARS = 100_000;
 const MAX_SERVER_HISTORY = 5;
-const MAX_IMAGES_PER_NOTE = 2;
+const MAX_IMAGES_PER_NOTE = 10;
+const MAX_AUDIOS_PER_NOTE = 10;
 const NOTE_IMAGE_FILENAME_PATTERN = /^[a-f0-9]{24}\.webp$/;
+const NOTE_AUDIO_FILENAME_PATTERN =
+  /^[a-f0-9]{24}\.(mp3|wav|ogg|m4a|aac|webm|flac)$/;
 const INVITE_TTL_DAYS = 7;
+
+const AUDIO_MIME_MAP: Record<string, { ext: string; mimeType: string }> = {
+  'audio/mpeg': { ext: 'mp3', mimeType: 'audio/mpeg' },
+  'audio/mp3': { ext: 'mp3', mimeType: 'audio/mpeg' },
+  'audio/wav': { ext: 'wav', mimeType: 'audio/wav' },
+  'audio/x-wav': { ext: 'wav', mimeType: 'audio/wav' },
+  'audio/wave': { ext: 'wav', mimeType: 'audio/wav' },
+  'audio/ogg': { ext: 'ogg', mimeType: 'audio/ogg' },
+  'application/ogg': { ext: 'ogg', mimeType: 'audio/ogg' },
+  'audio/mp4': { ext: 'm4a', mimeType: 'audio/mp4' },
+  'audio/x-m4a': { ext: 'm4a', mimeType: 'audio/mp4' },
+  'audio/m4a': { ext: 'm4a', mimeType: 'audio/mp4' },
+  'audio/aac': { ext: 'aac', mimeType: 'audio/aac' },
+  'audio/webm': { ext: 'webm', mimeType: 'audio/webm' },
+  'audio/flac': { ext: 'flac', mimeType: 'audio/flac' },
+  'audio/x-flac': { ext: 'flac', mimeType: 'audio/flac' },
+};
+
+const AUDIO_EXT_MIME_MAP: Record<string, { ext: string; mimeType: string }> = {
+  mp3: { ext: 'mp3', mimeType: 'audio/mpeg' },
+  wav: { ext: 'wav', mimeType: 'audio/wav' },
+  ogg: { ext: 'ogg', mimeType: 'audio/ogg' },
+  m4a: { ext: 'm4a', mimeType: 'audio/mp4' },
+  aac: { ext: 'aac', mimeType: 'audio/aac' },
+  webm: { ext: 'webm', mimeType: 'audio/webm' },
+  flac: { ext: 'flac', mimeType: 'audio/flac' },
+};
 
 @Injectable()
 export class NotesService implements OnModuleInit {
@@ -69,6 +99,9 @@ export class NotesService implements OnModuleInit {
       );
       await this.notesRepo.query(
         `ALTER TABLE notes ADD COLUMN IF NOT EXISTS history JSONB NULL`,
+      );
+      await this.notesRepo.query(
+        `ALTER TABLE notes ADD COLUMN IF NOT EXISTS audios JSONB NULL`,
       );
       await this.notesRepo.query(
         `UPDATE notes SET expires_at = NULL WHERE expires_at IS NOT NULL`,
@@ -111,6 +144,17 @@ export class NotesService implements OnModuleInit {
       return `/notes/share/${encodeURIComponent(shareToken)}/images/${filename}`;
     }
     return `/notes/${encodeURIComponent(noteId)}/images/${filename}`;
+  }
+
+  private getNoteAudioUrl(
+    noteId: string,
+    filename: string,
+    shareToken?: string,
+  ): string {
+    if (shareToken) {
+      return `/notes/share/${encodeURIComponent(shareToken)}/audios/${filename}`;
+    }
+    return `/notes/${encodeURIComponent(noteId)}/audios/${filename}`;
   }
 
   private sanitizeNoteContent(
@@ -263,6 +307,8 @@ export class NotesService implements OnModuleInit {
     const isUserNote = !!note.userId;
     const imageUrlForFilename = (filename: string) =>
       this.getNoteImageUrl(note.id, filename, shareToken);
+    const audioUrlForFilename = (filename: string) =>
+      this.getNoteAudioUrl(note.id, filename, shareToken);
     return {
       id: note.id,
       title: note.title,
@@ -273,6 +319,12 @@ export class NotesService implements OnModuleInit {
         ...image,
         url: NOTE_IMAGE_FILENAME_PATTERN.test(image.filename)
           ? imageUrlForFilename(image.filename)
+          : '',
+      })),
+      audios: note.audios?.map((audio) => ({
+        ...audio,
+        url: NOTE_AUDIO_FILENAME_PATTERN.test(audio.filename)
+          ? audioUrlForFilename(audio.filename)
           : '',
       })),
       isPinned: note.isPinned,
@@ -374,6 +426,7 @@ export class NotesService implements OnModuleInit {
       bgColor: dto.bgColor ?? 'default',
       bgPattern: dto.bgPattern ?? 'none',
       images: null,
+      audios: null,
       shareMode: 'none',
       shareToken: null,
       isPinned: false,
@@ -603,6 +656,24 @@ export class NotesService implements OnModuleInit {
         const filepath = path.join(this.uploadDir, img.filename);
         if (fs.existsSync(filepath)) {
           fs.unlinkSync(filepath);
+        }
+      }
+    }
+
+    // Delete associated audio files from disk and object storage
+    if (note.audios?.length) {
+      for (const audio of note.audios) {
+        const filepath = path.join(this.uploadDir, audio.filename);
+        if (fs.existsSync(filepath)) {
+          fs.unlinkSync(filepath);
+        }
+        try {
+          await this.objectStorage.delete(`notes/${audio.filename}`);
+        } catch (error) {
+          this.logger.warn(
+            `Failed to delete note audio from object storage: ${audio.filename}`,
+            error instanceof Error ? error.stack : undefined,
+          );
         }
       }
     }
@@ -956,6 +1027,230 @@ export class NotesService implements OnModuleInit {
       );
     }
     return this.processImageDelete(note, imageIndex);
+  }
+
+  // ─── Audio Upload ──────────────────────────────────────────────────────────
+
+  private resolveAudioType(file: Express.Multer.File): {
+    ext: string;
+    mimeType: string;
+  } {
+    const baseMime = (file.mimetype || '').split(';')[0].trim().toLowerCase();
+    const mapped = AUDIO_MIME_MAP[baseMime];
+    if (mapped) return mapped;
+
+    if (baseMime === 'application/octet-stream' || !baseMime) {
+      const ext = path
+        .extname(file.originalname || '')
+        .toLowerCase()
+        .replace(/^\./, '');
+      const byExt = AUDIO_EXT_MIME_MAP[ext];
+      if (byExt) return byExt;
+    }
+
+    throw new BadRequestException(
+      'Chỉ hỗ trợ tệp âm thanh MP3, WAV, OGG, M4A, AAC, WebM, FLAC',
+    );
+  }
+
+  private async processAudioUpload(
+    note: Note,
+    file: Express.Multer.File,
+    shareToken?: string,
+  ): Promise<{ audio: NoteAudio }> {
+    const currentAudios = note.audios ?? [];
+    if (currentAudios.length >= MAX_AUDIOS_PER_NOTE) {
+      throw new BadRequestException(
+        `Mỗi note chỉ được tối đa ${MAX_AUDIOS_PER_NOTE} tệp âm thanh`,
+      );
+    }
+
+    const { ext, mimeType: normalizedMimeType } = this.resolveAudioType(file);
+    const filename = `${crypto.randomBytes(12).toString('hex')}.${ext}`;
+    const objectKey = `notes/${filename}`;
+    const sanitizedOriginalName = path
+      .basename(file.originalname || filename)
+      .slice(0, 160);
+
+    const audio: NoteAudio = {
+      filename,
+      url: this.getNoteAudioUrl(note.id, filename),
+      originalName: sanitizedOriginalName,
+      mimeType: normalizedMimeType,
+      size: file.buffer.length,
+    };
+
+    await this.objectStorage.put(objectKey, file.buffer, normalizedMimeType);
+    note.audios = [...currentAudios, audio];
+    try {
+      await this.notesRepo.save(note);
+    } catch (error) {
+      note.audios = currentAudios.length > 0 ? [...currentAudios] : null;
+      try {
+        await this.objectStorage.delete(objectKey);
+      } catch (cleanupError) {
+        this.logger.warn(
+          `Failed to clean up an unreferenced note audio after database save failed: ${filename}`,
+          cleanupError instanceof Error ? cleanupError.stack : undefined,
+        );
+      }
+      throw error;
+    }
+
+    return {
+      audio: {
+        ...audio,
+        url: this.getNoteAudioUrl(note.id, filename, shareToken),
+      },
+    };
+  }
+
+  private async readNoteAudio(
+    note: Note,
+    filename: string,
+  ): Promise<{ buffer: Buffer; mimeType: string }> {
+    const audioItem = NOTE_AUDIO_FILENAME_PATTERN.test(filename)
+      ? note.audios?.find((audio) => audio.filename === filename)
+      : undefined;
+    if (!audioItem) {
+      throw new NotFoundException('Không tìm thấy tệp âm thanh');
+    }
+
+    const mimeType = audioItem.mimeType || 'audio/mpeg';
+    const storedAudio = await this.objectStorage.get(`notes/${filename}`);
+    if (storedAudio) {
+      return { buffer: storedAudio, mimeType };
+    }
+
+    try {
+      const buffer = await fs.promises.readFile(
+        path.join(this.uploadDir, filename),
+      );
+      return { buffer, mimeType };
+    } catch (error) {
+      if (isMissingFile(error)) {
+        throw new NotFoundException('Không tìm thấy tệp âm thanh');
+      }
+      throw error;
+    }
+  }
+
+  async getAudio(
+    noteId: string,
+    filename: string,
+    userId?: string,
+    guestToken?: string,
+  ): Promise<{ buffer: Buffer; mimeType: string }> {
+    const note = await this.notesRepo.findOne({ where: { id: noteId } });
+    if (!note) throw new NotFoundException('Không tìm thấy note');
+    if (!this.canViewNote(note, userId, guestToken)) {
+      throw new ForbiddenException('Bạn không có quyền xem note này');
+    }
+    return this.readNoteAudio(note, filename);
+  }
+
+  async getAudioByShareToken(
+    shareToken: string,
+    filename: string,
+  ): Promise<{ buffer: Buffer; mimeType: string }> {
+    const note = await this.notesRepo.findOne({ where: { shareToken } });
+    if (!note)
+      throw new NotFoundException('Link chia sẻ không hợp lệ hoặc đã hết hạn');
+    if (note.shareMode === 'none') {
+      throw new ForbiddenException('Note này không được chia sẻ công khai');
+    }
+    return this.readNoteAudio(note, filename);
+  }
+
+  private async processAudioDelete(
+    note: Note,
+    audioIndex: number,
+  ): Promise<{ success: boolean }> {
+    const previousAudios = note.audios;
+    const audios = [...(previousAudios ?? [])];
+    if (audioIndex < 0 || audioIndex >= audios.length) {
+      throw new BadRequestException('Index tệp âm thanh không hợp lệ');
+    }
+
+    const [removed] = audios.splice(audioIndex, 1);
+    note.audios = audios.length > 0 ? audios : null;
+    try {
+      await this.notesRepo.save(note);
+    } catch (error) {
+      note.audios = previousAudios;
+      throw error;
+    }
+
+    try {
+      await this.objectStorage.delete(`notes/${removed.filename}`);
+      await fs.promises.rm(path.join(this.uploadDir, removed.filename), {
+        force: true,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Note audio metadata was deleted but storage cleanup failed: ${removed.filename}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+    return { success: true };
+  }
+
+  async uploadAudio(
+    noteId: string,
+    file: Express.Multer.File,
+    userId?: string,
+    guestToken?: string,
+  ): Promise<{ audio: NoteAudio }> {
+    const note = await this.notesRepo.findOne({ where: { id: noteId } });
+    if (!note) throw new NotFoundException('Không tìm thấy note');
+    if (!this.canEditNote(note, userId, guestToken)) {
+      throw new ForbiddenException('Bạn không có quyền thực hiện thao tác này');
+    }
+    return this.processAudioUpload(note, file);
+  }
+
+  async deleteAudio(
+    noteId: string,
+    audioIndex: number,
+    userId?: string,
+    guestToken?: string,
+  ): Promise<{ success: boolean }> {
+    const note = await this.notesRepo.findOne({ where: { id: noteId } });
+    if (!note) throw new NotFoundException('Không tìm thấy note');
+    if (!this.canEditNote(note, userId, guestToken)) {
+      throw new ForbiddenException('Bạn không có quyền thực hiện thao tác này');
+    }
+    return this.processAudioDelete(note, audioIndex);
+  }
+
+  async uploadAudioByShareToken(
+    shareToken: string,
+    file: Express.Multer.File,
+  ): Promise<{ audio: NoteAudio }> {
+    const note = await this.notesRepo.findOne({ where: { shareToken } });
+    if (!note)
+      throw new NotFoundException('Không tìm thấy note hoặc link đã hết hạn');
+    if (note.shareMode !== 'edit') {
+      throw new ForbiddenException(
+        'Note này chỉ ở chế độ xem, không thể upload âm thanh',
+      );
+    }
+    return this.processAudioUpload(note, file, shareToken);
+  }
+
+  async deleteAudioByShareToken(
+    shareToken: string,
+    audioIndex: number,
+  ): Promise<{ success: boolean }> {
+    const note = await this.notesRepo.findOne({ where: { shareToken } });
+    if (!note)
+      throw new NotFoundException('Không tìm thấy note hoặc link đã hết hạn');
+    if (note.shareMode !== 'edit') {
+      throw new ForbiddenException(
+        'Note này chỉ ở chế độ xem, không thể xoá âm thanh',
+      );
+    }
+    return this.processAudioDelete(note, audioIndex);
   }
 
   // ─── Mail ─────────────────────────────────────────────────────────────────

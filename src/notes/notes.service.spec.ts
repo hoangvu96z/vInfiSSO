@@ -17,6 +17,7 @@ import type {
 import { NotesService } from './notes.service';
 import { Note } from './note.entity';
 import { NoteInvite } from './note-invite.entity';
+import sharp from 'sharp';
 import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/users.service';
 import { OBJECT_STORAGE } from '../storage/object-storage';
@@ -515,6 +516,128 @@ describe('NotesService', () => {
       await service.cleanupExpiredNotes();
       expect(mockNotesRepo.delete).not.toHaveBeenCalled();
       expect(mockInviteRepo.delete).toHaveBeenCalled();
+    });
+  });
+
+  describe('Image Attachments (Max 10 per Note)', () => {
+    it('allows uploading up to 10 images and rejects the 11th image', async () => {
+      const pngBuffer = await sharp({
+        create: {
+          width: 4,
+          height: 4,
+          channels: 3,
+          background: { r: 52, g: 211, b: 153 },
+        },
+      })
+        .png()
+        .toBuffer();
+
+      let storedNote: Partial<Note> = {
+        id: 'note-img-10',
+        userId: 'user-1',
+        images: null,
+      };
+      mockNotesRepo.findOne.mockImplementation(() =>
+        Promise.resolve(storedNote),
+      );
+      mockNotesRepo.save.mockImplementation((entity) => {
+        storedNote = { ...storedNote, ...entity };
+        return Promise.resolve(storedNote as TestNote);
+      });
+
+      const fakeImageFile = {
+        buffer: pngBuffer,
+        mimetype: 'image/png',
+        originalname: 'sample.png',
+        size: pngBuffer.length,
+      } as Express.Multer.File;
+
+      for (let i = 1; i <= 10; i++) {
+        const res = await service.uploadImage(
+          'note-img-10',
+          fakeImageFile,
+          'user-1',
+        );
+        expect(res.image.filename).toMatch(/^[a-f0-9]{24}\.webp$/);
+      }
+
+      expect(storedNote.images).toHaveLength(10);
+
+      await expect(
+        service.uploadImage('note-img-10', fakeImageFile, 'user-1'),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('Audio Attachments (Max 10 per Note)', () => {
+    it('uploads, reads, and deletes audio attachments and enforces the 10-file limit', async () => {
+      const audioBuffer = Buffer.from('ID3-fake-mp3-audio-payload');
+      let storedNote: Partial<Note> = {
+        id: 'note-audio-1',
+        userId: 'user-1',
+        audios: null,
+        shareMode: 'edit',
+        shareToken: 'share-audio-tok',
+      };
+
+      mockNotesRepo.findOne.mockImplementation(() =>
+        Promise.resolve(storedNote),
+      );
+      mockNotesRepo.save.mockImplementation((entity) => {
+        storedNote = { ...storedNote, ...entity };
+        return Promise.resolve(storedNote as TestNote);
+      });
+      mockObjectStorage.get.mockResolvedValue(audioBuffer);
+
+      const makeAudioFile = (idx: number): Express.Multer.File =>
+        ({
+          buffer: audioBuffer,
+          mimetype: 'audio/mpeg',
+          originalname: `track-${idx}.mp3`,
+          size: audioBuffer.length,
+        }) as Express.Multer.File;
+
+      for (let i = 1; i <= 10; i++) {
+        const uploaded = await service.uploadAudio(
+          'note-audio-1',
+          makeAudioFile(i),
+          'user-1',
+        );
+        expect(uploaded.audio.filename).toMatch(/^[a-f0-9]{24}\.mp3$/);
+        expect(uploaded.audio.mimeType).toBe('audio/mpeg');
+        expect(uploaded.audio.originalName).toBe(`track-${i}.mp3`);
+        expect(uploaded.audio.url).toBe(
+          `/notes/note-audio-1/audios/${uploaded.audio.filename}`,
+        );
+      }
+
+      expect(storedNote.audios).toHaveLength(10);
+
+      await expect(
+        service.uploadAudio('note-audio-1', makeAudioFile(11), 'user-1'),
+      ).rejects.toThrow(BadRequestException);
+
+      const firstFilename = storedNote.audios![0].filename;
+      const readRes = await service.getAudio(
+        'note-audio-1',
+        firstFilename,
+        'user-1',
+      );
+      expect(readRes.buffer).toEqual(audioBuffer);
+      expect(readRes.mimeType).toBe('audio/mpeg');
+
+      const sharedRead = await service.getAudioByShareToken(
+        'share-audio-tok',
+        firstFilename,
+      );
+      expect(sharedRead.buffer).toEqual(audioBuffer);
+
+      const delRes = await service.deleteAudio('note-audio-1', 0, 'user-1');
+      expect(delRes.success).toBe(true);
+      expect(storedNote.audios).toHaveLength(9);
+      expect(mockObjectStorage.delete).toHaveBeenCalledWith(
+        `notes/${firstFilename}`,
+      );
     });
   });
 });
