@@ -22,7 +22,11 @@ describe('NotesController image upload throttling', () => {
       | 'uploadImage'
       | 'uploadImageByShareToken'
       | 'getImage'
-      | 'getImageByShareToken',
+      | 'getImageByShareToken'
+      | 'uploadAudio'
+      | 'uploadAudioByShareToken'
+      | 'getAudio'
+      | 'getAudioByShareToken',
   ): object => {
     const descriptor = Object.getOwnPropertyDescriptor(
       NotesController.prototype,
@@ -37,20 +41,24 @@ describe('NotesController image upload throttling', () => {
   const uploadHandlers = [
     getUploadHandler('uploadImage'),
     getUploadHandler('uploadImageByShareToken'),
+    getUploadHandler('uploadAudio'),
+    getUploadHandler('uploadAudioByShareToken'),
   ];
 
   const imageDownloadHandlers = [
     getUploadHandler('getImage'),
     getUploadHandler('getImageByShareToken'),
+    getUploadHandler('getAudio'),
+    getUploadHandler('getAudioByShareToken'),
   ];
 
-  it('applies a 10-per-minute ThrottlerGuard to every image upload route', () => {
+  it('applies a 30-per-minute ThrottlerGuard to every media upload route', () => {
     for (const handler of uploadHandlers) {
       expect(Reflect.getMetadata(GUARDS_METADATA, handler)).toContain(
         ThrottlerGuard,
       );
       expect(Reflect.getMetadata(`${THROTTLER_LIMIT}default`, handler)).toBe(
-        10,
+        30,
       );
       expect(Reflect.getMetadata(`${THROTTLER_TTL}default`, handler)).toBe(
         60_000,

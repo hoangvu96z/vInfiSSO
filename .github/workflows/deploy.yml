@@ -253,8 +253,13 @@ jobs:
       # ── 6. Health check ──────────────────────────────────────────────────────
       - name: Health check
         run: |
-          sleep 5
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://sso.vunph.click/ui/sso || echo "000")
-          echo "SSO Service Health: $STATUS"
-          [ "$STATUS" = "200" ] || exit 1
-          echo "✅ SSO Service đang hoạt động tốt!"
+          for attempt in 1 2 3 4 5 6; do
+            sleep 5
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://sso.vunph.click/ui/sso || echo "000")
+            echo "Attempt $attempt - SSO Service Health: $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ SSO Service đang hoạt động tốt!"
+              exit 0
+            fi
+          done
+          exit 1
