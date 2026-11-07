@@ -639,5 +639,41 @@ describe('NotesService', () => {
         `notes/${firstFilename}`,
       );
     });
+
+    it('deletes both images and audios from object storage when deleting a note', async () => {
+      mockNotesRepo.findOne.mockResolvedValue({
+        id: 'note-del-media',
+        userId: 'user-1',
+        images: [
+          {
+            filename: '0123456789abcdef01234567.webp',
+            url: '/notes/note-del-media/images/0123456789abcdef01234567.webp',
+            width: 100,
+            height: 100,
+            size: 1234,
+          },
+        ],
+        audios: [
+          {
+            filename: 'abcdef0123456789abcdef01.mp3',
+            url: '/notes/note-del-media/audios/abcdef0123456789abcdef01.mp3',
+            originalName: 'voice.mp3',
+            mimeType: 'audio/mpeg',
+            size: 5678,
+          },
+        ],
+      });
+      mockNotesRepo.find.mockResolvedValue([]);
+
+      await service.deleteNote('note-del-media', 'user-1');
+
+      expect(mockObjectStorage.delete).toHaveBeenCalledWith(
+        'notes/0123456789abcdef01234567.webp',
+      );
+      expect(mockObjectStorage.delete).toHaveBeenCalledWith(
+        'notes/abcdef0123456789abcdef01.mp3',
+      );
+      expect(mockNotesRepo.delete).toHaveBeenCalledWith('note-del-media');
+    });
   });
 });

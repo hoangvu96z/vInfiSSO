@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import * as path from 'node:path';
-import { LocalObjectStorage } from './local-object-storage';
+import { ConfigService } from '@nestjs/config';
+import { createObjectStorage } from './object-storage.factory';
 
 export const LOCAL_UPLOAD_STORAGE = Symbol('LOCAL_UPLOAD_STORAGE');
 
@@ -8,8 +8,8 @@ export const LOCAL_UPLOAD_STORAGE = Symbol('LOCAL_UPLOAD_STORAGE');
   providers: [
     {
       provide: LOCAL_UPLOAD_STORAGE,
-      useFactory: () =>
-        new LocalObjectStorage(path.join(process.cwd(), 'uploads')),
+      inject: [ConfigService],
+      useFactory: createObjectStorage,
     },
   ],
   exports: [LOCAL_UPLOAD_STORAGE],

@@ -650,12 +650,20 @@ export class NotesService implements OnModuleInit {
     if (!note) throw new NotFoundException('Không tìm thấy note');
     this.verifyNoteOwnership(note, userId, guestToken);
 
-    // Delete associated images from disk
+    // Delete associated images from disk and object storage
     if (note.images?.length) {
       for (const img of note.images) {
         const filepath = path.join(this.uploadDir, img.filename);
         if (fs.existsSync(filepath)) {
           fs.unlinkSync(filepath);
+        }
+        try {
+          await this.objectStorage.delete(`notes/${img.filename}`);
+        } catch (error) {
+          this.logger.warn(
+            `Failed to delete note image from object storage: ${img.filename}`,
+            error instanceof Error ? error.stack : undefined,
+          );
         }
       }
     }
