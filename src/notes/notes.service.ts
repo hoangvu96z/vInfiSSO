@@ -35,6 +35,8 @@ const USER_MAX_CHARS = 100_000;
 const MAX_SERVER_HISTORY = 5;
 const MAX_IMAGES_PER_NOTE = 10;
 const MAX_AUDIOS_PER_NOTE = 10;
+const MAX_TAGS_PER_NOTE = 12;
+const MAX_TAG_LENGTH = 32;
 const NOTE_IMAGE_FILENAME_PATTERN = /^[a-f0-9]{24}\.webp$/;
 const NOTE_AUDIO_FILENAME_PATTERN =
   /^[a-f0-9]{24}\.(mp3|wav|ogg|m4a|aac|webm|flac)$/;
@@ -104,6 +106,9 @@ export class NotesService implements OnModuleInit {
         `ALTER TABLE notes ADD COLUMN IF NOT EXISTS audios JSONB NULL`,
       );
       await this.notesRepo.query(
+        `ALTER TABLE notes ADD COLUMN IF NOT EXISTS tags JSONB NULL`,
+      );
+      await this.notesRepo.query(
         `UPDATE notes SET expires_at = NULL WHERE expires_at IS NOT NULL`,
       );
     } catch (error) {
@@ -157,6 +162,28 @@ export class NotesService implements OnModuleInit {
     return `/notes/${encodeURIComponent(noteId)}/audios/${filename}`;
   }
 
+  private normalizeNoteTags(rawTags: unknown): string[] {
+    if (!Array.isArray(rawTags)) return [];
+    const seen = new Set<string>();
+    const normalized: string[] = [];
+    for (const raw of rawTags) {
+      if (typeof raw !== 'string') continue;
+      const cleaned = raw
+        .trim()
+        .replace(/^#+/, '')
+        .toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^\p{L}\p{N}_-]/gu, '')
+        .slice(0, MAX_TAG_LENGTH);
+      if (cleaned && !seen.has(cleaned)) {
+        seen.add(cleaned);
+        normalized.push(cleaned);
+        if (normalized.length >= MAX_TAGS_PER_NOTE) break;
+      }
+    }
+    return normalized;
+  }
+
   private sanitizeNoteContent(
     content: string | null | undefined,
     imageUrlForFilename?: (filename: string) => string,
@@ -172,6 +199,7 @@ export class NotesService implements OnModuleInit {
         'i',
         'u',
         's',
+        'mark',
         'ul',
         'ol',
         'li',
@@ -185,10 +213,30 @@ export class NotesService implements OnModuleInit {
         'code',
         'hr',
         'a',
+        'div',
+        'span',
+        'label',
+        'input',
       ],
       allowedAttributes: {
         a: ['href', 'name', 'target', 'rel'],
         img: ['src', 'alt', 'width', 'height'],
+        ul: [{ name: 'data-type', values: ['taskList'] }],
+        li: [
+          { name: 'data-type', values: ['taskItem'] },
+          { name: 'data-checked', values: ['true', 'false'] },
+        ],
+        input: ['type', 'checked', 'disabled'],
+        p: ['style'],
+        h1: ['style'],
+        h2: ['style'],
+        h3: ['style'],
+        h4: ['style'],
+      },
+      allowedStyles: {
+        '*': {
+          'text-align': [/^(left|right|center|justify)$/],
+        },
       },
       allowedSchemes: ['http', 'https', 'mailto'],
       transformTags: {
@@ -217,8 +265,23 @@ export class NotesService implements OnModuleInit {
           }
           return { tagName: 'img', attribs };
         },
+        input: (_tagName, attributes) => {
+          if ((attributes.type ?? '').toLowerCase() !== 'checkbox') {
+            return { tagName: 'input', attribs: {} };
+          }
+          const attribs: Record<string, string> = { type: 'checkbox' };
+          if ('checked' in attributes && attributes.checked !== 'false') {
+            attribs.checked = 'checked';
+          }
+          if ('disabled' in attributes && attributes.disabled !== 'false') {
+            attribs.disabled = 'disabled';
+          }
+          return { tagName: 'input', attribs };
+        },
       },
-      exclusiveFilter: (frame) => frame.tag === 'img' && !frame.attribs.src,
+      exclusiveFilter: (frame) =>
+        (frame.tag === 'img' && !frame.attribs.src) ||
+        (frame.tag === 'input' && frame.attribs.type !== 'checkbox'),
     });
   }
 
@@ -327,6 +390,7 @@ export class NotesService implements OnModuleInit {
           ? audioUrlForFilename(audio.filename)
           : '',
       })),
+      tags: this.normalizeNoteTags(note.tags),
       isPinned: note.isPinned,
       isArchived: note.isArchived,
       shareMode: note.shareMode,
@@ -427,6 +491,7 @@ export class NotesService implements OnModuleInit {
       bgPattern: dto.bgPattern ?? 'none',
       images: null,
       audios: null,
+      tags: this.normalizeNoteTags(dto.tags),
       shareMode: 'none',
       shareToken: null,
       isPinned: false,
@@ -528,6 +593,10 @@ export class NotesService implements OnModuleInit {
       content: sanitizedNewContent,
       bgColor: dto.bgColor !== undefined ? dto.bgColor : note.bgColor,
       bgPattern: dto.bgPattern !== undefined ? dto.bgPattern : note.bgPattern,
+      tags:
+        dto.tags !== undefined
+          ? this.normalizeNoteTags(dto.tags)
+          : (note.tags ?? []),
       isPinned: dto.isPinned !== undefined ? dto.isPinned : note.isPinned,
       isArchived:
         dto.isArchived !== undefined ? dto.isArchived : note.isArchived,
@@ -611,6 +680,10 @@ export class NotesService implements OnModuleInit {
           : note.content,
       bgColor: dto.bgColor !== undefined ? dto.bgColor : note.bgColor,
       bgPattern: dto.bgPattern !== undefined ? dto.bgPattern : note.bgPattern,
+      tags:
+        dto.tags !== undefined
+          ? this.normalizeNoteTags(dto.tags)
+          : (note.tags ?? []),
     });
 
     const saved = await this.notesRepo.save(note);

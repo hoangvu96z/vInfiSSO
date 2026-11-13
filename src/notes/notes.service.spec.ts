@@ -288,6 +288,86 @@ describe('NotesService', () => {
       expect(note.content).toBe('<p>Old note</p>');
       expect(note.content).not.toMatch(/script|onmouseover|alert\(/i);
     });
+
+    it('preserves taskList, taskItem, and checkbox inputs while stripping unsafe inputs and attributes', async () => {
+      const rawHtml = [
+        '<ul data-type="taskList">',
+        '<li data-type="taskItem" data-checked="true" onclick="alert(1)"><label><input type="checkbox" checked name="steal" value="x" formaction="javascript:alert(1)"></label><div><p>Done item</p></div></li>',
+        '<li data-type="taskItem" data-checked="false"><label><input type="checkbox"></label><div><p>Pending item</p></div></li>',
+        '</ul>',
+        '<input type="password" value="secret">',
+        '<input type="text" onfocus="alert(2)">',
+        '<img src="x" onerror="alert(3)">',
+      ].join('');
+
+      const created = await service.createNote(
+        { content: rawHtml },
+        undefined,
+        'guest-token-1',
+      );
+
+      expect(created.content).toContain('<ul data-type="taskList">');
+      expect(created.content).toContain(
+        '<li data-type="taskItem" data-checked="true">',
+      );
+      expect(created.content).toContain(
+        '<li data-type="taskItem" data-checked="false">',
+      );
+      expect(created.content).toContain(
+        '<input type="checkbox" checked="checked" />',
+      );
+      expect(created.content).toContain('<input type="checkbox" />');
+      expect(created.content).not.toMatch(
+        /password|type="text"|name=|value=|formaction|onclick|onfocus|onerror/i,
+      );
+    });
+  });
+
+  describe('Note Tags Normalization', () => {
+    it('normalizes tags on create and update, strips #, caps at 12 tags and 32 chars, and defaults null to []', async () => {
+      const manyRawTags = [
+        ' #Công Việc ',
+        'công-việc',
+        '##Tài Chính!',
+        'a'.repeat(50),
+        ...Array.from({ length: 15 }, (_, idx) => `#tag_${idx + 1}`),
+      ];
+
+      const created = await service.createNote(
+        { title: 'Tagged Note', tags: manyRawTags },
+        undefined,
+        'guest-token-1',
+      );
+
+      expect(created.tags).toHaveLength(12);
+      expect(created.tags[0]).toBe('công-việc');
+      expect(created.tags[1]).toBe('tài-chính');
+      expect(created.tags[2]).toBe('a'.repeat(32));
+
+      let storedNote: Partial<Note> = {
+        id: 'note-tags-1',
+        userId: 'user-1',
+        title: 'Untagged legacy note',
+        tags: null,
+      };
+      mockNotesRepo.findOne.mockImplementation(() =>
+        Promise.resolve(storedNote),
+      );
+      mockNotesRepo.save.mockImplementation((entity) => {
+        storedNote = { ...storedNote, ...entity };
+        return Promise.resolve(storedNote as TestNote);
+      });
+
+      const legacyRead = await service.getNoteById('note-tags-1', 'user-1');
+      expect(legacyRead.tags).toEqual([]);
+
+      const updated = await service.updateNote(
+        'note-tags-1',
+        { tags: ['#Nghiệm Lý', '  #hoc-tap  ', '###'] },
+        'user-1',
+      );
+      expect(updated.tags).toEqual(['nghiệm-lý', 'hoc-tap']);
+    });
   });
 
   describe('No Auto-Expiration Policy', () => {

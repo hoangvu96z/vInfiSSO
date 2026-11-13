@@ -1,4 +1,6 @@
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsIn,
   IsOptional,
@@ -27,6 +29,13 @@ export class CreateNoteDto {
   @IsString()
   @MaxLength(30)
   bgPattern?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(100, { each: true })
+  tags?: string[];
 }
 
 export class UpdateNoteDto extends CreateNoteDto {

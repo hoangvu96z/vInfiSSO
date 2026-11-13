@@ -76,6 +76,9 @@ export class Note {
   @Column({ type: 'jsonb', nullable: true })
   audios: NoteAudio[] | null; // max 10 audio files
 
+  @Column({ type: 'jsonb', nullable: true, default: () => "'[]'::jsonb" })
+  tags: string[] | null; // max 12 normalized tags
+
   // ─── Share ────────────────────────────────────────────────────────────────
   @Column({
     name: 'share_mode',
