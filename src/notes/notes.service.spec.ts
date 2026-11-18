@@ -755,5 +755,47 @@ describe('NotesService', () => {
       );
       expect(mockNotesRepo.delete).toHaveBeenCalledWith('note-del-media');
     });
+
+    it('normalizes browser/OS voice recording container MIME types (video/webm, video/mp4, audio/opus)', async () => {
+      const payload = Buffer.from('WEBM-OPUS-AUDIO');
+      let storedNote: Partial<Note> = {
+        id: 'note-voice-mime',
+        userId: 'user-1',
+        audios: null,
+      };
+      mockNotesRepo.findOne.mockImplementation(() =>
+        Promise.resolve(storedNote),
+      );
+      mockNotesRepo.save.mockImplementation((entity) => {
+        storedNote = { ...storedNote, ...entity };
+        return Promise.resolve(storedNote as TestNote);
+      });
+
+      const webmRes = await service.uploadAudio(
+        'note-voice-mime',
+        {
+          buffer: payload,
+          mimetype: 'video/webm;codecs=opus',
+          originalname: 'ghi-am-1.webm',
+          size: payload.length,
+        } as Express.Multer.File,
+        'user-1',
+      );
+      expect(webmRes.audio.filename).toMatch(/^[a-f0-9]{24}\.webm$/);
+      expect(webmRes.audio.mimeType).toBe('audio/webm');
+
+      const mp4Res = await service.uploadAudio(
+        'note-voice-mime',
+        {
+          buffer: payload,
+          mimetype: 'video/mp4',
+          originalname: 'ghi-am-2.m4a',
+          size: payload.length,
+        } as Express.Multer.File,
+        'user-1',
+      );
+      expect(mp4Res.audio.filename).toMatch(/^[a-f0-9]{24}\.m4a$/);
+      expect(mp4Res.audio.mimeType).toBe('audio/mp4');
+    });
   });
 });

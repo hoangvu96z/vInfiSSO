@@ -32,6 +32,7 @@ export function getHelmetOptions(isProduction: boolean): HelmetOptions {
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
         imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+        mediaSrc: ["'self'", 'data:', 'blob:'],
         connectSrc: ["'self'"],
         upgradeInsecureRequests: isProduction ? [] : null,
       },

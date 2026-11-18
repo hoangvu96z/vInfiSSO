@@ -1,9 +1,11 @@
 import {
   Injectable,
+  Optional,
   UnauthorizedException,
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UsersService } from '../users/users.service';
@@ -11,12 +13,16 @@ import type { ResolvedSession } from '../users/users.service';
 import { User } from '../users/user.entity';
 import { AuditLog } from '../users/audit-log.entity';
 
+const DEFAULT_SSO_BASE_URL = 'https://sso.vunph.click';
+
 @Injectable()
 export class SsoService {
   constructor(
     private readonly usersService: UsersService,
     @InjectRepository(AuditLog)
     private readonly auditLogRepo: Repository<AuditLog>,
+    @Optional()
+    private readonly configService?: ConfigService,
   ) {}
 
   // ─── Register ─────────────────────────────────────────────────────────────
@@ -176,8 +182,41 @@ export class SsoService {
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
+  private resolveSsoBaseUrl(): string {
+    const candidates = [
+      this.configService?.get<string>('SSO_BASE_URL'),
+      this.configService?.get<string>('SSO_PUBLIC_URL'),
+      this.configService?.get<string>('PUBLIC_URL'),
+      this.configService?.get<string>('BACKEND_URL'),
+      process.env.SSO_BASE_URL,
+      process.env.SSO_PUBLIC_URL,
+      process.env.PUBLIC_URL,
+      process.env.BACKEND_URL,
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return candidate.trim().replace(/\/+$/, '');
+      }
+    }
+    return DEFAULT_SSO_BASE_URL;
+  }
+
+  private hasCustomAvatar(avatar: unknown): boolean {
+    if (!avatar) return false;
+    if (Buffer.isBuffer(avatar) || avatar instanceof Uint8Array) {
+      return avatar.length > 0;
+    }
+    if (typeof avatar === 'string') {
+      return avatar.length > 0;
+    }
+    return true;
+  }
+
   sanitizeUser(user: User): Partial<User> {
     const safe: Partial<User> = { ...user };
+    if (!safe.avatarUrl && user.id && this.hasCustomAvatar(user.avatar)) {
+      safe.avatarUrl = `${this.resolveSsoBaseUrl()}/sso/avatar/${encodeURIComponent(user.id)}`;
+    }
     delete safe.passwordHash;
     delete safe.emailVerificationToken;
     delete safe.passwordResetToken;

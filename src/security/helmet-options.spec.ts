@@ -34,6 +34,7 @@ describe('Helmet security headers', () => {
     expect(response.text).toContain('nonce="test-nonce"');
     expect(csp).toContain("style-src 'self' 'unsafe-inline'");
     expect(csp).toContain('https://fonts.googleapis.com');
+    expect(csp).toContain("media-src 'self' data: blob:");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain('upgrade-insecure-requests');
     expect(response.headers['strict-transport-security']).toContain(

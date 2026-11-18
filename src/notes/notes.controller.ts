@@ -43,20 +43,30 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB raw (will be compressed to 720p)
 const ALLOWED_AUDIO_MIME = [
   'audio/mpeg',
   'audio/mp3',
+  'audio/mpga',
   'audio/wav',
   'audio/x-wav',
   'audio/wave',
+  'audio/vnd.wave',
   'audio/ogg',
   'application/ogg',
+  'audio/opus',
   'audio/mp4',
+  'video/mp4',
   'audio/x-m4a',
   'audio/m4a',
   'audio/aac',
+  'audio/aacp',
   'audio/webm',
+  'video/webm',
   'audio/flac',
   'audio/x-flac',
+  'audio/3gpp',
+  'audio/3gpp2',
+  'audio/amr',
 ];
-const ALLOWED_AUDIO_EXT_PATTERN = /\.(mp3|wav|ogg|m4a|aac|webm|flac)$/i;
+const ALLOWED_AUDIO_EXT_PATTERN =
+  /\.(mp3|wav|ogg|opus|m4a|mp4|aac|webm|flac|3gp|amr)$/i;
 const MAX_AUDIO_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 
 function isAllowedAudioFile(file: {

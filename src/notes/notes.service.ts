@@ -39,34 +39,47 @@ const MAX_TAGS_PER_NOTE = 12;
 const MAX_TAG_LENGTH = 32;
 const NOTE_IMAGE_FILENAME_PATTERN = /^[a-f0-9]{24}\.webp$/;
 const NOTE_AUDIO_FILENAME_PATTERN =
-  /^[a-f0-9]{24}\.(mp3|wav|ogg|m4a|aac|webm|flac)$/;
+  /^[a-f0-9]{24}\.(mp3|wav|ogg|opus|m4a|aac|webm|flac|3gp|amr)$/;
 const INVITE_TTL_DAYS = 7;
 
 const AUDIO_MIME_MAP: Record<string, { ext: string; mimeType: string }> = {
   'audio/mpeg': { ext: 'mp3', mimeType: 'audio/mpeg' },
   'audio/mp3': { ext: 'mp3', mimeType: 'audio/mpeg' },
+  'audio/mpga': { ext: 'mp3', mimeType: 'audio/mpeg' },
   'audio/wav': { ext: 'wav', mimeType: 'audio/wav' },
   'audio/x-wav': { ext: 'wav', mimeType: 'audio/wav' },
   'audio/wave': { ext: 'wav', mimeType: 'audio/wav' },
+  'audio/vnd.wave': { ext: 'wav', mimeType: 'audio/wav' },
   'audio/ogg': { ext: 'ogg', mimeType: 'audio/ogg' },
   'application/ogg': { ext: 'ogg', mimeType: 'audio/ogg' },
+  'audio/opus': { ext: 'opus', mimeType: 'audio/ogg' },
   'audio/mp4': { ext: 'm4a', mimeType: 'audio/mp4' },
+  'video/mp4': { ext: 'm4a', mimeType: 'audio/mp4' },
   'audio/x-m4a': { ext: 'm4a', mimeType: 'audio/mp4' },
   'audio/m4a': { ext: 'm4a', mimeType: 'audio/mp4' },
   'audio/aac': { ext: 'aac', mimeType: 'audio/aac' },
+  'audio/aacp': { ext: 'aac', mimeType: 'audio/aac' },
   'audio/webm': { ext: 'webm', mimeType: 'audio/webm' },
+  'video/webm': { ext: 'webm', mimeType: 'audio/webm' },
   'audio/flac': { ext: 'flac', mimeType: 'audio/flac' },
   'audio/x-flac': { ext: 'flac', mimeType: 'audio/flac' },
+  'audio/3gpp': { ext: '3gp', mimeType: 'audio/3gpp' },
+  'audio/3gpp2': { ext: '3gp', mimeType: 'audio/3gpp2' },
+  'audio/amr': { ext: 'amr', mimeType: 'audio/amr' },
 };
 
 const AUDIO_EXT_MIME_MAP: Record<string, { ext: string; mimeType: string }> = {
   mp3: { ext: 'mp3', mimeType: 'audio/mpeg' },
   wav: { ext: 'wav', mimeType: 'audio/wav' },
   ogg: { ext: 'ogg', mimeType: 'audio/ogg' },
+  opus: { ext: 'opus', mimeType: 'audio/ogg' },
   m4a: { ext: 'm4a', mimeType: 'audio/mp4' },
+  mp4: { ext: 'm4a', mimeType: 'audio/mp4' },
   aac: { ext: 'aac', mimeType: 'audio/aac' },
   webm: { ext: 'webm', mimeType: 'audio/webm' },
   flac: { ext: 'flac', mimeType: 'audio/flac' },
+  '3gp': { ext: '3gp', mimeType: 'audio/3gpp' },
+  amr: { ext: 'amr', mimeType: 'audio/amr' },
 };
 
 @Injectable()
